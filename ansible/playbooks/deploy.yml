@@ -1,0 +1,14 @@
+- hosts: teacher
+  become: true
+  roles:
+    - common
+    - docker
+    - role: nvidia_container_toolkit_optional
+      when:
+        - teacher_gpu_enabled | bool
+        - teacher_gpu_vendor == "nvidia"
+    - network_share
+    - teacher_stack
+    - role: reverse_proxy_optional
+      when: teacher_enable_reverse_proxy | bool
+

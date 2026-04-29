@@ -1,0 +1,11 @@
+- hosts: teacher
+  become: true
+  tasks:
+    - name: Stop teacher-agent stack
+      ansible.builtin.command:
+        cmd: >-
+          docker compose --env-file .env
+          -f compose/docker-compose.yml
+          down
+        chdir: "{{ teacher_stack_dir }}"
+

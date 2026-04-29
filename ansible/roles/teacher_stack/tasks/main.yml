@@ -1,0 +1,63 @@
+- name: Build effective compose overlay list
+  ansible.builtin.set_fact:
+    teacher_effective_compose_files: >-
+      {{
+        ['compose/docker-compose.yml']
+        + teacher_compose_overlays
+        + (['compose/docker-compose.nvidia.example.yml'] if teacher_gpu_enabled | bool else [])
+        + (['compose/docker-compose.voice.example.yml'] if teacher_enable_voice | bool else [])
+      }}
+
+- name: Ensure teacher stack directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ teacher_stack_dir }}"
+    - "{{ teacher_data_dir }}"
+    - "{{ teacher_data_dir }}/qdrant"
+    - "{{ teacher_data_dir }}/ollama"
+    - "{{ teacher_data_dir }}/metadata"
+    - "{{ teacher_data_dir }}/logs"
+    - "{{ teacher_data_dir }}/cache"
+    - "{{ teacher_data_dir }}/models"
+
+- name: Copy compose directory
+  ansible.builtin.copy:
+    src: "{{ teacher_repo_local_path }}/compose/"
+    dest: "{{ teacher_stack_dir }}/compose/"
+    mode: preserve
+
+- name: Copy config directory
+  ansible.builtin.copy:
+    src: "{{ teacher_repo_local_path }}/config/"
+    dest: "{{ teacher_stack_dir }}/config/"
+    mode: preserve
+
+- name: Copy services directory
+  ansible.builtin.copy:
+    src: "{{ teacher_repo_local_path }}/services/"
+    dest: "{{ teacher_stack_dir }}/services/"
+    mode: preserve
+
+- name: Template environment file
+  ansible.builtin.template:
+    src: .env.j2
+    dest: "{{ teacher_stack_dir }}/.env"
+    mode: "0600"
+
+- name: Start teacher-agent stack
+  ansible.builtin.command:
+    cmd: >-
+      docker compose --env-file .env
+      {% for item in teacher_effective_compose_files %}-f {{ item }} {% endfor %}
+      up -d --build
+    chdir: "{{ teacher_stack_dir }}"
+  register: teacher_stack_up
+  changed_when: >-
+    'Started' in teacher_stack_up.stdout or
+    'Recreated' in teacher_stack_up.stdout or
+    'Built' in teacher_stack_up.stdout or
+    'Creating' in teacher_stack_up.stdout
+

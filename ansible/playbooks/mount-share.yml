@@ -1,0 +1,5 @@
+- hosts: teacher
+  become: true
+  roles:
+    - network_share
+

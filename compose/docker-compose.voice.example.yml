@@ -1,0 +1,21 @@
+services:
+  voice:
+    build:
+      context: ..
+      dockerfile: services/voice/Dockerfile
+    restart: unless-stopped
+    environment:
+      VOICE_STT_BACKEND: ${VOICE_STT_BACKEND}
+      VOICE_TTS_BACKEND: ${VOICE_TTS_BACKEND}
+    expose:
+      - "8090"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health').read()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  api:
+    environment:
+      VOICE_BASE_URL: http://voice:8090
+

@@ -1,0 +1,11 @@
+- hosts: teacher
+  become: true
+  tasks:
+    - name: Restart teacher-agent stack
+      ansible.builtin.command:
+        cmd: >-
+          docker compose --env-file .env
+          -f compose/docker-compose.yml
+          restart
+        chdir: "{{ teacher_stack_dir }}"
+

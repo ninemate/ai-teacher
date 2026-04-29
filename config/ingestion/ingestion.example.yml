@@ -1,0 +1,20 @@
+scan_extensions:
+  - .pdf
+  - .epub
+  - .txt
+  - .md
+  - .docx
+
+chunking:
+  chunk_size: 1200
+  chunk_overlap: 200
+
+indexing:
+  schedule_seconds: 0
+  remove_missing: true
+  store_chunk_text_locally: true
+
+limits:
+  max_parallel_documents: 1
+  max_parallel_embeddings: 1
+

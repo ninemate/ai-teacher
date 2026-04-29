@@ -1,0 +1,12 @@
+{{ teacher_caddy_domain }} {
+  encode zstd gzip
+
+  {% if teacher_caddy_password_hash %}
+  basicauth {
+    {{ teacher_auth_username }} {{ teacher_caddy_password_hash }}
+  }
+  {% endif %}
+
+  reverse_proxy 127.0.0.1:{{ teacher_http_port }}
+}
+

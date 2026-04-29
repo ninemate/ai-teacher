@@ -1,0 +1,23 @@
+- hosts: teacher
+  become: true
+  tasks:
+    - name: Check API health
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ teacher_http_port }}/health"
+        method: GET
+        return_content: true
+      register: api_health
+
+    - name: Check ingestion health
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ teacher_ingest_port }}/health"
+        method: GET
+        return_content: true
+      register: ingest_health
+
+    - name: Show health summary
+      ansible.builtin.debug:
+        msg:
+          api: "{{ api_health.json }}"
+          ingestion: "{{ ingest_health.json }}"
+

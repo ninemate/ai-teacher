@@ -1,0 +1,18 @@
+- hosts: teacher
+  become: true
+  tasks:
+    - name: Trigger manual reindex
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ teacher_ingest_port }}/ingest/reindex"
+        method: POST
+        body_format: json
+        body:
+          full_reindex: false
+          remove_missing: true
+        return_content: true
+      register: reindex_result
+
+    - name: Show reindex response
+      ansible.builtin.debug:
+        var: reindex_result.json
+

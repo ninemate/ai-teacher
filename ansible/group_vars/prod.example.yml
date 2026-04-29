@@ -1,0 +1,12 @@
+teacher_http_bind: 127.0.0.1
+teacher_gpu_enabled: true
+teacher_enable_voice: false
+teacher_enable_reverse_proxy: false
+teacher_auth_username: father
+teacher_auth_password: change-me-with-vault
+share_type: cifs
+share_server: 192.168.1.10
+share_path: /ebooks
+teacher_share_credentials_username: shareuser
+teacher_share_credentials_password: change-me-with-vault
+

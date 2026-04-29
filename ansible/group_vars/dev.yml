@@ -1,0 +1,6 @@
+teacher_http_bind: 0.0.0.0
+teacher_compose_overlays:
+  - compose/docker-compose.dev.yml
+teacher_auth_username: ""
+teacher_auth_password: ""
+

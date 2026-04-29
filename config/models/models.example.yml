@@ -1,0 +1,14 @@
+runtime:
+  default_runtime: ollama
+  default_chat_model: qwen2.5:7b-instruct-q4_K_M
+  fallback_cpu_model: gemma2:2b
+
+embeddings:
+  default_model: intfloat/multilingual-e5-base
+  device: cpu
+
+notes:
+  - 8 GB VRAM is typically practical for quantized 7B to 8B instruct models.
+  - Use CPU fallback for development and troubleshooting.
+  - Test Hungarian answer quality with your own library before locking the production model.
+

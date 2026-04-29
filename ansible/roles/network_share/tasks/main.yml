@@ -1,0 +1,48 @@
+- name: Install network share packages
+  ansible.builtin.apt:
+    update_cache: true
+    name: "{{ 'cifs-utils' if share_type == 'cifs' else 'nfs-common' }}"
+    state: present
+
+- name: Ensure mount point exists
+  ansible.builtin.file:
+    path: "{{ teacher_mount_point }}"
+    state: directory
+    mode: "0755"
+
+- name: Write SMB credentials file when configured
+  ansible.builtin.copy:
+    dest: "{{ teacher_share_credentials_file }}"
+    mode: "0600"
+    content: |
+      username={{ teacher_share_credentials_username }}
+      password={{ teacher_share_credentials_password }}
+      {% if teacher_share_credentials_domain %}domain={{ teacher_share_credentials_domain }}{% endif %}
+  when:
+    - share_type == "cifs"
+    - teacher_share_credentials_username | length > 0
+  no_log: true
+
+- name: Mount CIFS share
+  ansible.posix.mount:
+    src: "//{{ share_server }}{{ share_path }}"
+    path: "{{ teacher_mount_point }}"
+    fstype: cifs
+    opts: >-
+      {{ (read_only | bool) | ternary('ro', 'rw') }},
+      credentials={{ teacher_share_credentials_file }}
+      {% if mount_options %},{{ mount_options }}{% endif %}
+    state: mounted
+  when: share_type == "cifs"
+
+- name: Mount NFS share
+  ansible.posix.mount:
+    src: "{{ share_server }}:{{ share_path }}"
+    path: "{{ teacher_mount_point }}"
+    fstype: nfs
+    opts: >-
+      {{ (read_only | bool) | ternary('ro', 'rw') }}
+      {% if mount_options %},{{ mount_options }}{% endif %}
+    state: mounted
+  when: share_type == "nfs"
+

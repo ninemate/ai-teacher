@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Teacher Agent</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Self-hosted teacher agent</p>
+        <h1>Magyar tanulósegéd a saját könyvtáradból</h1>
+        <p class="lead">
+          Kérdezz magyarul. A válasz a visszakeresett dokumentumrészletekre támaszkodik, és jelzi a forrásokat is.
+        </p>
+      </section>
+
+      <section class="panel">
+        <label for="level">Magyarázati szint</label>
+        <select id="level">
+          <option value="beginner">Kezdő</option>
+          <option value="intermediate">Középhaladó</option>
+          <option value="advanced">Haladó</option>
+        </select>
+
+        <label for="question">Kérdés</label>
+        <textarea id="question" rows="5" placeholder="Például: Magyarázd el egyszerűen, mi a fotoszintézis."></textarea>
+
+        <div class="actions">
+          <button id="ask-button" type="button">Kérdezés</button>
+          <button id="summary-button" type="button" class="secondary">Összefoglaló</button>
+          <button id="quiz-button" type="button" class="secondary">Mini kvíz</button>
+          <button id="flashcards-button" type="button" class="secondary">Villámkártyák</button>
+        </div>
+      </section>
+
+      <section class="panel output">
+        <h2>Válasz</h2>
+        <div id="answer">Még nincs válasz.</div>
+        <h3>Források</h3>
+        <ul id="sources"></ul>
+      </section>
+    </main>
+
+    <script>
+      const askButton = document.getElementById("ask-button");
+      const summaryButton = document.getElementById("summary-button");
+      const quizButton = document.getElementById("quiz-button");
+      const flashcardsButton = document.getElementById("flashcards-button");
+      const questionField = document.getElementById("question");
+      const levelField = document.getElementById("level");
+      const answerEl = document.getElementById("answer");
+      const sourcesEl = document.getElementById("sources");
+
+      async function runTask(path) {
+        const question = questionField.value.trim();
+        if (!question) {
+          answerEl.textContent = "Adj meg egy kérdést vagy témát.";
+          return;
+        }
+
+        answerEl.textContent = "Válasz készül...";
+        sourcesEl.innerHTML = "";
+
+        const payload =
+          path === "/chat"
+            ? { question, level: levelField.value }
+            : { topic: question, level: levelField.value };
+
+        const response = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          answerEl.textContent = data.detail || "Hiba történt.";
+          return;
+        }
+
+        answerEl.textContent = data.answer;
+        (data.sources || []).forEach((source) => {
+          const li = document.createElement("li");
+          li.textContent = `${source.title || source.source_path} - ${source.locator || "ismeretlen hely"}`;
+          sourcesEl.appendChild(li);
+        });
+      }
+
+      askButton.addEventListener("click", () => runTask("/chat"));
+      summaryButton.addEventListener("click", () => runTask("/summary"));
+      quizButton.addEventListener("click", () => runTask("/quiz"));
+      flashcardsButton.addEventListener("click", () => runTask("/flashcards"));
+    </script>
+  </body>
+</html>
+

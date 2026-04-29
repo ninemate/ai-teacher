@@ -1,0 +1,51 @@
+teacher_repo_local_path: "{{ playbook_dir | dirname | dirname }}"
+
+teacher_mount_point: /mnt/library
+teacher_stack_dir: /opt/teacher-agent
+teacher_data_dir: /srv/teacher-agent
+teacher_http_bind: 127.0.0.1
+teacher_http_port: 8080
+teacher_ingest_port: 8081
+teacher_qdrant_port: 6333
+teacher_ollama_port: 11434
+
+teacher_gpu_enabled: false
+teacher_gpu_vendor: nvidia
+teacher_llm_runtime: ollama
+teacher_llm_model: qwen2.5:7b-instruct-q4_K_M
+teacher_vector_db: qdrant
+teacher_enable_voice: false
+teacher_enable_reverse_proxy: false
+teacher_enable_wireguard: false
+teacher_compose_overlays: []
+
+teacher_embedding_model: intfloat/multilingual-e5-base
+teacher_embedding_device: cpu
+teacher_retrieval_top_k: 6
+teacher_max_context_chars: 18000
+teacher_ingest_schedule_seconds: 0
+teacher_ingest_remove_missing: true
+teacher_ingest_scan_extensions: ".pdf,.epub,.txt,.md,.docx"
+teacher_ingest_chunk_size: 1200
+teacher_ingest_chunk_overlap: 200
+
+teacher_auth_username: ""
+teacher_auth_password: ""
+
+teacher_voice_stt_backend: disabled
+teacher_voice_tts_backend: disabled
+
+share_type: cifs
+share_server: nas.local
+share_path: /library
+mount_options: ""
+read_only: true
+teacher_share_credentials_file: /root/.smb-teacher-agent
+teacher_share_credentials_username: ""
+teacher_share_credentials_password: ""
+teacher_share_credentials_domain: ""
+
+teacher_caddy_domain: teacher.example.internal
+teacher_caddy_email: admin@example.com
+teacher_caddy_password_hash: ""
+

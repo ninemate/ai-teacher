@@ -1,0 +1,107 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.13.6
+    restart: unless-stopped
+    expose:
+      - "6333"
+    volumes:
+      - ${TEACHER_DATA_DIR}/qdrant:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:6333/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:0.6.6
+    restart: unless-stopped
+    expose:
+      - "11434"
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ${TEACHER_DATA_DIR}/ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: services/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_started
+    environment:
+      APP_ROLE: api
+      LIBRARY_PATH: /library
+      METADATA_DB_URL: sqlite:////data/metadata/teacher.db
+      QDRANT_URL: ${QDRANT_URL}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DEVICE: ${EMBEDDING_DEVICE}
+      TEACHER_PROMPT_PATH: /app/config/prompts/teacher_hu.md
+      RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K}
+      MAX_CONTEXT_CHARS: ${MAX_CONTEXT_CHARS}
+      TEACHER_AUTH_USERNAME: ${TEACHER_AUTH_USERNAME}
+      TEACHER_AUTH_PASSWORD: ${TEACHER_AUTH_PASSWORD}
+      INGESTION_BASE_URL: http://ingestion:8081
+      VOICE_BASE_URL: ${VOICE_BASE_URL}
+    ports:
+      - ${TEACHER_HTTP_BIND}:${TEACHER_HTTP_PORT}:8000
+    volumes:
+      - ${TEACHER_MOUNT_POINT}:/library:ro
+      - ${TEACHER_DATA_DIR}/metadata:/data/metadata
+      - ${TEACHER_DATA_DIR}/logs:/data/logs
+      - ../config:/app/config:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  ingestion:
+    build:
+      context: ..
+      dockerfile: services/ingestion/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      qdrant:
+        condition: service_started
+    environment:
+      APP_ROLE: ingestion
+      LIBRARY_PATH: /library
+      METADATA_DB_URL: sqlite:////data/metadata/teacher.db
+      QDRANT_URL: ${QDRANT_URL}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      EMBEDDING_DEVICE: ${EMBEDDING_DEVICE}
+      INGEST_SCHEDULE_SECONDS: ${INGEST_SCHEDULE_SECONDS}
+      INGEST_REMOVE_MISSING: ${INGEST_REMOVE_MISSING}
+      INGEST_SCAN_EXTENSIONS: ${INGEST_SCAN_EXTENSIONS}
+      INGEST_CHUNK_SIZE: ${INGEST_CHUNK_SIZE}
+      INGEST_CHUNK_OVERLAP: ${INGEST_CHUNK_OVERLAP}
+    ports:
+      - ${TEACHER_HTTP_BIND}:${TEACHER_INGEST_PORT}:8081
+    volumes:
+      - ${TEACHER_MOUNT_POINT}:/library:ro
+      - ${TEACHER_DATA_DIR}/metadata:/data/metadata
+      - ${TEACHER_DATA_DIR}/logs:/data/logs
+      - ../config:/app/config:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health').read()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+networks:
+  default:
+    name: ${COMPOSE_PROJECT_NAME}
+
