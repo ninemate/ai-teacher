@@ -4,9 +4,20 @@ services:
       context: ..
       dockerfile: services/voice/Dockerfile
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     environment:
       VOICE_STT_BACKEND: ${VOICE_STT_BACKEND}
       VOICE_TTS_BACKEND: ${VOICE_TTS_BACKEND}
+      VOICE_STT_MODEL: ${VOICE_STT_MODEL}
+      VOICE_STT_DEVICE: ${VOICE_STT_DEVICE}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     expose:
       - "8090"
     healthcheck:

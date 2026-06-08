@@ -30,3 +30,8 @@ def embedding_dimension() -> int:
     model = get_embedding_model()
     return int(model.get_sentence_embedding_dimension())
 
+
+def warmup_embeddings() -> None:
+    model = get_embedding_model()
+    model.encode(["warmup"], normalize_embeddings=True)
+

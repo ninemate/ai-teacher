@@ -32,8 +32,14 @@ teacher_ingest_chunk_overlap: 200
 teacher_auth_username: ""
 teacher_auth_password: ""
 
-teacher_voice_stt_backend: disabled
+teacher_voice_stt_backend: faster-whisper
+teacher_voice_stt_model: base
+teacher_voice_stt_device: auto
 teacher_voice_tts_backend: disabled
+
+teacher_ocr_enabled: true
+teacher_ocr_dpi: 300
+teacher_ocr_language: hun+eng
 
 share_type: cifs
 share_server: nas.local

@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
-from teacher_common.embeddings import embed_query
+from teacher_common.embeddings import embed_query, warmup_embeddings
 from teacher_common.models import DocumentRecord, IngestRun
 from teacher_common.qdrant_store import ensure_collection, search
 
@@ -65,6 +65,22 @@ def startup_event() -> None:
     Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
     ensure_collection()
+    warmup_embeddings()
+    _pull_ollama_model()
+
+
+def _pull_ollama_model() -> None:
+    import httpx
+    try:
+        with httpx.Client(timeout=600.0) as client:
+            resp = client.post(
+                f"{settings.ollama_base_url}/api/pull",
+                json={"name": settings.ollama_model},
+            )
+            resp.raise_for_status()
+    except Exception as exc:
+        import logging
+        logging.getLogger("uvicorn").warning("Ollama model pull failed (will retry on first request): %s", exc)
 
 
 @app.get("/", response_class=HTMLResponse)

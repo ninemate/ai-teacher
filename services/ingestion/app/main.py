@@ -10,7 +10,7 @@ from sqlalchemy import select
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.documents import chunk_segments, hash_file, iter_library_files, parse_document
-from teacher_common.embeddings import embed_passages
+from teacher_common.embeddings import embed_passages, warmup_embeddings
 from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun
 from teacher_common.qdrant_store import (
     build_points,
@@ -37,6 +37,7 @@ def startup_event() -> None:
     Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
     ensure_collection()
+    warmup_embeddings()
     if settings.ingest_schedule_seconds > 0:
         thread = threading.Thread(target=scheduled_loop, daemon=True)
         thread.start()

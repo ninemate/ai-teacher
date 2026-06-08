@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-hun tesseract-ocr-eng
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+          pip install -r services/api/requirements.txt
+          pip install -r services/ingestion/requirements.txt
+
+      - name: Lint with ruff
+        run: ruff check services/
+
+      - name: Type check with mypy
+        run: mypy --ignore-missing-imports services/
+
+  build:
+    runs-on: [self-hosted, linux, x64]
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare env for build
+        run: |
+          cp .env.example .env
+          mkdir -p /tmp/teacher-ci-data /tmp/teacher-ci-library
+          echo "TEACHER_DATA_DIR=/tmp/teacher-ci-data" >> .env
+          echo "TEACHER_MOUNT_POINT=/tmp/teacher-ci-library" >> .env
+
+      - name: Build Docker images
+        run: |
+          docker compose --env-file .env -f compose/docker-compose.yml build --parallel
+
+  deploy:
+    runs-on: [self-hosted, linux, x64]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy with Ansible
+        run: |
+          ansible-playbook -i ansible/inventory/dev.ini ansible/playbooks/deploy.yml
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "false"
+
+      - name: Healthcheck
+        run: |
+          sleep 10
+          curl -fsS http://127.0.0.1:8080/health || exit 1
+          curl -fsS http://127.0.0.1:8081/health || exit 1
