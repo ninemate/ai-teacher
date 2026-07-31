@@ -15,6 +15,7 @@
     mode: "0755"
   loop:
     - "{{ teacher_stack_dir }}"
+    - "{{ teacher_mount_point }}"
     - "{{ teacher_data_dir }}"
     - "{{ teacher_data_dir }}/qdrant"
     - "{{ teacher_data_dir }}/ollama"
@@ -35,11 +36,19 @@
     dest: "{{ teacher_stack_dir }}/config/"
     mode: preserve
 
+- name: Remove __pycache__ from source services
+  ansible.builtin.command:
+    cmd: find "{{ teacher_repo_local_path }}/services" -type d -name __pycache__ -exec rm -rf {} +
+  register: cleanup_result
+  changed_when: false
+  failed_when: false
+
 - name: Copy services directory
   ansible.builtin.copy:
     src: "{{ teacher_repo_local_path }}/services/"
     dest: "{{ teacher_stack_dir }}/services/"
     mode: preserve
+    exclude: ["__pycache__"]
 
 - name: Template environment file
   ansible.builtin.template:

@@ -34,8 +34,11 @@ ansible-playbook -i ansible/inventory/dev.ini ansible/playbooks/deploy.yml
 ## Inventory Strategy
 
 - `dev.ini` is local-machine friendly
+- `selfhosted.ini` targets the self-hosted GitHub Actions runner VM (Ansible runs on the same host it deploys to); the CI deploy job uses this
 - `prod.example.ini` is a template only
 - real production inventory and vault files stay out of git
+
+Group variables live in `ansible/inventory/group_vars/` (next to the inventories). Each inventory adds its hosts to the `teacher` group and then maps a matching child group (`dev`, `selfhosted`, `prod`) so the corresponding `group_vars/<group>.yml` is loaded. Roles live in `ansible/playbooks/roles/` so role resolution works regardless of the working directory.
 
 ## Secrets
 

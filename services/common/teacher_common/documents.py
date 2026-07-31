@@ -1,15 +1,15 @@
 import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List, Optional
 
 import fitz
 from bs4 import BeautifulSoup
 from docx import Document as DocxDocument
 from ebooklib import ITEM_DOCUMENT, epub
-from langdetect import detect
-
+from lingua import Language, LanguageDetectorBuilder
 
 SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".txt", ".md", ".docx"}
 UNSUPPORTED_BUT_KNOWN = {".mobi", ".azw", ".azw3"}
@@ -23,10 +23,10 @@ class TextSegment:
 
 @dataclass
 class ParsedDocument:
-    title: Optional[str]
-    author: Optional[str]
-    language: Optional[str]
-    segments: List[TextSegment]
+    title: str | None
+    author: str | None
+    language: str | None
+    segments: list[TextSegment]
 
 
 def hash_file(path: Path) -> str:
@@ -45,13 +45,30 @@ def normalize_text(text: str) -> str:
     return text.strip()
 
 
-def detect_language(text: str) -> Optional[str]:
+_LINGUA_LANGUAGES = (
+    Language.HUNGARIAN, Language.ENGLISH, Language.GERMAN,
+    Language.FRENCH, Language.ITALIAN, Language.ROMANIAN,
+    Language.SLOVAK, Language.CZECH, Language.POLISH,
+    Language.RUSSIAN, Language.CROATIAN, Language.SERBIAN,
+    Language.TURKISH, Language.SPANISH, Language.DUTCH,
+    Language.SWEDISH, Language.BOKMAL,
+    Language.DANISH, Language.FINNISH,
+)
+
+
+@lru_cache(maxsize=1)
+def _detector():
+    return LanguageDetectorBuilder.from_languages(*_LINGUA_LANGUAGES).with_preloaded_language_models().build()
+
+
+def detect_language(text: str) -> str | None:
     sample = text[:2000].strip()
     if len(sample) < 50:
         return None
     try:
-        return detect(sample)
-    except Exception:
+        lang = _detector().detect_language_of(sample)
+        return lang.iso_code_639_1.name.lower() if lang else None
+    except Exception:  # noqa: BLE001 - best-effort detection, must never break ingestion
         return None
 
 
@@ -72,14 +89,39 @@ def parse_document(path: Path) -> ParsedDocument:
     raise ValueError(f"Unsupported file type: {suffix}")
 
 
+def _ocr_page(pixmap: fitz.Pixmap, lang: str) -> str:
+    import pytesseract
+    from PIL import Image
+
+    if pixmap.n != 3:
+        pix = fitz.Pixmap(fitz.csRGB, pixmap)
+    else:
+        pix = pixmap
+    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    result = pytesseract.image_to_string(img, lang=lang)
+    if pix is not pixmap:
+        del pix
+    return normalize_text(result)
+
+
 def parse_pdf(path: Path) -> ParsedDocument:
-    segments: List[TextSegment] = []
+    from teacher_common.config import get_settings
+    cfg = get_settings()
+    segments: list[TextSegment] = []
     with fitz.open(path) as pdf:
         metadata = pdf.metadata or {}
         for index, page in enumerate(pdf, start=1):
             text = normalize_text(page.get_text("text"))
+            is_ocr = False
+            if (not text or len(text.strip()) < 50) and cfg.ocr_enabled:
+                pix = page.get_pixmap(dpi=cfg.ocr_dpi)
+                ocr_text = _ocr_page(pix, cfg.ocr_language)
+                if ocr_text:
+                    is_ocr = True
+                    text = ocr_text
             if text:
-                segments.append(TextSegment(text=text, locator=f"oldal {index}"))
+                locator = f"oldal {index} (OCR)" if is_ocr else f"oldal {index}"
+                segments.append(TextSegment(text=text, locator=locator))
     combined = "\n\n".join(segment.text for segment in segments)
     return ParsedDocument(
         title=metadata.get("title") or path.stem,
@@ -91,7 +133,7 @@ def parse_pdf(path: Path) -> ParsedDocument:
 
 def parse_epub(path: Path) -> ParsedDocument:
     book = epub.read_epub(str(path))
-    segments: List[TextSegment] = []
+    segments: list[TextSegment] = []
     title = _first_metadata(book, "DC", "title") or path.stem
     author = _first_metadata(book, "DC", "creator")
     for item in book.get_items_of_type(ITEM_DOCUMENT):
@@ -120,7 +162,7 @@ def parse_plaintext(path: Path) -> ParsedDocument:
 
 
 def parse_docx(path: Path) -> ParsedDocument:
-    doc = DocxDocument(path)
+    doc = DocxDocument(str(path))
     parts = [paragraph.text.strip() for paragraph in doc.paragraphs if paragraph.text.strip()]
     text = normalize_text("\n\n".join(parts))
     return ParsedDocument(
@@ -131,8 +173,8 @@ def parse_docx(path: Path) -> ParsedDocument:
     )
 
 
-def chunk_segments(segments: Iterable[TextSegment], chunk_size: int, chunk_overlap: int) -> List[TextSegment]:
-    chunks: List[TextSegment] = []
+def chunk_segments(segments: Iterable[TextSegment], chunk_size: int, chunk_overlap: int) -> list[TextSegment]:
+    chunks: list[TextSegment] = []
     for segment in segments:
         text = normalize_text(segment.text)
         if not text:
@@ -160,7 +202,7 @@ def iter_library_files(root: Path, extensions: Iterable[str]) -> Iterable[Path]:
             yield path
 
 
-def _first_metadata(book, namespace: str, key: str) -> Optional[str]:
+def _first_metadata(book, namespace: str, key: str) -> str | None:
     values = book.get_metadata(namespace, key)
     if not values:
         return None

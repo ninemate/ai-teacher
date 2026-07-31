@@ -34,9 +34,9 @@ services:
     restart: unless-stopped
     depends_on:
       qdrant:
-        condition: service_started
+        condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
     environment:
       APP_ROLE: api
       LIBRARY_PATH: /library
@@ -54,6 +54,9 @@ services:
       TEACHER_AUTH_PASSWORD: ${TEACHER_AUTH_PASSWORD}
       INGESTION_BASE_URL: http://ingestion:8081
       VOICE_BASE_URL: ${VOICE_BASE_URL}
+      OCR_ENABLED: ${OCR_ENABLED}
+      OCR_DPI: ${OCR_DPI}
+      OCR_LANGUAGE: ${OCR_LANGUAGE}
     ports:
       - ${TEACHER_HTTP_BIND}:${TEACHER_HTTP_PORT}:8000
     volumes:
@@ -74,7 +77,7 @@ services:
     restart: unless-stopped
     depends_on:
       qdrant:
-        condition: service_started
+        condition: service_healthy
     environment:
       APP_ROLE: ingestion
       LIBRARY_PATH: /library
@@ -88,8 +91,11 @@ services:
       INGEST_SCAN_EXTENSIONS: ${INGEST_SCAN_EXTENSIONS}
       INGEST_CHUNK_SIZE: ${INGEST_CHUNK_SIZE}
       INGEST_CHUNK_OVERLAP: ${INGEST_CHUNK_OVERLAP}
+      OCR_ENABLED: ${OCR_ENABLED}
+      OCR_DPI: ${OCR_DPI}
+      OCR_LANGUAGE: ${OCR_LANGUAGE}
     ports:
-      - ${TEACHER_HTTP_BIND}:${TEACHER_INGEST_PORT}:8081
+      - 127.0.0.1:${TEACHER_INGEST_PORT}:8081
     volumes:
       - ${TEACHER_MOUNT_POINT}:/library:ro
       - ${TEACHER_DATA_DIR}/metadata:/data/metadata

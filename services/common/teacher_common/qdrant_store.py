@@ -1,4 +1,4 @@
-from typing import Iterable, List, Sequence
+from collections.abc import Iterable, Sequence
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -13,7 +13,6 @@ from qdrant_client.models import (
 
 from teacher_common.config import get_settings
 from teacher_common.embeddings import embedding_dimension
-
 
 settings = get_settings()
 
@@ -68,7 +67,7 @@ def delete_points_for_source(source_path: str) -> None:
     )
 
 
-def search(query_vector: List[float], limit: int):
+def search(query_vector: list[float], limit: int):
     client = get_client()
     return client.search(
         collection_name=settings.qdrant_collection,
@@ -84,8 +83,8 @@ def build_points(
     author: str | None,
     language: str | None,
     chunk_rows: Iterable[dict],
-) -> List[PointStruct]:
-    points: List[PointStruct] = []
+) -> list[PointStruct]:
+    points: list[PointStruct] = []
     for row in chunk_rows:
         points.append(
             PointStruct(
