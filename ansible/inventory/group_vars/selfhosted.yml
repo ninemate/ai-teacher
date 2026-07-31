@@ -1,5 +1,9 @@
 teacher_http_bind: 0.0.0.0
 
+# / (11G) and /var (3.6G) are too small for models+vectors; use /home (66G free).
+teacher_data_dir: /home/teacher-agent/data
+teacher_stack_dir: /opt/teacher-agent
+
 teacher_gpu_enabled: true
 teacher_gpu_vendor: nvidia
 teacher_embedding_device: cuda:0
