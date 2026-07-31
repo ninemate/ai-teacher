@@ -27,7 +27,7 @@ from teacher_common.qdrant_store import (
 settings = get_settings()
 app = FastAPI(title="teacher-agent-ingestion", version="0.1.0")
 index_lock = threading.Lock()
-current_state = {"running": False, "current_file": None}
+current_state: dict[str, bool | str | None] = {"running": False, "current_file": None}
 
 
 class ReindexRequest(BaseModel):
