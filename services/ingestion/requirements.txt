@@ -1,5 +1,5 @@
 beautifulsoup4==4.12.3
-ebooklib==0.18
+ebooklib==0.20
 fastapi==0.115.12
 lingua-language-detector==2.2.0
 PyMuPDF==1.25.5

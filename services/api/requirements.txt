@@ -1,5 +1,5 @@
 beautifulsoup4==4.12.3
-ebooklib==0.18
+ebooklib==0.20
 fastapi==0.115.12
 httpx==0.28.1
 jinja2==3.1.6
