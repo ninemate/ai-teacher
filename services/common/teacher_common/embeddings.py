@@ -27,7 +27,10 @@ def embed_query(text: str) -> list[float]:
 
 def embedding_dimension() -> int:
     model = get_embedding_model()
-    return int(model.get_sentence_embedding_dimension())
+    dim = model.get_sentence_embedding_dimension()
+    if dim is None:
+        raise RuntimeError("Embedding model does not expose a sentence dimension")
+    return int(dim)
 
 
 def warmup_embeddings() -> None:

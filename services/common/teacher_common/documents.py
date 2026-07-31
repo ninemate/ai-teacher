@@ -51,7 +51,7 @@ _LINGUA_LANGUAGES = (
     Language.SLOVAK, Language.CZECH, Language.POLISH,
     Language.RUSSIAN, Language.CROATIAN, Language.SERBIAN,
     Language.TURKISH, Language.SPANISH, Language.DUTCH,
-    Language.SWEDISH, Language.NORWEGIAN_BOKMAL,
+    Language.SWEDISH, Language.BOKMAL,
     Language.DANISH, Language.FINNISH,
 )
 
@@ -97,7 +97,7 @@ def _ocr_page(pixmap: fitz.Pixmap, lang: str) -> str:
         pix = fitz.Pixmap(fitz.csRGB, pixmap)
     else:
         pix = pixmap
-    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
     result = pytesseract.image_to_string(img, lang=lang)
     if pix is not pixmap:
         del pix
@@ -162,7 +162,7 @@ def parse_plaintext(path: Path) -> ParsedDocument:
 
 
 def parse_docx(path: Path) -> ParsedDocument:
-    doc = DocxDocument(path)
+    doc = DocxDocument(str(path))
     parts = [paragraph.text.strip() for paragraph in doc.paragraphs if paragraph.text.strip()]
     text = normalize_text("\n\n".join(parts))
     return ParsedDocument(
