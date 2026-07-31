@@ -17,7 +17,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-hun tesseract-ocr-eng
 
       - name: Set up Python
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: "3.11"
 
