@@ -48,7 +48,6 @@
     src: "{{ teacher_repo_local_path }}/services/"
     dest: "{{ teacher_stack_dir }}/services/"
     mode: preserve
-    exclude: ["__pycache__"]
 
 - name: Template environment file
   ansible.builtin.template:
