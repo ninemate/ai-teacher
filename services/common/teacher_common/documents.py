@@ -1,16 +1,15 @@
 import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List, Optional
 
 import fitz
 from bs4 import BeautifulSoup
 from docx import Document as DocxDocument
 from ebooklib import ITEM_DOCUMENT, epub
 from lingua import Language, LanguageDetectorBuilder
-
 
 SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".txt", ".md", ".docx"}
 UNSUPPORTED_BUT_KNOWN = {".mobi", ".azw", ".azw3"}
@@ -24,10 +23,10 @@ class TextSegment:
 
 @dataclass
 class ParsedDocument:
-    title: Optional[str]
-    author: Optional[str]
-    language: Optional[str]
-    segments: List[TextSegment]
+    title: str | None
+    author: str | None
+    language: str | None
+    segments: list[TextSegment]
 
 
 def hash_file(path: Path) -> str:
@@ -62,14 +61,14 @@ def _detector():
     return LanguageDetectorBuilder.from_languages(*_LINGUA_LANGUAGES).with_preloaded_language_models().build()
 
 
-def detect_language(text: str) -> Optional[str]:
+def detect_language(text: str) -> str | None:
     sample = text[:2000].strip()
     if len(sample) < 50:
         return None
     try:
         lang = _detector().detect_language_of(sample)
         return lang.iso_code_639_1.name.lower() if lang else None
-    except Exception:
+    except Exception:  # noqa: BLE001 - best-effort detection, must never break ingestion
         return None
 
 
@@ -91,8 +90,8 @@ def parse_document(path: Path) -> ParsedDocument:
 
 
 def _ocr_page(pixmap: fitz.Pixmap, lang: str) -> str:
-    from PIL import Image
     import pytesseract
+    from PIL import Image
 
     if pixmap.n != 3:
         pix = fitz.Pixmap(fitz.csRGB, pixmap)
@@ -108,7 +107,7 @@ def _ocr_page(pixmap: fitz.Pixmap, lang: str) -> str:
 def parse_pdf(path: Path) -> ParsedDocument:
     from teacher_common.config import get_settings
     cfg = get_settings()
-    segments: List[TextSegment] = []
+    segments: list[TextSegment] = []
     with fitz.open(path) as pdf:
         metadata = pdf.metadata or {}
         for index, page in enumerate(pdf, start=1):
@@ -134,7 +133,7 @@ def parse_pdf(path: Path) -> ParsedDocument:
 
 def parse_epub(path: Path) -> ParsedDocument:
     book = epub.read_epub(str(path))
-    segments: List[TextSegment] = []
+    segments: list[TextSegment] = []
     title = _first_metadata(book, "DC", "title") or path.stem
     author = _first_metadata(book, "DC", "creator")
     for item in book.get_items_of_type(ITEM_DOCUMENT):
@@ -174,8 +173,8 @@ def parse_docx(path: Path) -> ParsedDocument:
     )
 
 
-def chunk_segments(segments: Iterable[TextSegment], chunk_size: int, chunk_overlap: int) -> List[TextSegment]:
-    chunks: List[TextSegment] = []
+def chunk_segments(segments: Iterable[TextSegment], chunk_size: int, chunk_overlap: int) -> list[TextSegment]:
+    chunks: list[TextSegment] = []
     for segment in segments:
         text = normalize_text(segment.text)
         if not text:
@@ -203,7 +202,7 @@ def iter_library_files(root: Path, extensions: Iterable[str]) -> Iterable[Path]:
             yield path
 
 
-def _first_metadata(book, namespace: str, key: str) -> Optional[str]:
+def _first_metadata(book, namespace: str, key: str) -> str | None:
     values = book.get_metadata(namespace, key)
     if not values:
         return None

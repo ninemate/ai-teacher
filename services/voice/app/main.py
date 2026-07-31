@@ -4,7 +4,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
-
 from stt import transcribe
 
 logger = logging.getLogger("uvicorn")
@@ -48,8 +47,8 @@ async def transcribe_audio(audio: UploadFile = File(...)):
     try:
         text = transcribe(Path(tmp_path), WHISPER_MODEL, WHISPER_DEVICE)
         return {"text": text, "model": WHISPER_MODEL}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 - any transcription failure is a 500
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 

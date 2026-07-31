@@ -1,6 +1,6 @@
 import secrets
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
@@ -10,13 +10,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.embeddings import embed_query, warmup_embeddings
 from teacher_common.models import DocumentRecord, IngestRun
 from teacher_common.qdrant_store import ensure_collection, search
-
 
 settings = get_settings()
 security = HTTPBasic(auto_error=False)
@@ -28,7 +26,7 @@ templates = Jinja2Templates(directory="/app/templates")
 class ChatRequest(BaseModel):
     question: str = Field(min_length=3)
     level: Literal["beginner", "intermediate", "advanced"] = "beginner"
-    top_k: Optional[int] = None
+    top_k: int | None = None
 
 
 class TaskRequest(BaseModel):
@@ -78,7 +76,7 @@ def _pull_ollama_model() -> None:
                 json={"name": settings.ollama_model},
             )
             resp.raise_for_status()
-    except Exception as exc:
+    except httpx.HTTPError as exc:
         import logging
         logging.getLogger("uvicorn").warning("Ollama model pull failed (will retry on first request): %s", exc)
 

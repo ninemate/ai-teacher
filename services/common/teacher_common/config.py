@@ -1,5 +1,4 @@
 from functools import lru_cache
-from typing import List
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -62,7 +61,7 @@ class Settings(BaseSettings):
     ocr_language: str = Field(default="hun+eng", alias="OCR_LANGUAGE")
 
     @property
-    def scan_extensions(self) -> List[str]:
+    def scan_extensions(self) -> list[str]:
         return [item.strip().lower() for item in self.ingest_scan_extensions.split(",") if item.strip()]
 
     @property

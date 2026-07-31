@@ -1,15 +1,19 @@
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
-
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
-from teacher_common.documents import chunk_segments, hash_file, iter_library_files, parse_document
+from teacher_common.documents import (
+    chunk_segments,
+    hash_file,
+    iter_library_files,
+    parse_document,
+)
 from teacher_common.embeddings import embed_passages, warmup_embeddings
 from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun
 from teacher_common.qdrant_store import (
@@ -19,7 +23,6 @@ from teacher_common.qdrant_store import (
     recreate_collection,
     upsert_points,
 )
-
 
 settings = get_settings()
 app = FastAPI(title="teacher-agent-ingestion", version="0.1.0")
@@ -137,7 +140,7 @@ def run_indexing(full_reindex: bool, remove_missing: bool) -> None:
                     indexed += 1
                 elif outcome == "skipped":
                     skipped += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one broken file must not abort the run
                 failed += 1
                 store_error_record(file_path, str(exc))
 
@@ -154,7 +157,7 @@ def run_indexing(full_reindex: bool, remove_missing: bool) -> None:
             failed=failed,
             deleted=deleted,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - ensure the run is marked failed and re-raised
         if run_id is not None:
             update_run(
                 run_id=run_id,
@@ -194,7 +197,7 @@ def index_one_document(file_path: Path, full_reindex: bool) -> str:
 
     vectors = embed_passages(chunk.text for chunk in chunks)
     chunk_rows = []
-    for index, (chunk, vector) in enumerate(zip(chunks, vectors), start=1):
+    for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=False), start=1):
         chunk_id = f"{file_hash}:{index}"
         point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, chunk_id))
         chunk_rows.append(
@@ -253,7 +256,7 @@ def index_one_document(file_path: Path, full_reindex: bool) -> str:
             existing.chunk_count = len(chunk_rows)
             existing.deleted = False
             existing.error_message = None
-            existing.last_indexed_at = datetime.now(timezone.utc)
+            existing.last_indexed_at = datetime.now(UTC)
 
         session.flush()
         for row in chunk_rows:
@@ -281,7 +284,7 @@ def remove_deleted_documents(seen_paths: set[str]) -> int:
                 delete_points_for_source(row.source_path)
                 row.deleted = True
                 row.status = "deleted"
-                row.last_indexed_at = datetime.now(timezone.utc)
+                row.last_indexed_at = datetime.now(UTC)
                 deleted += 1
     return deleted
 
@@ -326,5 +329,5 @@ def update_run(run_id: int, status: str, message: str, scanned: int = 0, indexed
         run.skipped = skipped
         run.failed = failed
         run.deleted = deleted
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
 

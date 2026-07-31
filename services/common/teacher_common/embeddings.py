@@ -1,10 +1,9 @@
+from collections.abc import Iterable
 from functools import lru_cache
-from typing import Iterable, List
 
 from sentence_transformers import SentenceTransformer
 
 from teacher_common.config import get_settings
-
 
 settings = get_settings()
 
@@ -14,13 +13,13 @@ def get_embedding_model() -> SentenceTransformer:
     return SentenceTransformer(settings.embedding_model, device=settings.embedding_device)
 
 
-def embed_passages(texts: Iterable[str]) -> List[List[float]]:
+def embed_passages(texts: Iterable[str]) -> list[list[float]]:
     model = get_embedding_model()
     inputs = [f"passage: {text}" for text in texts]
     return model.encode(inputs, normalize_embeddings=True).tolist()
 
 
-def embed_query(text: str) -> List[float]:
+def embed_query(text: str) -> list[float]:
     model = get_embedding_model()
     result = model.encode([f"query: {text}"], normalize_embeddings=True)
     return result[0].tolist()

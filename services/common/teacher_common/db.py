@@ -5,7 +5,6 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 from teacher_common.config import get_settings
 
-
 Base = declarative_base()
 
 settings = get_settings()
