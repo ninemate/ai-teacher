@@ -13,6 +13,11 @@
   args:
     creates: /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 
+- name: Fix NVIDIA Container Toolkit keyring permissions
+  ansible.builtin.file:
+    path: /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    mode: "0644"
+
 - name: Add NVIDIA Container Toolkit repository
   ansible.builtin.shell: |
     curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
