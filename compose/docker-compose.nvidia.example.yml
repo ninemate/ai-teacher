@@ -22,7 +22,6 @@ services:
               count: 1
               capabilities: [gpu]
     environment:
-      EMBEDDING_DEVICE: cuda:1
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
 
@@ -35,7 +34,6 @@ services:
               count: 1
               capabilities: [gpu]
     environment:
-      EMBEDDING_DEVICE: cuda:1
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
 

@@ -7,7 +7,8 @@
       when:
         - teacher_gpu_enabled | bool
         - teacher_gpu_vendor == "nvidia"
-    - network_share
+    - role: network_share
+      when: teacher_share_enabled | bool
     - teacher_stack
     - role: reverse_proxy_optional
       when: teacher_enable_reverse_proxy | bool

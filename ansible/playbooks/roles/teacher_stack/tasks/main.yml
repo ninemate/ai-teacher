@@ -15,6 +15,7 @@
     mode: "0755"
   loop:
     - "{{ teacher_stack_dir }}"
+    - "{{ teacher_mount_point }}"
     - "{{ teacher_data_dir }}"
     - "{{ teacher_data_dir }}/qdrant"
     - "{{ teacher_data_dir }}/ollama"

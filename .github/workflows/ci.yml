@@ -58,11 +58,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Ansible collections
+        run: ansible-galaxy collection install -r ansible/requirements.yml
+
       - name: Deploy with Ansible
         run: |
-          ansible-playbook -i ansible/inventory/dev.ini ansible/playbooks/deploy.yml
+          umask 077
+          VARS_FILE=$(mktemp)
+          trap 'rm -f "$VARS_FILE"' EXIT
+          printf 'teacher_auth_username: "%s"\nteacher_auth_password: "%s"\n' \
+            "$TEACHER_AUTH_USERNAME" "$TEACHER_AUTH_PASSWORD" > "$VARS_FILE"
+          ansible-playbook -i ansible/inventory/selfhosted.ini ansible/playbooks/deploy.yml \
+            --extra-vars "@$VARS_FILE"
         env:
           ANSIBLE_HOST_KEY_CHECKING: "false"
+          TEACHER_AUTH_USERNAME: ${{ secrets.TEACHER_AUTH_USERNAME }}
+          TEACHER_AUTH_PASSWORD: ${{ secrets.TEACHER_AUTH_PASSWORD }}
 
       - name: Healthcheck
         run: |

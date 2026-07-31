@@ -1,0 +1,12 @@
+teacher_http_bind: 0.0.0.0
+
+teacher_gpu_enabled: true
+teacher_gpu_vendor: nvidia
+teacher_embedding_device: cuda:0
+
+# NAS share is not ready yet; mount a local empty dir instead.
+teacher_share_enabled: false
+
+# Auth credentials are injected from GitHub Secrets at deploy time.
+teacher_auth_username: ""
+teacher_auth_password: ""

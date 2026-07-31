@@ -41,6 +41,7 @@ teacher_ocr_enabled: true
 teacher_ocr_dpi: 300
 teacher_ocr_language: hun+eng
 
+teacher_share_enabled: true
 share_type: cifs
 share_server: nas.local
 share_path: /library
