@@ -31,11 +31,11 @@ jobs:
       - name: Lint with ruff
         run: uv run ruff check services/
 
-      - name: Run tests
-        run: uv run pytest tests -q
-
       - name: Type check with mypy
         run: uv run mypy --ignore-missing-imports services/
+
+      - name: Run tests
+        run: uv run pytest
 
   build:
     runs-on: [self-hosted, linux, x64]
