@@ -15,7 +15,7 @@ from teacher_common.documents import (
     parse_document,
 )
 from teacher_common.embeddings import embed_passages, warmup_embeddings
-from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun
+from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun, OcrRecord
 from teacher_common.ocr import record_ocr
 from teacher_common.qdrant_store import (
     build_points,
@@ -184,6 +184,7 @@ def index_one_document(file_path: Path, full_reindex: bool) -> str:
             and existing.modified_timestamp == int(stat.st_mtime)
             and not existing.deleted
             and not _should_retry_failed(existing)
+            and not _ocr_settings_changed(session, file_path)
         ):
             return "skipped"
 
@@ -195,6 +196,9 @@ def index_one_document(file_path: Path, full_reindex: bool) -> str:
         chunk_overlap=settings.ingest_chunk_overlap,
     )
     if not chunks:
+        if parsed.ocr is not None:
+            with session_scope() as session:
+                record_ocr(session, str(file_path), file_hash, parsed.ocr, settings)
         raise ValueError("No extractable text found")
 
     vectors = embed_passages(chunk.text for chunk in chunks)
@@ -280,6 +284,14 @@ def index_one_document(file_path: Path, full_reindex: bool) -> str:
 def _should_retry_failed(existing: DocumentRecord) -> bool:
     """Failed scanned PDFs are retried (the OCR cache makes that cheap); other failures stay skipped."""
     return existing.status == "failed" and existing.file_type == "pdf" and settings.ocr_enabled
+
+
+def _ocr_settings_changed(session, file_path: Path) -> bool:
+    """A PDF OCR'd with another language or DPI is re-processed (cache is keyed by both, so only that part reruns)."""
+    if not settings.ocr_enabled:
+        return False
+    row = session.execute(select(OcrRecord).where(OcrRecord.source_path == str(file_path))).scalars().first()
+    return row is not None and (row.language, row.dpi) != (settings.ocr_language, settings.ocr_dpi)
 
 
 def remove_deleted_documents(seen_paths: set[str]) -> int:

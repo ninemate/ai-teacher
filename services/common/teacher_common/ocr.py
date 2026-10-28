@@ -103,11 +103,13 @@ class PdfOcr:
         self.report = OcrReport()
         self._deadline = time.monotonic() + cfg.ocr_timeout_seconds if cfg.ocr_timeout_seconds > 0 else None
         self._stopped = False
+        self._attempted = 0
 
     def read_page(self, page: fitz.Page, page_number: int) -> str:
         """OCR text for a page, or "" when it is cached-empty, over budget or failed."""
         report = self.report
         if page_number in self.cache.pages:
+            self._attempted += 1
             text = self.cache.pages[page_number]
             if text:
                 report.pages_cached += 1
@@ -117,7 +119,7 @@ class PdfOcr:
         if self._stopped:
             report.pages_pending += 1
             return ""
-        if self.cfg.ocr_max_pages > 0 and report.pages_ocr >= self.cfg.ocr_max_pages:
+        if self.cfg.ocr_max_pages > 0 and self._attempted >= self.cfg.ocr_max_pages:
             self._stop("partial", f"OCR page limit of {self.cfg.ocr_max_pages} reached")
             report.pages_pending += 1
             return ""
@@ -126,6 +128,7 @@ class PdfOcr:
             self._stop("partial", f"OCR time limit of {self.cfg.ocr_timeout_seconds}s reached")
             report.pages_pending += 1
             return ""
+        self._attempted += 1
         try:
             text = self._recognise(page, remaining)
         except OcrTimeoutError:

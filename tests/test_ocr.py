@@ -145,6 +145,15 @@ def test_timeout_stops_ocr_but_keeps_finished_pages(tmp_path, monkeypatch):
     assert calls[0] <= 60
 
 
+def test_max_pages_counts_blank_pages(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(ocr, "ocr_image", lambda i, lang, t: calls.append(1) or "")
+    pdf = make_pdf(tmp_path / "blank.pdf", [None] * 5)
+    parsed = documents.parse_pdf(pdf, cfg=make_cfg(tmp_path, ocr_max_pages=2))
+    assert len(calls) == 2
+    assert parsed.ocr.pages_pending == 3
+
+
 def test_page_failure_does_not_lose_other_pages(tmp_path, monkeypatch):
     calls = []
 
@@ -196,3 +205,27 @@ def test_pytesseract_timeout_is_translated(monkeypatch):
     monkeypatch.setattr(pytesseract, "image_to_string", boom)
     with pytest.raises(ocr.OcrTimeoutError):
         ocr.ocr_image(object(), "eng", 5)
+
+
+def _tesseract_has(lang: str) -> bool:
+    try:
+        import pytesseract
+
+        return lang in pytesseract.get_languages()
+    except Exception:  # noqa: BLE001 - any failure means the engine is not usable here
+        return False
+
+
+@pytest.mark.skipif(not (_tesseract_has("hun") and _tesseract_has("eng")), reason="tesseract hun+eng not installed")
+def test_real_tesseract_reads_hungarian_scan(tmp_path):
+    src = fitz.open()
+    page = src.new_page()
+    page.insert_textbox(fitz.Rect(40, 40, 550, 300), "Árvíztűrő tükörfúrógép és egészséges magyar szöveg", fontsize=24)
+    scan = fitz.open()
+    sp = scan.new_page()
+    sp.insert_image(sp.rect, pixmap=page.get_pixmap(dpi=150))
+    pdf = tmp_path / "scan.pdf"
+    scan.save(pdf)
+    parsed = documents.parse_pdf(pdf, cfg=make_cfg(tmp_path, ocr_dpi=200))
+    assert parsed.ocr.status == "complete"
+    assert "magyar" in parsed.segments[0].text.lower()
