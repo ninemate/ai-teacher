@@ -76,7 +76,8 @@ Behaviour:
   file reuses the cached page text instead of running Tesseract again. Changing language or DPI re-OCRs.
 - **SQLite record.** The `ocr_documents` table records, per document, the OCR language, DPI, pages OCR'd,
   pages left pending and a status: `complete`, `partial` (time/page limit hit or a page failed) or
-  `unavailable` (Tesseract missing).
+  `unavailable` (Tesseract missing) or `disabled` (indexed with OCR off while it had scanned pages;
+  re-enabling OCR re-processes it on the next run). PDFs indexed before OCR tracking existed need one full reindex.
 - **Limits.** When the time or page limit is hit, the pages finished so far are indexed and cached and the
   rest are left pending (`partial`). Raise the limit and run a full reindex to finish; cached pages are not repeated.
 - **Failures stay local.** A broken page or file never aborts the run. A scanned PDF that failed outright is

@@ -287,11 +287,13 @@ def _should_retry_failed(existing: DocumentRecord) -> bool:
 
 
 def _ocr_settings_changed(session, file_path: Path) -> bool:
-    """A PDF OCR'd with another language or DPI is re-processed (cache is keyed by both, so only that part reruns)."""
+    """A PDF OCR'd with another language or DPI, or indexed while OCR was off, is re-processed (cache is keyed by both, so only that part reruns)."""
     if not settings.ocr_enabled:
         return False
     row = session.execute(select(OcrRecord).where(OcrRecord.source_path == str(file_path))).scalars().first()
-    return row is not None and (row.language, row.dpi) != (settings.ocr_language, settings.ocr_dpi)
+    if row is None:
+        return False
+    return row.status == "disabled" or (row.language, row.dpi) != (settings.ocr_language, settings.ocr_dpi)
 
 
 def remove_deleted_documents(seen_paths: set[str]) -> int:

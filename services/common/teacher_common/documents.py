@@ -99,12 +99,15 @@ def parse_pdf(path: Path, file_hash: str | None = None, cfg=None) -> ParsedDocum
     cfg = cfg or get_settings()
     segments: list[TextSegment] = []
     ocr: PdfOcr | None = None
+    skipped_scanned = 0
     with fitz.open(path) as pdf:
         metadata = pdf.metadata or {}
         total_pages = len(pdf)
         for index, page in enumerate(pdf, start=1):
             text = normalize_text(page.get_text("text"))
             is_ocr = False
+            if not cfg.ocr_enabled and needs_ocr(text, cfg.ocr_min_chars):
+                skipped_scanned += 1
             if cfg.ocr_enabled and needs_ocr(text, cfg.ocr_min_chars):
                 if ocr is None:
                     ocr = PdfOcr(cfg, file_hash or hash_file(path))
@@ -119,6 +122,13 @@ def parse_pdf(path: Path, file_hash: str | None = None, cfg=None) -> ParsedDocum
     if ocr is not None:
         report = ocr.finish()
         report.pages_total = total_pages
+    elif skipped_scanned:
+        report = OcrReport(
+            pages_total=total_pages,
+            pages_pending=skipped_scanned,
+            status="disabled",
+            message="OCR disabled; scanned pages not indexed",
+        )
     combined = "\n\n".join(segment.text for segment in segments)
     return ParsedDocument(
         title=metadata.get("title") or path.stem,

@@ -87,6 +87,12 @@ def test_ocr_disabled_skips_scanned_pages(tmp_path, fake_engine):
     parsed = documents.parse_pdf(pdf, cfg=make_cfg(tmp_path, ocr_enabled=False))
     assert fake_engine == []
     assert parsed.segments == []
+    assert parsed.ocr.status == "disabled"
+    assert parsed.ocr.pages_pending == 1
+
+
+def test_ocr_disabled_text_pdf_has_no_report(tmp_path):
+    parsed = documents.parse_pdf(make_pdf(tmp_path / "t.pdf", [TEXT]), cfg=make_cfg(tmp_path, ocr_enabled=False))
     assert parsed.ocr is None
 
 
