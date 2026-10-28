@@ -235,3 +235,60 @@ def test_real_tesseract_reads_hungarian_scan(tmp_path):
     parsed = documents.parse_pdf(pdf, cfg=make_cfg(tmp_path, ocr_dpi=200))
     assert parsed.ocr.status == "complete"
     assert "magyar" in parsed.segments[0].text.lower()
+
+
+@pytest.fixture
+def ingestion(tmp_path, monkeypatch):
+    """The ingestion module with a temp SQLite DB and the vector store/embedder stubbed out."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("qdrant_client")
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "services" / "ingestion"))
+    try:
+        from app import main
+    except ImportError as exc:  # heavy optional deps (embeddings) missing
+        pytest.skip(f"ingestion app not importable: {exc}")
+    from teacher_common import db
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'meta.db'}")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=engine, autoflush=False, autocommit=False))
+    monkeypatch.setattr(main, "settings", make_cfg(tmp_path, ingest_chunk_size=500, ingest_chunk_overlap=50))
+    monkeypatch.setattr("teacher_common.config.get_settings", lambda: main.settings)
+    monkeypatch.setattr(main, "embed_passages", lambda texts: [[0.0] for _ in texts])
+    monkeypatch.setattr(main, "delete_points_for_source", lambda p: None)
+    monkeypatch.setattr(main, "build_points", lambda **kw: [])
+    monkeypatch.setattr(main, "upsert_points", lambda pts: None)
+    monkeypatch.setattr(ocr, "ocr_image", lambda i, lang, t: "Szkennelt oldal szövege, elég hosszú ahhoz, hogy darab legyen.")
+    return SimpleNamespace(main=main, engine=engine, cfg=main.settings)
+
+
+def _ocr_row(engine, path):
+    with sessionmaker(bind=engine)() as session:
+        return session.execute(select(OcrRecord).where(OcrRecord.source_path == str(path))).scalars().first()
+
+
+def test_ingestion_retries_disabled_pdf_once_ocr_enabled(tmp_path, ingestion):
+    pdf = make_pdf(tmp_path / "mixed.pdf", [TEXT, None])
+    ingestion.cfg.ocr_enabled = False
+    assert ingestion.main.index_one_document(pdf, False) == "indexed"
+    assert _ocr_row(ingestion.engine, pdf).status == "disabled"
+    assert ingestion.main.index_one_document(pdf, False) == "skipped"
+
+    ingestion.cfg.ocr_enabled = True
+    assert ingestion.main.index_one_document(pdf, False) == "indexed"
+    assert _ocr_row(ingestion.engine, pdf).status == "complete"
+    assert ingestion.main.index_one_document(pdf, False) == "skipped"
+
+    ingestion.cfg.ocr_language = "eng"
+    assert ingestion.main.index_one_document(pdf, False) == "indexed"
+    assert _ocr_row(ingestion.engine, pdf).language == "eng"
+
+
+def test_ingestion_records_ocr_when_result_is_empty(tmp_path, ingestion, monkeypatch):
+    monkeypatch.setattr(ocr, "ocr_image", lambda i, lang, t: "")
+    pdf = make_pdf(tmp_path / "blank.pdf", [None, None])
+    with pytest.raises(ValueError, match="No extractable text"):
+        ingestion.main.index_one_document(pdf, False)
+    row = _ocr_row(ingestion.engine, pdf)
+    assert row is not None
+    assert (row.pages_total, row.pages_ocr) == (2, 0)
