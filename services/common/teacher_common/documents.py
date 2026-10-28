@@ -11,6 +11,8 @@ from docx import Document as DocxDocument
 from ebooklib import ITEM_DOCUMENT, epub
 from lingua import Language, LanguageDetectorBuilder
 
+from teacher_common.ocr import OcrReport
+
 SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".txt", ".md", ".docx"}
 UNSUPPORTED_BUT_KNOWN = {".mobi", ".azw", ".azw3"}
 
@@ -27,6 +29,7 @@ class ParsedDocument:
     author: str | None
     language: str | None
     segments: list[TextSegment]
+    ocr: OcrReport | None = None
 
 
 def hash_file(path: Path) -> str:
@@ -72,10 +75,10 @@ def detect_language(text: str) -> str | None:
         return None
 
 
-def parse_document(path: Path) -> ParsedDocument:
+def parse_document(path: Path, file_hash: str | None = None) -> ParsedDocument:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
-        return parse_pdf(path)
+        return parse_pdf(path, file_hash=file_hash)
     if suffix == ".epub":
         return parse_epub(path)
     if suffix in {".txt", ".md"}:
@@ -89,45 +92,40 @@ def parse_document(path: Path) -> ParsedDocument:
     raise ValueError(f"Unsupported file type: {suffix}")
 
 
-def _ocr_page(pixmap: fitz.Pixmap, lang: str) -> str:
-    import pytesseract
-    from PIL import Image
-
-    if pixmap.n != 3:
-        pix = fitz.Pixmap(fitz.csRGB, pixmap)
-    else:
-        pix = pixmap
-    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-    result = pytesseract.image_to_string(img, lang=lang)
-    if pix is not pixmap:
-        del pix
-    return normalize_text(result)
-
-
-def parse_pdf(path: Path) -> ParsedDocument:
+def parse_pdf(path: Path, file_hash: str | None = None, cfg=None) -> ParsedDocument:
     from teacher_common.config import get_settings
-    cfg = get_settings()
+    from teacher_common.ocr import PdfOcr, needs_ocr
+
+    cfg = cfg or get_settings()
     segments: list[TextSegment] = []
+    ocr: PdfOcr | None = None
     with fitz.open(path) as pdf:
         metadata = pdf.metadata or {}
+        total_pages = len(pdf)
         for index, page in enumerate(pdf, start=1):
             text = normalize_text(page.get_text("text"))
             is_ocr = False
-            if (not text or len(text.strip()) < 50) and cfg.ocr_enabled:
-                pix = page.get_pixmap(dpi=cfg.ocr_dpi)
-                ocr_text = _ocr_page(pix, cfg.ocr_language)
+            if cfg.ocr_enabled and needs_ocr(text, cfg.ocr_min_chars):
+                if ocr is None:
+                    ocr = PdfOcr(cfg, file_hash or hash_file(path))
+                ocr_text = ocr.read_page(page, index)
                 if ocr_text:
                     is_ocr = True
                     text = ocr_text
             if text:
                 locator = f"oldal {index} (OCR)" if is_ocr else f"oldal {index}"
                 segments.append(TextSegment(text=text, locator=locator))
+    report = None
+    if ocr is not None:
+        report = ocr.finish()
+        report.pages_total = total_pages
     combined = "\n\n".join(segment.text for segment in segments)
     return ParsedDocument(
         title=metadata.get("title") or path.stem,
         author=metadata.get("author"),
         language=detect_language(combined),
         segments=segments,
+        ocr=report,
     )
 
 

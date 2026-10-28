@@ -100,6 +100,10 @@ services:
       OCR_ENABLED: ${OCR_ENABLED}
       OCR_DPI: ${OCR_DPI}
       OCR_LANGUAGE: ${OCR_LANGUAGE}
+      OCR_MIN_CHARS: ${OCR_MIN_CHARS:-50}
+      OCR_TIMEOUT_SECONDS: ${OCR_TIMEOUT_SECONDS:-900}
+      OCR_MAX_PAGES: ${OCR_MAX_PAGES:-0}
+      OCR_CACHE_DIR: ${OCR_CACHE_DIR:-/data/metadata/ocr_cache}
     ports:
       - 127.0.0.1:${TEACHER_INGEST_PORT}:8081
     volumes:

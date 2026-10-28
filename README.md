@@ -115,10 +115,10 @@ Implemented now:
 - Mobile-friendly web UI
 - Ansible structure and deployment roles
 - Optional voice placeholder service
+- OCR (Tesseract, `hun+eng`) for scanned PDF pages, cached locally
 
 Not fully implemented yet:
 
-- OCR for scanned PDFs
 - MOBI/AZW conversion pipeline
 - Production-grade SSO or identity provider integration
 - Real Hungarian offline STT/TTS backend wiring
