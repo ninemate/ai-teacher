@@ -35,7 +35,7 @@ jobs:
         run: uv run mypy --ignore-missing-imports services/
 
       - name: Run tests
-        run: uv run pytest -q tests
+        run: uv run pytest
 
   build:
     runs-on: [self-hosted, linux, x64]

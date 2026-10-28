@@ -6,6 +6,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     FilterSelector,
+    MatchAny,
     MatchValue,
     PointStruct,
     VectorParams,
@@ -67,12 +68,16 @@ def delete_points_for_source(source_path: str) -> None:
     )
 
 
-def search(query_vector: list[float], limit: int):
+def search(query_vector: list[float], limit: int, source_paths: list[str] | None = None):
     client = get_client()
+    query_filter = None
+    if source_paths:
+        query_filter = Filter(must=[FieldCondition(key="source_path", match=MatchAny(any=source_paths))])
     return client.search(
         collection_name=settings.qdrant_collection,
         query_vector=query_vector,
         limit=limit,
+        query_filter=query_filter,
         with_payload=True,
     )
 

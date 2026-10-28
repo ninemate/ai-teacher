@@ -44,6 +44,8 @@ def svc(tmp_path, monkeypatch):
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     sys.modules.pop("main", None)
+    ingestion_app = str(Path(__file__).resolve().parents[1] / "services" / "ingestion" / "app")
+    monkeypatch.syspath_prepend(ingestion_app)  # the API service has a `main` too
     main = importlib.import_module("main")
     main.init_db()
     from teacher_common import models
