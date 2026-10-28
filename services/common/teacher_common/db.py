@@ -13,9 +13,11 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 
 def init_db() -> None:
-    from teacher_common import models  # noqa: F401
+    from teacher_common import models, study_models  # noqa: F401
+    from teacher_common.migrations import run_migrations
 
     Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
 
 
 @contextmanager
