@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import uuid
 from datetime import UTC, datetime
@@ -270,32 +271,58 @@ def split_message(stored: str | None) -> tuple[str | None, list[str]]:
 
 def full_reindex_blocker(library_root: Path) -> str | None:
     """Why a full reindex could not rebuild anything, or None when the watched scope looks scannable."""
-    folders = ingest_config.watch.active_folders
-    if not folders:
+    watch = ingest_config.watch
+    if not watch.active_folders:
         return "no watched folders configured"
-    missing = [folder.path for folder in folders if not (library_root / folder.path).is_dir()]
+    missing = [folder.path for folder in watch.active_folders if not (library_root / folder.path).is_dir()]
     if missing:
         return "watched folder(s) not found: " + ", ".join(missing)
+    # Preview the scan (names only, nothing is read) and compare it with what is indexed now.
+    report = ScanReport()
+    for _ in scan_watched_files(library_root, watch, settings.scan_extensions, report):
+        pass
+    vanished = vanished_folders(library_root, watch, load_known_documents(), report)
+    if vanished:
+        return "watched folder(s) look unavailable (completely empty but indexed before): " + ", ".join(vanished)
     return None
+
+
+def vanished_folders(
+    library_root: Path, watch, known: dict[str, tuple[int, int]], report: ScanReport
+) -> list[str]:
+    """Watched folders that look like an unmounted share rather than a clean-up.
+
+    An unmounted share leaves an empty mount point behind: no entries at all. A folder that still holds
+    something (subfolders, other file types, files excluded by the filters) but no matching files is a
+    real change, and its documents are removed as usual.
+    """
+    found = []
+    for folder in watch.active_folders:
+        if report.scanned_per_folder.get(folder.path) != 0:
+            continue
+        base = library_root / folder.path
+        prefix = str(base).rstrip("/") + "/"
+        if not any(path.startswith(prefix) for path in known):
+            continue
+        try:
+            has_entries = next(os.scandir(base), None) is not None
+        except OSError:
+            has_entries = False
+        if not has_entries:
+            found.append(folder.path)
+    return found
 
 
 def mark_vanished_folders(
     library_root: Path, watch, known: dict[str, tuple[int, int]], report: ScanReport, errors: list[str]
 ) -> None:
-    """A watched folder that yields nothing although it held documents is most likely an unmounted share
-    (the empty mount point still exists), not a deliberate clean-up: keep its documents and say so."""
-    for folder in watch.active_folders:
-        if report.scanned_per_folder.get(folder.path) != 0:
-            continue
-        base = str(library_root / folder.path)
-        prefix = base.rstrip("/") + "/"
-        if any(path.startswith(prefix) for path in known):
-            report.unreadable_dirs.append(base)
-            add_error(
-                errors,
-                f"Watched folder {folder.path!r} is empty but had indexed documents; "
-                "assuming it is unavailable and keeping them (unwatch the folder to remove them)",
-            )
+    for path in vanished_folders(library_root, watch, known, report):
+        report.unreadable_dirs.append(str(library_root / path))
+        add_error(
+            errors,
+            f"Watched folder {path!r} is completely empty but had indexed documents; "
+            "assuming it is unavailable and keeping them (unwatch the folder to remove them)",
+        )
 
 
 def add_error(errors: list[str], message: str) -> None:

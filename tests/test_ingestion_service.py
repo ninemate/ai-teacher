@@ -254,3 +254,27 @@ def test_errors_survive_a_restart(svc):
     assert body["last_run"]["errors"]
     assert any("not found" in e for e in body["last_run"]["errors"])
     assert "\n" not in body["last_run"]["message"]
+
+
+def test_full_reindex_with_emptied_mount_point_keeps_the_index(svc):
+    svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path=".")])
+    svc.run_indexing(False, True)
+    for name in ("watched/a.txt", "other/b.txt"):
+        (svc.library / name).unlink()
+    (svc.library / "watched").rmdir()
+    (svc.library / "other").rmdir()
+    svc.run_indexing(True, True)
+    assert live_paths(svc) == ["other/b.txt", "watched/a.txt"]
+    assert svc.last_run["status"] == "failed"
+    assert "unavailable" in svc.last_run["message"]
+
+
+def test_folder_cleared_on_purpose_has_its_documents_removed(svc):
+    (svc.library / "watched" / "sub").mkdir()
+    (svc.library / "watched" / "notes.jpg").write_text("not indexed")
+    svc.run_indexing(False, True)
+    assert live_paths(svc) == ["watched/a.txt"]
+    (svc.library / "watched" / "a.txt").unlink()  # folder still has other content
+    svc.run_indexing(False, True)
+    assert live_paths(svc) == []
+    assert svc.last_run["deleted"] == 1
