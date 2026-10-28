@@ -1,3 +1,4 @@
+import logging
 import secrets
 import threading
 import uuid
@@ -48,6 +49,8 @@ def require_ingest_token(authorization: str = Header(default="")) -> None:
 
 @app.on_event("startup")
 def startup_event() -> None:
+    if not settings.teacher_ingest_token:
+        logging.getLogger("uvicorn").warning("TEACHER_INGEST_TOKEN is empty: /ingest endpoints refuse every call.")
     Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
     ensure_collection()

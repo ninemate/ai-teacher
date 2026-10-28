@@ -13,33 +13,43 @@ This repo can start in CPU-first dev mode without a GPU.
 
 1. Copy `.env.example` to `.env`.
 2. Point `TEACHER_MOUNT_POINT` at a local folder or mounted share.
-3. Start the dev overlay:
+3. Set a login and the ingestion token in `.env`:
+
+```bash
+make hash-password                       # paste the output as TEACHER_AUTH_USERS='yourname:<hash>'
+openssl rand -hex 32                     # paste as TEACHER_INGEST_TOKEN=
+```
+
+4. Start the dev overlay:
 
 ```bash
 make dev-up
 ```
 
-4. Pull a model:
+5. Pull a model:
 
 ```bash
 docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-compose.dev.yml exec ollama ollama pull qwen2.5:7b-instruct-q4_K_M
 ```
 
-5. If you want LAN access during testing, set `TEACHER_HTTP_BIND=0.0.0.0` in `.env`.
+6. If you want LAN access during testing, set `TEACHER_HTTP_BIND=0.0.0.0` in `.env`.
 
-6. Trigger indexing:
+7. Trigger indexing:
 
 ```bash
 make test-ingest
 curl -X POST http://127.0.0.1:8081/ingest/reindex \
+  -H "Authorization: Bearer $(sed -n 's/^TEACHER_INGEST_TOKEN=//p' .env)" \
   -H 'Content-Type: application/json' \
   -d '{"full_reindex": false, "remove_missing": true}'
 ```
 
-7. Open `http://127.0.0.1:8080`.
+8. Open `http://127.0.0.1:8080` and log in.
 
 ## Dev Notes
 
 - The default `.env.example` keeps the UI bound to `127.0.0.1`.
-- Leave auth blank in dev only.
-- For actual remote access, use VPN or enable auth plus reverse proxy.
+- The login is on in dev too. `TEACHER_AUTH_DISABLED=true` turns it off for a purely local experiment; never on a reachable host.
+- `make test` runs the unit tests (`pip install pytest` plus the api requirements first).
+- `make test-chat` logs in and asks one question; it needs `TEACHER_USER` and `TEACHER_PASSWORD` in the environment.
+- For actual remote access, use VPN plus HTTPS; the app login stays on.

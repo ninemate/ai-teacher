@@ -1,7 +1,7 @@
 COMPOSE_BASE=docker compose --env-file .env -f compose/docker-compose.yml
 COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml
 
-.PHONY: dev-up dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test-chat test-ingest
+.PHONY: dev-up dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test test-chat test-ingest hash-password
 
 dev-up:
 	$(COMPOSE_DEV) up -d --build
@@ -31,11 +31,18 @@ nvidia-check:
 	nvidia-smi
 	docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 
+test:
+	python -m pytest
+
+# Needs TEACHER_USER and TEACHER_PASSWORD in the environment.
 test-chat:
-	curl -fsS -X POST "http://$${TEACHER_HTTP_BIND:-127.0.0.1}:$${TEACHER_HTTP_PORT:-8080}/chat" \
-		-H "Content-Type: application/json" \
-		-d '{"question":"Foglald össze röviden, hogyan működik a RAG.", "level":"beginner"}'
+	scripts/smoke-chat.sh "http://$${TEACHER_HTTP_BIND:-127.0.0.1}:$${TEACHER_HTTP_PORT:-8080}"
 
 test-ingest:
-	curl -fsS "http://$${TEACHER_HTTP_BIND:-127.0.0.1}:$${TEACHER_INGEST_PORT:-8081}/ingest/status"
+	curl -fsS "http://127.0.0.1:$${TEACHER_INGEST_PORT:-8081}/ingest/status" \
+		-H "Authorization: Bearer $$(sed -n 's/^TEACHER_INGEST_TOKEN=//p' .env)"
+
+# Prints an argon2 hash for TEACHER_AUTH_USERS.
+hash-password:
+	$(COMPOSE_BASE) run --rm --no-deps api python auth.py
 

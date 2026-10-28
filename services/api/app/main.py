@@ -1,3 +1,4 @@
+import logging
 import math
 import secrets
 from pathlib import Path
@@ -90,6 +91,10 @@ async def security_headers(request: Request, call_next):
 
 @app.on_event("startup")
 def startup_event() -> None:
+    if not settings.auth_enabled:
+        logging.getLogger("uvicorn").warning("TEACHER_AUTH_DISABLED is set: the UI and API are open to anyone.")
+    elif not auth_users:
+        logging.getLogger("uvicorn").warning("TEACHER_AUTH_USERS is empty: nobody can log in.")
     Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
     ensure_collection()
