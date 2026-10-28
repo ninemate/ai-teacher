@@ -116,13 +116,17 @@ class IndexScheduler:
         with self._lock:
             if self.next_run_at is None or now < self.next_run_at:
                 return False
-            # Compute the next slot from now so a long run skips missed slots instead of queueing them.
+            # Provisional, so the status shows a future slot while the run is in progress.
             self.next_run_at = self.schedule.next_run(now)
         try:
             started = self._trigger()
         except Exception:  # noqa: BLE001 - the scheduler thread must survive a failing trigger
             logger.exception("Scheduled indexing trigger failed")
             started = False
+        with self._lock:
+            # The trigger runs synchronously, possibly for hours: slots that passed meanwhile are
+            # dropped, the next one is counted from the end of the run.
+            self.next_run_at = self.schedule.next_run(self._clock())
         self.last_tick_at = now
         self.last_tick_started_run = started
         if not started:

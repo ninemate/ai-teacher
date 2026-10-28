@@ -167,3 +167,20 @@ def test_legacy_interval_used_only_without_schedule_section(tmp_path):
     path = tmp_path / "i.yml"
     path.write_text("schedule:\n  enabled: false\n")
     assert not load_ingest_config(path, 900).schedule.enabled
+
+
+def test_long_run_does_not_trigger_an_immediate_repeat():
+    clock = Clock()
+    calls = []
+
+    def long_run():
+        calls.append(1)
+        clock.now += timedelta(hours=3)  # the run outlasts several slots
+        return True
+
+    scheduler = IndexScheduler(ScheduleConfig(enabled=True, interval_seconds=3600), long_run, clock)
+    scheduler.next_run_at = T0
+    assert scheduler.tick() is True
+    assert scheduler.next_run_at == T0 + timedelta(hours=4)  # counted from the end of the run
+    assert scheduler.tick() is False
+    assert calls == [1]

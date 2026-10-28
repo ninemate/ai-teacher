@@ -32,7 +32,9 @@ The share holds terabytes, but only selected folders are indexed. They are liste
 
 Nothing outside the watched folders is walked. With no (active) folders configured a run indexes nothing and removes nothing.
 
-Removal: with `remove_missing` (default on), documents not found in the watched folders any more are marked deleted and their vectors removed. That includes documents of a folder you stop watching. Documents under a watched folder that could not be read in this run (folder missing, share unmounted, unreadable directory) are left alone and the problem is reported as a run error.
+Removal: with `remove_missing` (default on), documents not found in the watched folders any more are marked deleted and their vectors removed. That includes documents of a folder you stop watching. Documents under a watched folder that could not be read in this run (folder missing, share unmounted, unreadable directory) are left alone and the problem is reported as a run error. A watched folder that yields no files although it held indexed documents is treated the same way, because an unmounted share often leaves an empty mount point behind; to deliberately clear such a folder, remove it from `watch.folders`.
+
+A full reindex (`full_reindex: true`) wipes the index before rebuilding it, so it is refused, leaving the index untouched, when no watched folders are configured or one of them is missing.
 
 ## Scheduled Indexing
 
@@ -40,7 +42,7 @@ Configured in the `schedule` section of the same file; disabled by default. Use 
 
 The scheduler runs inside the ingestion service. Scheduled runs and `POST /ingest/reindex` share one lock, so runs never overlap: a manual request during a run gets `409`, a schedule slot that arrives during a run is skipped (missed slots are not queued).
 
-`GET /ingest/schedule` returns the schedule (`enabled`, `interval_seconds`, `cron`, `next_run_at`, whether the last tick actually started a run), the watched folders, `running` / `current_file`, and `last_run`: `trigger` (`scheduled` or `manual`), `status`, `started_at`, `finished_at`, counts (`scanned`, `indexed`, `skipped`, `failed`, `deleted`), files scanned per folder, and up to 20 error messages. After a restart `last_run` has the persisted counts only. `GET /ingest/status` still returns the latest run as before.
+`GET /ingest/schedule` returns the schedule (`enabled`, `interval_seconds`, `cron`, `next_run_at`, whether the last tick actually started a run), the watched folders, `running` / `current_file`, and `last_run`: `trigger` (`scheduled` or `manual`), `status`, `started_at`, `finished_at`, counts (`scanned`, `indexed`, `skipped`, `failed`, `deleted`), files scanned per folder, and up to 20 error messages. After a restart `last_run` is rebuilt from the database: status, counts, timestamps and the error messages, but not `trigger` or the per-folder counts. `GET /ingest/status` still returns the latest run as before.
 
 ## Incremental Behavior
 

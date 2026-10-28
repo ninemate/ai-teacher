@@ -104,10 +104,11 @@ def test_changed_file_is_reindexed(svc):
 
 
 def test_vanished_documents_are_removed(svc):
+    (svc.library / "watched" / "keep.txt").write_text("k")
     svc.run_indexing(False, True)
     (svc.library / "watched" / "a.txt").unlink()
     svc.run_indexing(False, True)
-    assert live_paths(svc) == []
+    assert live_paths(svc) == ["watched/keep.txt"]
     assert svc.last_run["deleted"] == 1
 
 
@@ -202,3 +203,54 @@ def test_schedule_endpoint_reports_state(svc):
     assert body["last_run"]["indexed"] == 1
     assert body["last_run"]["folders"] == {"watched": 1}
     assert body["running"] is False
+
+
+def test_full_reindex_without_watched_folders_keeps_the_index(svc):
+    svc.run_indexing(False, True)
+    svc.ingest_config.watch = WatchConfig()
+    svc.run_indexing(True, True)
+    assert live_paths(svc) == ["watched/a.txt"]
+    assert svc.last_run["status"] == "failed"
+    assert "untouched" in svc.last_run["message"]
+
+
+def test_full_reindex_with_missing_folder_keeps_the_index(svc):
+    svc.run_indexing(False, True)
+    svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path="watched"), WatchFolder(path="gone")])
+    svc.run_indexing(True, True)
+    assert live_paths(svc) == ["watched/a.txt"]
+    assert svc.last_run["status"] == "failed"
+
+
+def test_full_reindex_rebuilds_when_scope_is_scannable(svc):
+    svc.run_indexing(False, True)
+    svc.run_indexing(True, True)
+    assert live_paths(svc) == ["watched/a.txt"]
+    assert svc.last_run["indexed"] == 1
+
+
+def test_emptied_mount_point_does_not_wipe_the_index(svc):
+    svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path=".")])
+    svc.run_indexing(False, True)
+    assert live_paths(svc) == ["other/b.txt", "watched/a.txt"]
+    # share unmounted: the mount point directory is still there but empty
+    (svc.library / "watched" / "a.txt").unlink()
+    (svc.library / "other" / "b.txt").unlink()
+    (svc.library / "watched").rmdir()
+    (svc.library / "other").rmdir()
+    svc.run_indexing(False, True)
+    assert live_paths(svc) == ["other/b.txt", "watched/a.txt"]
+    assert svc.last_run["deleted"] == 0
+    assert any("unavailable" in e for e in svc.last_run["errors"])
+
+
+def test_errors_survive_a_restart(svc):
+    svc.run_indexing(False, True)
+    (svc.library / "watched").rename(svc.library / "moved")
+    svc.run_indexing(False, True)
+    assert svc.last_run["errors"]
+    svc.last_run.clear()  # new process: only the database is left
+    body = TestClient(svc.app).get("/ingest/schedule").json()
+    assert body["last_run"]["errors"]
+    assert any("not found" in e for e in body["last_run"]["errors"])
+    assert "\n" not in body["last_run"]["message"]

@@ -69,7 +69,7 @@ def health():
 @app.get("/ingest/status")
 def ingest_status():
     with session_scope() as session:
-        row = session.execute(select(IngestRun).order_by(IngestRun.started_at.desc())).scalars().first()
+        row = session.execute(select(IngestRun).order_by(IngestRun.id.desc())).scalars().first()
         if row is None:
             return {"status": "idle", "running": current_state["running"]}
         return {
@@ -116,11 +116,13 @@ def ingest_schedule():
     if last is None:
         # After a restart only the persisted counts are known.
         with session_scope() as session:
-            row = session.execute(select(IngestRun).order_by(IngestRun.started_at.desc())).scalars().first()
+            row = session.execute(select(IngestRun).order_by(IngestRun.id.desc())).scalars().first()
             if row is not None:
+                message, stored_errors = split_message(row.message)
                 last = {
                     "status": row.status,
-                    "message": row.message,
+                    "message": message,
+                    "errors": stored_errors,
                     "scanned": row.scanned,
                     "indexed": row.indexed,
                     "skipped": row.skipped,
@@ -171,15 +173,19 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
             session.flush()
             run_id = run.id
 
+        library_root = Path(settings.library_path)
+        if not library_root.exists():
+            raise RuntimeError(f"Library path not found: {library_root}")
+
         if full_reindex:
+            # A full reindex wipes the index first, so make sure there is something to rebuild it from.
+            problem = full_reindex_blocker(library_root)
+            if problem:
+                raise RuntimeError(f"Full reindex refused, existing index left untouched: {problem}")
             with session_scope() as session:
                 session.query(ChunkRecord).delete()
                 session.query(DocumentRecord).delete()
             recreate_collection()
-
-        library_root = Path(settings.library_path)
-        if not library_root.exists():
-            raise RuntimeError(f"Library path not found: {library_root}")
 
         scanned = indexed = skipped = failed = deleted = 0
         seen_paths: set[str] = set()
@@ -213,13 +219,15 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
         for unreadable in report.unreadable_dirs:
             add_error(errors, f"Could not read directory: {unreadable}")
 
+        mark_vanished_folders(library_root, watch, known, report, errors)
+
         if remove_missing:
             deleted = remove_deleted_documents(seen_paths, report)
 
         update_run(
             run_id=run_id,
             status="completed",
-            message=message,
+            message=with_errors(message, errors),
             scanned=scanned,
             indexed=indexed,
             skipped=skipped,
@@ -233,18 +241,61 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - ensure the run is marked failed instead of dying silently
         logger.exception("Indexing run failed")
+        stored = with_errors(str(exc), errors)
         add_error(errors, str(exc))
         last_run.update(status="failed", message=str(exc), finished_at=datetime.now(UTC).isoformat())
         if run_id is not None:
             update_run(
                 run_id=run_id,
                 status="failed",
-                message=str(exc),
+                message=stored,
             )
     finally:
         current_state["running"] = False
         current_state["current_file"] = None
         index_lock.release()
+
+
+def with_errors(message: str, errors: list[str]) -> str:
+    """Runs only persist a message, so the bounded error list is kept below it, one per line."""
+    return "\n".join([message.splitlines()[0] if message else "", *[e.replace("\n", " ") for e in errors]]).rstrip()
+
+
+def split_message(stored: str | None) -> tuple[str | None, list[str]]:
+    if not stored:
+        return stored, []
+    head, *errors = stored.split("\n")
+    return head, errors
+
+
+def full_reindex_blocker(library_root: Path) -> str | None:
+    """Why a full reindex could not rebuild anything, or None when the watched scope looks scannable."""
+    folders = ingest_config.watch.active_folders
+    if not folders:
+        return "no watched folders configured"
+    missing = [folder.path for folder in folders if not (library_root / folder.path).is_dir()]
+    if missing:
+        return "watched folder(s) not found: " + ", ".join(missing)
+    return None
+
+
+def mark_vanished_folders(
+    library_root: Path, watch, known: dict[str, tuple[int, int]], report: ScanReport, errors: list[str]
+) -> None:
+    """A watched folder that yields nothing although it held documents is most likely an unmounted share
+    (the empty mount point still exists), not a deliberate clean-up: keep its documents and say so."""
+    for folder in watch.active_folders:
+        if report.scanned_per_folder.get(folder.path) != 0:
+            continue
+        base = str(library_root / folder.path)
+        prefix = base.rstrip("/") + "/"
+        if any(path.startswith(prefix) for path in known):
+            report.unreadable_dirs.append(base)
+            add_error(
+                errors,
+                f"Watched folder {folder.path!r} is empty but had indexed documents; "
+                "assuming it is unavailable and keeping them (unwatch the folder to remove them)",
+            )
 
 
 def add_error(errors: list[str], message: str) -> None:
