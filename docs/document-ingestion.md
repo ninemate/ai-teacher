@@ -34,7 +34,7 @@ Nothing outside the watched folders is walked. With no (active) folders configur
 
 Removal: with `remove_missing` (default on), documents not found in the watched folders any more are marked deleted and their vectors removed. That includes documents of a folder you stop watching. Documents under a watched folder that could not be read in this run (folder missing, share unmounted, unreadable directory) are left alone and the problem is reported as a run error. A watched folder that is completely empty (no entries at all) although it held indexed documents is treated the same way, because an unmounted share often leaves an empty mount point behind; to deliberately clear such a folder, remove it from `watch.folders`. A folder that still contains anything else (subfolders, other file types, filtered-out files) is a real change and its vanished documents are removed normally.
 
-A full reindex (`full_reindex: true`) wipes the index before rebuilding it, so it is refused, leaving the index untouched, when no watched folders are configured, one of them is missing, or one looks unavailable by the rule above.
+A full reindex (`full_reindex: true`) wipes the index before rebuilding it, so it is refused, leaving the index untouched, when no watched folders are configured, one of them is missing or unreadable (including nested directories found by the preview scan), or one looks unavailable by the rule above.
 
 ## Scheduled Indexing
 

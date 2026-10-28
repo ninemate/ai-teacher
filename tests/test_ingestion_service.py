@@ -1,6 +1,7 @@
 """Run coordination in the ingestion service, with the heavy parsing/embedding/vector layers stubbed."""
 
 import importlib
+import os
 import sys
 import threading
 import types
@@ -278,3 +279,31 @@ def test_folder_cleared_on_purpose_has_its_documents_removed(svc):
     svc.run_indexing(False, True)
     assert live_paths(svc) == []
     assert svc.last_run["deleted"] == 1
+
+
+def test_full_reindex_with_unreadable_nested_directory_keeps_the_index(svc):
+    nested = svc.library / "watched" / "locked"
+    nested.mkdir()
+    (nested / "c.txt").write_text("c")
+    svc.run_indexing(False, True)
+    assert live_paths(svc) == ["watched/a.txt", "watched/locked/c.txt"]
+    nested.chmod(0)
+    try:
+        if os.access(nested, os.R_OK):
+            pytest.skip("permissions are not enforced (running as root)")
+        svc.run_indexing(True, True)
+    finally:
+        nested.chmod(0o755)
+    assert live_paths(svc) == ["watched/a.txt", "watched/locked/c.txt"]
+    assert svc.last_run["status"] == "failed"
+    assert "could not be read" in svc.last_run["message"]
+
+
+def test_completely_emptied_folder_is_kept_until_unwatched(svc):
+    svc.run_indexing(False, True)
+    (svc.library / "watched" / "a.txt").unlink()  # last entry gone: indistinguishable from an unmounted share
+    svc.run_indexing(False, True)
+    assert live_paths(svc) == ["watched/a.txt"]
+    svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path="other")])  # unwatching removes it
+    svc.run_indexing(False, True)
+    assert "watched/a.txt" not in live_paths(svc)

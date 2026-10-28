@@ -281,6 +281,9 @@ def full_reindex_blocker(library_root: Path) -> str | None:
     report = ScanReport()
     for _ in scan_watched_files(library_root, watch, settings.scan_extensions, report):
         pass
+    unreadable = [*report.missing_folders, *report.unreadable_dirs]
+    if unreadable:
+        return "watched path(s) could not be read: " + ", ".join(unreadable)
     vanished = vanished_folders(library_root, watch, load_known_documents(), report)
     if vanished:
         return "watched folder(s) look unavailable (completely empty but indexed before): " + ", ".join(vanished)
