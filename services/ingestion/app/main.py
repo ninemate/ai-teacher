@@ -1,3 +1,4 @@
+import logging
 import threading
 import uuid
 from datetime import UTC, datetime
@@ -11,7 +12,6 @@ from teacher_common.db import init_db, session_scope
 from teacher_common.documents import (
     chunk_segments,
     hash_file,
-    iter_library_files,
     parse_document,
 )
 from teacher_common.embeddings import embed_passages, warmup_embeddings
@@ -23,11 +23,24 @@ from teacher_common.qdrant_store import (
     recreate_collection,
     upsert_points,
 )
+from teacher_common.scheduling import IndexScheduler, load_ingest_config
+from teacher_common.watch import ScanReport, scan_watched_files
+
+logger = logging.getLogger("teacher.ingestion")
+MAX_REPORTED_ERRORS = 20
 
 settings = get_settings()
 app = FastAPI(title="teacher-agent-ingestion", version="0.1.0")
+# One lock for scheduled and manual runs, so they can never overlap.
 index_lock = threading.Lock()
 current_state: dict[str, bool | str | None] = {"running": False, "current_file": None}
+ingest_config = load_ingest_config(settings.ingest_config_path, settings.ingest_schedule_seconds)
+scheduler = IndexScheduler(
+    ingest_config.schedule,
+    lambda: run_indexing(full_reindex=False, remove_missing=settings.ingest_remove_missing, trigger="scheduled"),
+)
+# Details of the most recent run in this process (the DB only keeps counts).
+last_run: dict = {}
 
 
 class ReindexRequest(BaseModel):
@@ -41,9 +54,7 @@ def startup_event() -> None:
     init_db()
     ensure_collection()
     warmup_embeddings()
-    if settings.ingest_schedule_seconds > 0:
-        thread = threading.Thread(target=scheduled_loop, daemon=True)
-        thread.start()
+    scheduler.start()
 
 
 @app.get("/health")
@@ -78,13 +89,14 @@ def ingest_status():
 
 @app.post("/ingest/reindex")
 def reindex(payload: ReindexRequest):
-    if current_state["running"]:
+    if not index_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="Indexing already running")
     thread = threading.Thread(
-        target=run_indexing,
+        target=execute_run,
         kwargs={
             "full_reindex": payload.full_reindex,
             "remove_missing": payload.remove_missing,
+            "trigger": "manual",
         },
         daemon=True,
     )
@@ -96,23 +108,65 @@ def reindex(payload: ReindexRequest):
     }
 
 
-def scheduled_loop() -> None:
-    while True:
-        if not current_state["running"]:
-            run_indexing(full_reindex=False, remove_missing=settings.ingest_remove_missing)
-        threading.Event().wait(settings.ingest_schedule_seconds)
+@app.get("/ingest/schedule")
+def ingest_schedule():
+    """Schedule, watched folders and the outcome of the last run, for the UI and ops."""
+    schedule = ingest_config.schedule
+    last = dict(last_run) if last_run else None
+    if last is None:
+        # After a restart only the persisted counts are known.
+        with session_scope() as session:
+            row = session.execute(select(IngestRun).order_by(IngestRun.started_at.desc())).scalars().first()
+            if row is not None:
+                last = {
+                    "status": row.status,
+                    "message": row.message,
+                    "scanned": row.scanned,
+                    "indexed": row.indexed,
+                    "skipped": row.skipped,
+                    "failed": row.failed,
+                    "deleted": row.deleted,
+                    "started_at": row.started_at.isoformat() if row.started_at else None,
+                    "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+                }
+    return {
+        "schedule": {
+            "enabled": schedule.enabled,
+            "interval_seconds": schedule.interval_seconds,
+            "cron": schedule.cron,
+            "timezone": schedule.timezone,
+            "next_run_at": scheduler.next_run_at.isoformat() if scheduler.next_run_at else None,
+            "last_tick_at": scheduler.last_tick_at.isoformat() if scheduler.last_tick_at else None,
+            "last_tick_started_run": scheduler.last_tick_started_run,
+        },
+        "watch": ingest_config.watch.model_dump(),
+        "running": current_state["running"],
+        "current_file": current_state["current_file"],
+        "last_run": last,
+    }
 
 
-def run_indexing(full_reindex: bool, remove_missing: bool) -> None:
+def run_indexing(full_reindex: bool, remove_missing: bool, trigger: str = "scheduled") -> bool:
+    """Run synchronously if no other run holds the lock; returns False when it declined."""
     if not index_lock.acquire(blocking=False):
-        return
+        return False
+    execute_run(full_reindex=full_reindex, remove_missing=remove_missing, trigger=trigger)
+    return True
+
+
+def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
+    """Run indexing. The caller must hold ``index_lock``; it is released here."""
     current_state["running"] = True
     current_state["current_file"] = None
     run_id = None
+    errors: list[str] = []
+    started_at = datetime.now(UTC)
+    last_run.clear()
+    last_run.update({"trigger": trigger, "status": "running", "started_at": started_at.isoformat(), "errors": errors})
 
     try:
         with session_scope() as session:
-            run = IngestRun(status="running", message="Indexing started")
+            run = IngestRun(status="running", message=f"Indexing started ({trigger})")
             session.add(run)
             session.flush()
             run_id = run.id
@@ -129,35 +183,58 @@ def run_indexing(full_reindex: bool, remove_missing: bool) -> None:
 
         scanned = indexed = skipped = failed = deleted = 0
         seen_paths: set[str] = set()
+        report = ScanReport()
+        message = "Indexing completed"
+        watch = ingest_config.watch
 
-        for file_path in iter_library_files(library_root, settings.scan_extensions):
+        if not watch.active_folders:
+            # Never fall back to walking the whole share, and never treat "nothing watched" as "all deleted".
+            message = "No watched folders configured; nothing to index"
+            remove_missing = False
+        known = load_known_documents()
+
+        for file_path in scan_watched_files(library_root, watch, settings.scan_extensions, report):
             scanned += 1
             current_state["current_file"] = str(file_path)
             seen_paths.add(str(file_path))
             try:
-                outcome = index_one_document(file_path, full_reindex=full_reindex)
+                outcome = index_one_document(file_path, full_reindex=full_reindex, known=known)
                 if outcome == "indexed":
                     indexed += 1
                 elif outcome == "skipped":
                     skipped += 1
             except Exception as exc:  # noqa: BLE001 - one broken file must not abort the run
                 failed += 1
+                add_error(errors, f"{file_path}: {exc}")
                 store_error_record(file_path, str(exc))
 
+        for missing in report.missing_folders:
+            add_error(errors, f"Watched folder not found or not a directory: {missing}")
+        for unreadable in report.unreadable_dirs:
+            add_error(errors, f"Could not read directory: {unreadable}")
+
         if remove_missing:
-            deleted = remove_deleted_documents(seen_paths)
+            deleted = remove_deleted_documents(seen_paths, report)
 
         update_run(
             run_id=run_id,
             status="completed",
-            message="Indexing completed",
+            message=message,
             scanned=scanned,
             indexed=indexed,
             skipped=skipped,
             failed=failed,
             deleted=deleted,
         )
-    except Exception as exc:  # noqa: BLE001 - ensure the run is marked failed and re-raised
+        last_run.update(
+            status="completed", message=message, scanned=scanned, indexed=indexed, skipped=skipped,
+            failed=failed, deleted=deleted, folders=report.scanned_per_folder,
+            finished_at=datetime.now(UTC).isoformat(),
+        )
+    except Exception as exc:  # noqa: BLE001 - ensure the run is marked failed instead of dying silently
+        logger.exception("Indexing run failed")
+        add_error(errors, str(exc))
+        last_run.update(status="failed", message=str(exc), finished_at=datetime.now(UTC).isoformat())
         if run_id is not None:
             update_run(
                 run_id=run_id,
@@ -170,20 +247,31 @@ def run_indexing(full_reindex: bool, remove_missing: bool) -> None:
         index_lock.release()
 
 
-def index_one_document(file_path: Path, full_reindex: bool) -> str:
-    stat = file_path.stat()
+def add_error(errors: list[str], message: str) -> None:
+    if len(errors) < MAX_REPORTED_ERRORS:
+        errors.append(message)
+
+
+def load_known_documents() -> dict[str, tuple[int, int]]:
+    """Size and mtime of every live document, in one query, so unchanged files cost no DB round trip."""
     with session_scope() as session:
-        existing = session.execute(
-            select(DocumentRecord).where(DocumentRecord.source_path == str(file_path))
-        ).scalars().first()
-        if (
-            existing
-            and not full_reindex
-            and existing.size_bytes == stat.st_size
-            and existing.modified_timestamp == int(stat.st_mtime)
-            and not existing.deleted
-        ):
-            return "skipped"
+        rows = session.execute(
+            select(DocumentRecord.source_path, DocumentRecord.size_bytes, DocumentRecord.modified_timestamp).where(
+                DocumentRecord.deleted.is_(False)
+            )
+        ).all()
+    return {path: (size, mtime) for path, size, mtime in rows}
+
+
+def index_one_document(
+    file_path: Path, full_reindex: bool, known: dict[str, tuple[int, int]] | None = None
+) -> str:
+    stat = file_path.stat()
+    # size + mtime first: only changed or new files get hashed (a read of the whole file over the network).
+    if known is None:
+        known = load_known_documents()
+    if not full_reindex and known.get(str(file_path)) == (stat.st_size, int(stat.st_mtime)):
+        return "skipped"
 
     file_hash = hash_file(file_path)
     parsed = parse_document(file_path)
@@ -273,14 +361,15 @@ def index_one_document(file_path: Path, full_reindex: bool) -> str:
     return "indexed"
 
 
-def remove_deleted_documents(seen_paths: set[str]) -> int:
+def remove_deleted_documents(seen_paths: set[str], report: ScanReport | None = None) -> int:
+    """Mark documents that were not seen as deleted, except under paths the scan could not read."""
     deleted = 0
     with session_scope() as session:
         rows = session.execute(
             select(DocumentRecord).where(DocumentRecord.deleted.is_(False))
         ).scalars()
         for row in rows:
-            if row.source_path not in seen_paths:
+            if row.source_path not in seen_paths and not (report and report.is_unreliable(row.source_path)):
                 delete_points_for_source(row.source_path)
                 row.deleted = True
                 row.status = "deleted"

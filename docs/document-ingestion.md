@@ -20,6 +20,28 @@ Known but not implemented in the MVP:
 
 For those formats, convert to EPUB or PDF first, or add Calibre-based conversion later.
 
+## Watched Folders
+
+The share holds terabytes, but only selected folders are indexed. They are listed under `watch.folders` in `config/ingestion/ingestion.yml` (copy it from `ingestion.example.yml`; override the location with `INGEST_CONFIG_PATH`):
+
+- `path`: relative to the library mount point; `.` watches the whole library. Absolute paths and `..` are rejected.
+- `enabled`: set `false` to keep an entry without scanning it.
+- `recursive`: default `true`.
+- `include` / `exclude`: glob patterns (case-insensitive; `*` also matches `/`) matched against the path inside the folder or the bare name. A matching directory in `exclude` is not entered at all. `watch.exclude` applies to every folder (for example `#recycle`, `@eaDir` on Synology).
+- `extensions`: overrides `scan_extensions` for that folder.
+
+Nothing outside the watched folders is walked. With no (active) folders configured a run indexes nothing and removes nothing.
+
+Removal: with `remove_missing` (default on), documents not found in the watched folders any more are marked deleted and their vectors removed. That includes documents of a folder you stop watching. Documents under a watched folder that could not be read in this run (folder missing, share unmounted, unreadable directory) are left alone and the problem is reported as a run error.
+
+## Scheduled Indexing
+
+Configured in the `schedule` section of the same file; disabled by default. Use either `interval_seconds` (at least 60) or a five-field `cron` expression with an optional `timezone` (default UTC). `run_on_startup` also starts a run when the service comes up. If the file has no `schedule` section, the legacy `INGEST_SCHEDULE_SECONDS` still enables a fixed interval. An invalid config stops the service at startup with an error.
+
+The scheduler runs inside the ingestion service. Scheduled runs and `POST /ingest/reindex` share one lock, so runs never overlap: a manual request during a run gets `409`, a schedule slot that arrives during a run is skipped (missed slots are not queued).
+
+`GET /ingest/schedule` returns the schedule (`enabled`, `interval_seconds`, `cron`, `next_run_at`, whether the last tick actually started a run), the watched folders, `running` / `current_file`, and `last_run`: `trigger` (`scheduled` or `manual`), `status`, `started_at`, `finished_at`, counts (`scanned`, `indexed`, `skipped`, `failed`, `deleted`), files scanned per folder, and up to 20 error messages. After a restart `last_run` has the persisted counts only. `GET /ingest/status` still returns the latest run as before.
+
 ## Incremental Behavior
 
 Each file is tracked by:
@@ -29,7 +51,7 @@ Each file is tracked by:
 - modified timestamp
 - SHA-256 hash when the file needs reprocessing
 
-Unchanged files are skipped.
+Files are compared by size and modified timestamp (one `stat` per file, with all known documents loaded in a single query) before anything else; only new or changed files are read and hashed. Unchanged files are skipped, which keeps a scheduled pass over a network share cheap. The first pass over a large folder still has to parse and embed everything.
 
 ## Metadata Stored
 

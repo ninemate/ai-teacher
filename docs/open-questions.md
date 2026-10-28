@@ -7,6 +7,6 @@
 - Should phone access be VPN-only or HTTPS with auth?
 - Is the RTX 3070 dedicated to this VM permanently?
 - Which Hungarian-capable chat model performs best on the actual materials?
-- Is scheduled indexing preferred over manual reindex?
+- ~~Is scheduled indexing preferred over manual reindex?~~ Scheduled, over watched folders (see `docs/document-ingestion.md`).
 - Is offline Hungarian TTS quality good enough to justify the extra service?
 - Should quizzes and flashcards be stored, or generated on demand only?

@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=6, alias="RETRIEVAL_TOP_K")
     max_context_chars: int = Field(default=18000, alias="MAX_CONTEXT_CHARS")
     ingest_schedule_seconds: int = Field(default=0, alias="INGEST_SCHEDULE_SECONDS")
+    ingest_config_path: str = Field(
+        default="/app/config/ingestion/ingestion.yml",
+        alias="INGEST_CONFIG_PATH",
+    )
     ingest_remove_missing: bool = Field(default=True, alias="INGEST_REMOVE_MISSING")
     ingest_scan_extensions: str = Field(
         default=".pdf,.epub,.txt,.md,.docx",
