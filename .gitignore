@@ -16,3 +16,4 @@ ansible/inventory/prod.ini
 ansible/group_vars/prod.yml
 ansible/group_vars/vault.yml
 services/**/.cache/
+.scratch/

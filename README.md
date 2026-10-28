@@ -12,6 +12,7 @@ This repository is intentionally separate from any GPU image-generation stack. I
 - Local vector search in Qdrant
 - Local LLM runtime via Ollama
 - Hungarian-first RAG chat API and mobile-friendly web UI
+- Stored quizzes and flashcard decks generated from the library, with source references, spaced-repetition review for cards and quiz attempt history (`/study/...`)
 - Ansible-driven deployment to a separate VM
 - Optional NVIDIA and optional voice scaffolding
 
@@ -71,6 +72,15 @@ curl -X POST http://127.0.0.1:8081/ingest/reindex \
 ```text
 http://127.0.0.1:8080
 ```
+
+## Tests
+
+```bash
+pip install pytest sqlalchemy pydantic-settings fastapi httpx
+python -m pytest
+```
+
+The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed.
 
 ## Architecture
 
