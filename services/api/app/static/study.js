@@ -166,7 +166,7 @@
   async function startDeck(id) {
     let cards;
     try {
-      cards = await api(`/study/decks/${id}/due`);
+      cards = await api(`/study/decks/${id}/due?limit=100`);
     } catch (err) {
       setStatus(err.message, true);
       return;
@@ -286,7 +286,7 @@
     }
 
     function showResult(attempt) {
-      const blocks = quiz.questions.map((q) => {
+      const blocks = attempt.questions.map((q) => {
         const picked = attempt.answers[String(q.id)].chosen;
         const options = q.options.map((text, i) =>
           el("div", { class: "option" + (i === q.correct_index ? " correct" : i === picked ? " wrong" : "") }, text)

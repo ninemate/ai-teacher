@@ -18,7 +18,14 @@ def questions(n=2):
 
 def make_quiz(session, n=2):
     return store.create_quiz_set(
-        session, title="T", topic="téma", level="beginner", scope_sources=["/library/a.pdf"], model="m", questions=questions(n)
+        session,
+        title="T",
+        topic="téma",
+        level="beginner",
+        scope_sources=["/library/a.pdf"],
+        model="m",
+        questions=questions(n),
+        include_answers=True,
     )
 
 
@@ -31,11 +38,22 @@ def make_deck(session, n=3):
 
 def test_quiz_roundtrip_keeps_sources_and_order(session):
     created = make_quiz(session, 3)
-    fetched = store.get_quiz_set(session, created["id"])
+    fetched = store.get_quiz_set(session, created["id"], include_answers=True)
     assert [q["question"] for q in fetched["questions"]] == ["Kérdés 0?", "Kérdés 1?", "Kérdés 2?"]
     assert fetched["questions"][0]["sources"] == SRC
     assert fetched["scope_sources"] == ["/library/a.pdf"]
     assert fetched["question_count"] == 3 and fetched["attempt_count"] == 0
+
+
+def test_quiz_fetch_hides_answer_key_by_default(session):
+    created = make_quiz(session)
+    for quiz in (store.get_quiz_set(session, created["id"]),):
+        for q in quiz["questions"]:
+            assert set(q) == {"id", "position", "question", "options"}
+    plain = store.create_quiz_set(
+        session, title="T", topic=None, level="beginner", scope_sources=[], model=None, questions=questions(1)
+    )
+    assert "correct_index" not in plain["questions"][0]
 
 
 def test_list_is_newest_first_and_delete_cascades(session):
@@ -62,6 +80,8 @@ def test_attempt_is_graded_server_side(session):
         session, quiz["id"], {q0["id"]: q0["correct_index"], q1["id"]: (q1["correct_index"] + 1) % 3}
     )
     assert (attempt["score"], attempt["total"]) == (1, 3)  # q2 unanswered
+    assert attempt["questions"][0]["correct_index"] == q0["correct_index"]  # key released with the result
+    assert attempt["questions"][0]["sources"] == SRC
     assert attempt["answers"][str(q0["id"])]["correct"] is True
     assert attempt["answers"][str(q2["id"])] == {"chosen": None, "correct": False}
     summary = store.get_quiz_set(session, quiz["id"])

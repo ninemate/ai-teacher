@@ -67,7 +67,7 @@ def test_generate_fetch_attempt_delete_quiz(client, fakes):
     quiz = resp.json()
     assert quiz["level"] == "intermediate" and quiz["title"] == "alfa"
     question = quiz["questions"][0]
-    assert [s["locator"] for s in question["sources"]] == ["3. oldal", "4. oldal"]
+    assert set(question) == {"id", "position", "question", "options"}  # no answer key before submitting
     assert fakes.retrievals == [("alfa", 10, None)]
     assert "Pontosan 3 kérdést" in fakes.prompts[0] and "[1] A | 3. oldal | alfa" in fakes.prompts[0]
 
@@ -76,6 +76,9 @@ def test_generate_fetch_attempt_delete_quiz(client, fakes):
 
     attempt = client.post(f"/study/quizzes/{quiz['id']}/attempts", json={"answers": {str(question["id"]): 1}})
     assert attempt.status_code == 201 and attempt.json()["score"] == 1
+    released = attempt.json()["questions"][0]
+    assert released["correct_index"] == 1 and released["explanation"] == "e"
+    assert [s["locator"] for s in released["sources"]] == ["3. oldal", "4. oldal"]
     assert len(client.get(f"/study/quizzes/{quiz['id']}/attempts").json()) == 1
     bad = client.post(f"/study/quizzes/{quiz['id']}/attempts", json={"answers": {"999999": 0}})
     assert bad.status_code == 422

@@ -35,16 +35,12 @@ def _iso(value: datetime | None) -> str | None:
 # --- quizzes ------------------------------------------------------------------
 
 
-def serialize_question(row: QuizQuestion) -> dict:
-    return {
-        "id": row.id,
-        "position": row.position,
-        "question": row.question,
-        "options": row.options,
-        "correct_index": row.correct_index,
-        "explanation": row.explanation,
-        "sources": row.sources,
-    }
+def serialize_question(row: QuizQuestion, *, include_answers: bool = False) -> dict:
+    """Answer key (``correct_index``, explanation, sources) is only included on request, i.e. after an attempt."""
+    data = {"id": row.id, "position": row.position, "question": row.question, "options": row.options}
+    if include_answers:
+        data.update(correct_index=row.correct_index, explanation=row.explanation, sources=row.sources)
+    return data
 
 
 def serialize_attempt(row: QuizAttempt) -> dict:
@@ -90,6 +86,7 @@ def create_quiz_set(
     scope_sources: list[str],
     model: str | None,
     questions: list[dict],
+    include_answers: bool = False,
 ) -> dict:
     quiz = QuizSet(title=title, topic=topic, level=level, scope_sources=scope_sources, model=model)
     quiz.questions = [
@@ -105,7 +102,7 @@ def create_quiz_set(
     ]
     session.add(quiz)
     session.flush()
-    return get_quiz_set(session, quiz.id)
+    return get_quiz_set(session, quiz.id, include_answers=include_answers)
 
 
 def list_quiz_sets(session: Session) -> list[dict]:
@@ -113,11 +110,14 @@ def list_quiz_sets(session: Session) -> list[dict]:
     return [_quiz_summary(session, row) for row in rows]
 
 
-def get_quiz_set(session: Session, quiz_id: int) -> dict:
+def get_quiz_set(session: Session, quiz_id: int, *, include_answers: bool = False) -> dict:
     row = session.get(QuizSet, quiz_id)
     if row is None:
         raise NotFoundError(f"quiz {quiz_id} not found")
-    return {**_quiz_summary(session, row), "questions": [serialize_question(q) for q in row.questions]}
+    return {
+        **_quiz_summary(session, row),
+        "questions": [serialize_question(q, include_answers=include_answers) for q in row.questions],
+    }
 
 
 def delete_quiz_set(session: Session, quiz_id: int) -> None:
@@ -152,7 +152,8 @@ def record_attempt(session: Session, quiz_id: int, answers: dict[int, int | None
     session.add(attempt)
     session.flush()
     session.refresh(attempt)
-    return serialize_attempt(attempt)
+    # The answer key is released together with the result.
+    return {**serialize_attempt(attempt), "questions": [serialize_question(q, include_answers=True) for q in quiz.questions]}
 
 
 def list_attempts(session: Session, quiz_id: int) -> list[dict]:
