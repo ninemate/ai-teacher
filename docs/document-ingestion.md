@@ -42,7 +42,7 @@ Configured in the `schedule` section of the same file; disabled by default. Use 
 
 The scheduler runs inside the ingestion service. Scheduled runs and `POST /ingest/reindex` share one lock, so runs never overlap: a manual request during a run gets `409`, a schedule slot that arrives during a run is skipped (missed slots are not queued).
 
-`GET /ingest/schedule` returns the schedule (`enabled`, `interval_seconds`, `cron`, `next_run_at`, whether the last tick actually started a run), the watched folders, `running` / `current_file`, and `last_run`: `trigger` (`scheduled` or `manual`), `status`, `started_at`, `finished_at`, counts (`scanned`, `indexed`, `skipped`, `failed`, `deleted`), files scanned per folder, and up to 20 error messages. After a restart `last_run` is rebuilt from the database: status, counts, timestamps and the error messages, but not `trigger` or the per-folder counts. `GET /ingest/status` still returns the latest run as before.
+`GET /ingest/schedule` (bearer token like the other `/ingest` endpoints) returns the schedule (`enabled`, `interval_seconds`, `cron`, `next_run_at`, whether the last tick actually started a run), the watched folders, `running` / `current_file`, and `last_run`: `trigger` (`scheduled` or `manual`), `status`, `started_at`, `finished_at`, counts (`scanned`, `indexed`, `skipped`, `failed`, `deleted`), files scanned per folder, and up to 20 error messages. After a restart `last_run` is rebuilt from the database: status, counts, timestamps and the error messages, but not `trigger` or the per-folder counts. `GET /ingest/status` still returns the latest run as before.
 
 ## Incremental Behavior
 
