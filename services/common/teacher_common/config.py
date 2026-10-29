@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     )
     ingest_remove_missing: bool = Field(default=True, alias="INGEST_REMOVE_MISSING")
     ingest_scan_extensions: str = Field(
-        default=".pdf,.epub,.txt,.md,.docx",
+        default=".pdf,.epub,.txt,.md,.docx,.mobi,.azw,.azw3",
         alias="INGEST_SCAN_EXTENSIONS",
     )
     ingest_chunk_size: int = Field(default=1200, alias="INGEST_CHUNK_SIZE")

@@ -16,6 +16,7 @@ from teacher_common.documents import (
     hash_file,
     parse_document,
 )
+from teacher_common.ebooks import DrmProtectedError
 from teacher_common.embeddings import embed_passages, warmup_embeddings
 from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun, OcrRecord
 from teacher_common.ocr import record_ocr
@@ -227,6 +228,8 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
                     skipped += 1
             except Exception as exc:  # noqa: BLE001 - one broken file must not abort the run
                 failed += 1
+                if isinstance(exc, DrmProtectedError):
+                    logger.warning("Skipping DRM-protected ebook %s: %s", file_path, exc)
                 add_error(errors, f"{file_path}: {exc}")
                 store_error_record(file_path, str(exc))
 

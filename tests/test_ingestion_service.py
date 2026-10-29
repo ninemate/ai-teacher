@@ -157,6 +157,26 @@ def test_failed_file_is_counted_and_reported(svc, monkeypatch):
     assert svc.last_run["status"] == "completed"
 
 
+def test_drm_protected_ebook_is_skipped_logged_and_recorded(svc, monkeypatch, caplog):
+    from teacher_common.ebooks import DrmProtectedError
+
+    (svc.library / "watched" / "vedett.azw").write_bytes(b"x")
+    svc.settings.ingest_scan_extensions = ".txt,.azw"
+
+    def parse(path, file_hash=None):
+        if path.suffix == ".azw":
+            raise DrmProtectedError("vedett.azw is DRM-protected (Mobipocket/Kindle encryption); skipped.")
+        return types.SimpleNamespace(segments=[], title=None, author=None, language="en", ocr=None)
+
+    monkeypatch.setattr(svc, "parse_document", parse)
+    with caplog.at_level("WARNING", logger="teacher.ingestion"):
+        svc.run_indexing(False, True)
+    assert svc.last_run["failed"] == 1
+    assert svc.last_run["indexed"] == 1  # the plain text file is unaffected
+    assert any("DRM-protected" in r.getMessage() and "vedett.azw" in r.getMessage() for r in caplog.records)
+    assert "DRM-protected" in svc.last_run["errors"][0]
+
+
 def test_runs_never_overlap_and_manual_trigger_shares_the_lock(svc, monkeypatch):
     entered, release = threading.Event(), threading.Event()
     original = svc.index_one_document
