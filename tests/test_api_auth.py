@@ -157,6 +157,42 @@ def test_login_is_rate_limited(api_main, client):
     assert "teacher_session" not in client.cookies
 
 
+def test_parallel_wrong_passwords_cannot_outrun_the_limit(api_main, client):
+    from concurrent.futures import ThreadPoolExecutor
+
+    data = {"username": "apa", "password": "rossz-jelszo", "csrf_token": "form-token"}
+
+    def attempt(_: int) -> int:
+        guesser = TestClient(api_main.app, cookies={"teacher_login_csrf": "form-token"})
+        return guesser.post("/login", data=data).status_code
+
+    attempts = api_main.settings.teacher_login_max_attempts * 3
+    with ThreadPoolExecutor(attempts) as pool:
+        statuses = list(pool.map(attempt, range(attempts)))
+    assert statuses.count(401) == api_main.settings.teacher_login_max_attempts
+    assert statuses.count(429) == attempts - api_main.settings.teacher_login_max_attempts
+
+
+def test_rate_limiter_needs_at_least_one_attempt():
+    with pytest.raises(ValueError):
+        Settings(TEACHER_LOGIN_MAX_ATTEMPTS=0)
+
+
+def test_host_header_cannot_make_a_route_public(client):
+    for host in ["x/static/", "x/health?", "x/login#"]:
+        assert client.get("/sources", headers={"host": host}).status_code == 401
+        assert client.post("/chat", json={"question": "Mi a fotoszintézis?"}, headers={"host": host}).status_code == 401
+
+
+def test_non_ascii_csrf_values_are_refused_not_crashed(client):
+    login_form_token(client)
+    response = client.post("/login", data={"username": "apa", "password": PASSWORDS["apa"], "csrf_token": "ő"})
+    assert response.status_code == 400
+    login(client)
+    response = client.post("/chat", json={"question": "Mi a fotoszintézis?"}, headers={b"X-CSRF-Token": "é".encode()})
+    assert response.status_code == 403
+
+
 def test_redirect_after_login_stays_on_site(client):
     for target in ["//evil.example/", "https://evil.example/", "/\\evil.example"]:
         client.cookies.clear()

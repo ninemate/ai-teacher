@@ -43,7 +43,7 @@ def require_ingest_token(authorization: str = Header(default="")) -> None:
     if not expected:
         raise HTTPException(status_code=503, detail="TEACHER_INGEST_TOKEN is not configured")
     scheme, _, supplied = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied.strip(), expected):
+    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied.strip().encode(), expected.encode()):
         raise HTTPException(status_code=401, detail="Invalid or missing ingest token", headers={"WWW-Authenticate": "Bearer"})
 
 

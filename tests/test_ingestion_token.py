@@ -17,7 +17,9 @@ def test_health_is_open(client):
     assert client.get("/health").status_code == 200
 
 
-@pytest.mark.parametrize("headers", [{}, bearer("wrong"), {"Authorization": INGEST_TOKEN}])
+@pytest.mark.parametrize(
+    "headers", [{}, bearer("wrong"), {"Authorization": INGEST_TOKEN}, {b"Authorization": "Bearer ő".encode()}]
+)
 def test_ingest_endpoints_refuse_without_token(client, headers):
     assert client.get("/ingest/status", headers=headers).status_code == 401
     assert client.post("/ingest/reindex", json={}, headers=headers).status_code == 401

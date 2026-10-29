@@ -52,6 +52,11 @@ class ReindexRequest(BaseModel):
     remove_missing: bool = True
 
 
+def _route_path(request: Request) -> str:
+    # The path the router matches on. `request.url.path` is rebuilt from the Host header and can be spoofed.
+    return request.scope["path"]
+
+
 def _is_public(path: str) -> bool:
     return path in PUBLIC_PATHS or path.startswith("/static/")
 
@@ -62,12 +67,12 @@ async def require_session(request: Request, call_next):
     request.state.session = None
     if request.method in UNSAFE_METHODS and not auth.origin_allowed(request):
         return JSONResponse({"detail": "A kérés másik oldalról érkezett."}, status_code=403)
-    if settings.auth_enabled and not _is_public(request.url.path):
+    if settings.auth_enabled and not _is_public(_route_path(request)):
         token = request.cookies.get(auth.SESSION_COOKIE)
         session = await run_in_threadpool(auth.load_session, token, auth_users)
         if session is None:
             if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
-                target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+                target = _route_path(request) + (f"?{request.url.query}" if request.url.query else "")
                 return RedirectResponse(f"/login?next={quote(target)}", status_code=303)
             return JSONResponse({"detail": "Bejelentkezés szükséges."}, status_code=401)
         if request.method in UNSAFE_METHODS and not auth.csrf_valid(request, session):
@@ -82,9 +87,10 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    if not request.url.path.startswith(("/docs", "/redoc")):
+    path = _route_path(request)
+    if not path.startswith(("/docs", "/redoc")):
         response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
-    if not request.url.path.startswith("/static/"):
+    if not path.startswith("/static/"):
         response.headers.setdefault("Cache-Control", "no-store")
     return response
 
@@ -164,13 +170,13 @@ def login(
         return RedirectResponse(next_path, status_code=303)
 
     cookie_csrf = request.cookies.get(auth.LOGIN_CSRF_COOKIE, "")
-    if not cookie_csrf or not secrets.compare_digest(cookie_csrf, csrf_token):
+    if not auth.same_secret(cookie_csrf, csrf_token):
         return _render_login(request, next_path, "Az űrlap lejárt. Kérlek, próbáld újra.", status_code=400)
 
     username = username.strip()
     client_key = f"ip:{request.client.host if request.client else 'unknown'}"
     limit_keys = [client_key] + ([f"user:{username}"] if username in auth_users else [])
-    retry_after = login_limiter.retry_after(limit_keys)
+    retry_after = login_limiter.acquire(limit_keys)
     if retry_after:
         minutes = math.ceil(retry_after / 60)
         response = _render_login(
@@ -183,9 +189,9 @@ def login(
         return response
 
     if len(password) > 1024 or not auth.verify_credentials(auth_users, username, password):
-        login_limiter.record_failure(limit_keys)
         return _render_login(request, next_path, "Hibás felhasználónév vagy jelszó.", status_code=401)
 
+    login_limiter.release(limit_keys)
     login_limiter.reset(f"user:{username}")
     ttl_seconds = settings.teacher_session_ttl_hours * 3600
     token, _ = auth.create_session(username, auth_users[username], ttl_seconds)

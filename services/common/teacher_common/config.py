@@ -51,10 +51,10 @@ class Settings(BaseSettings):
     teacher_auth_users: str = Field(default="", alias="TEACHER_AUTH_USERS")
     teacher_auth_users_file: str = Field(default="", alias="TEACHER_AUTH_USERS_FILE")
     teacher_auth_disabled: bool = Field(default=False, alias="TEACHER_AUTH_DISABLED")
-    teacher_session_ttl_hours: int = Field(default=720, alias="TEACHER_SESSION_TTL_HOURS")
+    teacher_session_ttl_hours: int = Field(default=720, ge=1, alias="TEACHER_SESSION_TTL_HOURS")
     teacher_cookie_secure: Literal["auto", "true", "false"] = Field(default="auto", alias="TEACHER_COOKIE_SECURE")
-    teacher_login_max_attempts: int = Field(default=10, alias="TEACHER_LOGIN_MAX_ATTEMPTS")
-    teacher_login_window_seconds: int = Field(default=900, alias="TEACHER_LOGIN_WINDOW_SECONDS")
+    teacher_login_max_attempts: int = Field(default=10, ge=1, alias="TEACHER_LOGIN_MAX_ATTEMPTS")
+    teacher_login_window_seconds: int = Field(default=900, ge=1, alias="TEACHER_LOGIN_WINDOW_SECONDS")
     teacher_ingest_token: str = Field(default="", alias="TEACHER_INGEST_TOKEN")
     ingestion_base_url: str = Field(
         default="http://ingestion:8081",

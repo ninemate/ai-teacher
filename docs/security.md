@@ -78,6 +78,8 @@ If `TEACHER_AUTH_USERS` is empty the app stays closed: nobody can log in, and th
 
 Failed logins are counted per client address and per (existing) username in a sliding window: `TEACHER_LOGIN_MAX_ATTEMPTS` (default 10) within `TEACHER_LOGIN_WINDOW_SECONDS` (default 900). Once either limit is hit, the login page answers `429` with `Retry-After` and a Hungarian message, even for the right password, until the window passes. A successful login clears that user's counter.
 
+An attempt is counted before its password is checked, in the same step as the limit check, so a burst of parallel guesses gets exactly `TEACHER_LOGIN_MAX_ATTEMPTS` password checks, not one per request. The limits must be at least 1; `0` stops the API from starting.
+
 Notes:
 
 - The counter lives in the API process's memory. The API runs as a single process; a restart clears the counters.

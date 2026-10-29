@@ -96,8 +96,17 @@ def delete_session(token: str | None) -> None:
         db.execute(delete(AuthSession).where(AuthSession.token_hash == _token_hash(token)))
 
 
+def same_secret(supplied: str, expected: str) -> bool:
+    """Constant-time comparison that also accepts non-ASCII input (str compare_digest raises on it)."""
+    return bool(supplied) and secrets.compare_digest(supplied.encode(), expected.encode())
+
+
 class LoginRateLimiter:
-    """Counts failed logins per key in a sliding window. In memory: the API runs as a single process."""
+    """Counts login attempts per key in a sliding window. In memory: the API runs as a single process.
+
+    `acquire` checks and counts an attempt in one step, so parallel guesses cannot all pass the check
+    before any of them is counted; `release` takes the attempt back once the password proved right.
+    """
 
     def __init__(self, max_attempts: int, window_seconds: int) -> None:
         self.max_attempts = max_attempts
@@ -115,27 +124,34 @@ class LoginRateLimiter:
             self._failures.pop(key, None)
         return attempts
 
-    def retry_after(self, keys: list[str]) -> int:
-        """Seconds until a blocked key frees up, or 0 when none is blocked."""
-        now = time.monotonic()
-        with self._lock:
-            waits = [
-                int(attempts[0] + self.window_seconds - now) + 1
-                for attempts in (self._prune(key, now) for key in keys)
-                if len(attempts) >= self.max_attempts
-            ]
-        return max(waits, default=0)
-
-    def record_failure(self, keys: list[str]) -> None:
+    def acquire(self, keys: list[str]) -> int:
+        """Count an attempt and return 0, or return the seconds until a blocked key frees up."""
         now = time.monotonic()
         with self._lock:
             if len(self._failures) > 10_000:
                 for key in list(self._failures):
                     self._prune(key, now)
-            for key in keys:
-                attempts = self._prune(key, now)
+            current = {key: self._prune(key, now) for key in keys}
+            waits = [
+                int(attempts[0] + self.window_seconds - now) + 1
+                for attempts in current.values()
+                if len(attempts) >= self.max_attempts
+            ]
+            if waits:
+                return max(waits)
+            for key, attempts in current.items():
                 attempts.append(now)
                 self._failures[key] = attempts
+        return 0
+
+    def release(self, keys: list[str]) -> None:
+        with self._lock:
+            for key in keys:
+                attempts = self._failures.get(key)
+                if attempts:
+                    attempts.pop()
+                if not attempts:
+                    self._failures.pop(key, None)
 
     def reset(self, key: str | None = None) -> None:
         with self._lock:
@@ -173,8 +189,7 @@ def origin_allowed(request: Request) -> bool:
 
 
 def csrf_valid(request: Request, session: SessionInfo) -> bool:
-    supplied = request.headers.get(CSRF_HEADER, "")
-    return bool(supplied) and secrets.compare_digest(supplied, session.csrf_token)
+    return same_secret(request.headers.get(CSRF_HEADER, ""), session.csrf_token)
 
 
 def safe_next(target: str | None) -> str:
