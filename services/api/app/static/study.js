@@ -81,8 +81,12 @@
   async function generate(kind) {
     const topic = $("study-topic").value.trim();
     const source_paths = selectedSources();
-    if (topic.length < 3 && !source_paths.length) {
+    if (!topic && !source_paths.length) {
       setStatus("Adj meg egy témát vagy válassz dokumentumot.", true);
+      return;
+    }
+    if (topic && topic.length < 3) {
+      setStatus("A téma legalább 3 karakter legyen.", true);
       return;
     }
     const body = { level: levelField.value, source_paths };
@@ -179,7 +183,6 @@
     }
     const queue = [...cards];
     const total = queue.length;
-    let done = 0;
 
     function finish() {
       sessionEl.replaceChildren(
@@ -218,7 +221,7 @@
       };
       draw();
       sessionEl.replaceChildren(
-        el("div", { class: "session" }, [el("div", { class: "progress" }, `${done + 1}. / ${total} kártya`), face, controls])
+        el("div", { class: "session" }, [el("div", { class: "progress" }, `${total - queue.length} / ${total} kártya kész`), face, controls])
       );
     }
 
@@ -226,8 +229,7 @@
       try {
         const updated = await api(`/study/cards/${card.id}/review`, { method: "POST", body: JSON.stringify({ grade }) });
         queue.shift();
-        done += 1;
-        // A failed card comes back within this session.
+        // A failed card comes back within this session and counts as done only once passed.
         if (grade === "again") queue.push(updated);
         show();
       } catch (err) {
