@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv venv
-          uv pip install ruff mypy pytest
+          uv pip install ruff mypy pytest httpx
           uv pip install -r services/api/requirements.txt
           uv pip install -r services/ingestion/requirements.txt
 

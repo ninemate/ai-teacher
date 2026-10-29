@@ -78,7 +78,7 @@ http://127.0.0.1:8080
 
 ```bash
 pip install pytest sqlalchemy pydantic-settings fastapi httpx \
-  argon2-cffi python-multipart jinja2 \
+  argon2-cffi python-multipart jinja2 pyyaml croniter \
   PyMuPDF Pillow pytesseract beautifulsoup4 ebooklib lingua-language-detector python-docx
 python -m pytest
 ```
