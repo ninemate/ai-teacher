@@ -3,7 +3,7 @@
 # ${TEACHER_PROXY_HTTP_PORT} redirects there. See docs/https.md.
 services:
   proxy:
-    image: caddy:2.9.1-alpine
+    image: caddy:2.11.7-alpine
     restart: unless-stopped
     depends_on:
       api:
