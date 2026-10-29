@@ -112,13 +112,14 @@ def test_state_changing_requests_need_csrf_token(client):
     assert client.post("/logout").status_code == 403
 
 
-def test_cross_origin_post_is_rejected(client):
+@pytest.mark.parametrize("origin", ["https://evil.example", "https://[", "null"])
+def test_cross_origin_post_is_rejected(client, origin):
     login(client)
     csrf = session_csrf(client)
     response = client.post(
         "/chat",
         json={"question": "Mi a fotoszintézis?"},
-        headers={"X-CSRF-Token": csrf, "Origin": "https://evil.example"},
+        headers={"X-CSRF-Token": csrf, "Origin": origin},
     )
     assert response.status_code == 403
     same_origin = client.post(

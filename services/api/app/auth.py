@@ -185,7 +185,11 @@ def origin_allowed(request: Request) -> bool:
     origin = request.headers.get("origin")
     if origin is None:
         return True
-    return urlsplit(origin).netloc == request.headers.get("host", "")
+    try:
+        netloc = urlsplit(origin).netloc
+    except ValueError:
+        return False
+    return netloc == request.headers.get("host", "")
 
 
 def csrf_valid(request: Request, session: SessionInfo) -> bool:
