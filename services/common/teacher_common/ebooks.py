@@ -9,6 +9,7 @@ and refused with a clear reason. The source file is only read, never written.
 import logging
 import shutil
 import struct
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -84,22 +85,26 @@ def convert_ebook(path: Path) -> ConvertedEbook:
     """Unpack a MOBI/AZW/AZW3 into a temporary EPUB or HTML file. Raises DrmProtectedError or ValueError."""
     check_readable(path)
     try:
-        from mobi import extract
+        from mobi.kindleunpack import unpackBook
     except ImportError as exc:
         raise ValueError(f"MOBI/AZW support needs the 'mobi' package, which is not installed: {exc}") from exc
-    workdir: Path | None = None
+    # Our own temp dir (mobi.extract() makes one we could not clean up when it raises); the unpacker reads the
+    # book from a copy in there, so it never touches the share.
+    workdir = Path(tempfile.mkdtemp(prefix="mobiex"))
     try:
-        # extract() copies a file object into its temp dir, so the unpacker never touches the share.
-        with path.open("rb") as handle:
-            tempdir, extracted = extract(handle)
-        workdir = Path(tempdir)
+        source = workdir / "book.mobi"
+        shutil.copyfile(path, source)
+        unpackBook(str(source), str(workdir), epubver="A")
     except Exception as exc:  # noqa: BLE001 - the unpacker raises assorted errors on corrupt books
+        shutil.rmtree(workdir, ignore_errors=True)
         raise ValueError(f"Could not convert {path.name}: {exc}") from exc
-    result = Path(extracted)
-    suffix = result.suffix.lower()
-    if suffix == ".epub":
-        return ConvertedEbook(result, "epub", workdir)
-    if suffix in {".html", ".htm"}:
-        return ConvertedEbook(result, "html", workdir)
+    for kind, found in (
+        ("epub", workdir / "mobi8" / "book.epub"),
+        ("html", workdir / "mobi7" / "book.html"),
+    ):
+        if found.exists():
+            return ConvertedEbook(found, kind, workdir)
     shutil.rmtree(workdir, ignore_errors=True)
-    raise ValueError(f"{path.name} is a print-replica/PDF Kindle book; it has no text to extract")
+    if (workdir / "book.001.pdf").exists():
+        raise ValueError(f"{path.name} is a print-replica/PDF Kindle book; it has no text to extract")
+    raise ValueError(f"Could not convert {path.name}: the unpacker produced no readable output")

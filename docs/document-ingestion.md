@@ -27,9 +27,9 @@ plain `pip`; the Dockerfile checks the import at build time.
 - **DRM.** The MOBI header is checked before anything is unpacked. An encrypted book is never decrypted: it is marked `failed`
   with the reason (`... is DRM-protected ...; skipped`), logged as a warning by `teacher.ingestion`, and shown in the run's
   error list. Kindle KFX/Topaz containers and print-replica books are also refused with a reason.
-- **Read-only share.** Unpacking happens in a temporary directory that is removed afterwards; the book on the share is only read.
+- **Read-only share.** Unpacking happens in a temporary directory that is removed afterwards, also when conversion fails; the book on the share is only read.
 - **Scanning.** `.mobi`, `.azw` and `.azw3` are now part of the default `scan_extensions` / `INGEST_SCAN_EXTENSIONS`. If you set
-  that variable or a folder's `extensions` yourself, add them there.
+  that variable or a folder's `extensions` yourself, add them there (the Ansible variable `teacher_ingest_scan_extensions` defaults to the full list). Kindle books that failed with the old "not enabled" message are retried on the next run without a full reindex.
 - Image-only (comic/manga) books have no text and fail with "No extractable text found".
 
 ## Watched Folders

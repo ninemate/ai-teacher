@@ -177,6 +177,26 @@ def test_drm_protected_ebook_is_skipped_logged_and_recorded(svc, monkeypatch, ca
     assert "DRM-protected" in svc.last_run["errors"][0]
 
 
+def test_kindle_books_that_failed_before_support_are_retried(svc):
+    from teacher_common.db import session_scope
+
+    book = svc.library / "watched" / "regi.mobi"
+    book.write_bytes(b"x")
+    svc.settings.ingest_scan_extensions = ".txt,.mobi"
+    stat = book.stat()
+    with session_scope() as session:
+        session.add(svc.DocumentRecord(
+            source_path=str(book), source_hash="unknown", file_type="mobi", size_bytes=stat.st_size,
+            modified_timestamp=int(stat.st_mtime), title="regi", status="failed", chunk_count=0, deleted=False,
+            error_message="mobi is not enabled in the MVP parser. Convert to EPUB/PDF/TXT",
+        ))
+    assert str(book) in svc.load_reprocess_paths()
+    svc.settings.ocr_enabled = False
+    assert str(book) in svc.load_reprocess_paths()
+    svc.run_indexing(False, True)
+    assert svc.last_run["indexed"] == 2  # a.txt and the formerly failed book (parsing is stubbed)
+
+
 def test_runs_never_overlap_and_manual_trigger_shares_the_lock(svc, monkeypatch):
     entered, release = threading.Event(), threading.Event()
     original = svc.index_one_document

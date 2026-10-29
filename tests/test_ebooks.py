@@ -1,6 +1,7 @@
 """MOBI/AZW/AZW3 conversion. Small MOBI 6 books are written by hand (no binary fixtures to keep in the repo)."""
 
 import importlib.util
+import shutil
 import struct
 import sys
 from pathlib import Path
@@ -192,21 +193,42 @@ def test_kf8_style_epub_output_goes_through_epub_parser(tmp_path, monkeypatch):
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
     book.spine = ["nav", chapter]
-    work = tmp_path / "work"
-    work.mkdir()
-    epub.write_epub(str(work / "k.epub"), book)
+    built = tmp_path / "built.epub"
+    epub.write_epub(str(built), book)
     src = make_mobi(tmp_path / "k.azw3", html_book("x"))
 
     monkeypatch.setattr(ebooks, "check_readable", lambda p: None)
-    monkeypatch.setattr("mobi.extract", lambda handle: (str(work), str(work / "k.epub")))
+    created = []
+
+    def fake_unpack(infile, outdir, epubver="A"):
+        created.append(Path(outdir))
+        (Path(outdir) / "mobi8").mkdir()
+        shutil.copyfile(built, Path(outdir) / "mobi8" / "book.epub")
+
+    monkeypatch.setattr("mobi.kindleunpack.unpackBook", fake_unpack)
     parsed = documents.parse_document(src)
     assert parsed.title == "Kéttannyelvű kötet"
     assert parsed.author == "Kovács Ödön"
     assert "Árvíztűrő tükörfúrógép" in parsed.segments[0].text
-    assert not work.exists()
+    assert created and not created[0].exists()
 
 
 def test_scan_picks_up_ebook_extensions_by_default():
     from teacher_common.config import get_settings
 
     assert {".mobi", ".azw", ".azw3"} <= set(get_settings().scan_extensions)
+
+
+def test_failed_unpack_leaves_no_temp_dir(tmp_path, monkeypatch):
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
+    monkeypatch.setattr(ebooks.tempfile, "tempdir", str(tmp))
+
+    def explode(infile, outdir, epubver="A"):
+        raise RuntimeError("corrupt index")
+
+    monkeypatch.setattr("mobi.kindleunpack.unpackBook", explode)
+    src = make_mobi(tmp_path / "k.mobi", html_book(TEXT_HU))
+    with pytest.raises(ValueError, match="corrupt index"):
+        documents.parse_document(src)
+    assert list(tmp.iterdir()) == []
