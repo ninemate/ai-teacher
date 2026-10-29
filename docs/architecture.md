@@ -9,7 +9,7 @@ The MVP is a text-first RAG system designed for a dedicated teacher-agent VM. It
 - `qdrant`: vector storage
 - `ollama`: local LLM runtime
 - `sqlite`: local metadata state stored on the host, not a separate container
-- `voice`: optional future service for STT/TTS
+- `voice`: optional offline Hungarian STT (faster-whisper) and TTS (Piper), added with `compose/docker-compose.voice.example.yml`
 
 ## High-Level Flow
 
@@ -110,11 +110,18 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  Mic[Phone Microphone] --> STT[Optional STT Service]
-  STT --> API[Teacher API]
-  API --> TTS[Optional TTS Service]
-  TTS --> Audio[Hungarian Audio Reply]
+  Mic[Phone Microphone] -->|webm/mp4 upload| API[Teacher API, login + CSRF]
+  API -->|/voice/transcribe| STT[faster-whisper large-v3-turbo, CPU]
+  STT --> Text[Question text, user checks it]
+  Text --> Chat[POST /chat]
+  Chat --> Answer[Hungarian answer]
+  Answer -->|/voice/speak| TTS[Piper hu_HU voice, CPU]
+  TTS --> Audio[MP3 in the browser's player]
 ```
+
+- The `voice` container is internal only; the API proxies `/voice/*` and reports at `/voice/status` whether it is there. The UI shows the voice controls only then.
+- Both engines run on the CPU by default, so the GPU stays with the chat model. `compose/docker-compose.voice.nvidia.example.yml` moves Whisper to the GPU (about 1-1.5 GB, unloaded when idle).
+- Engine choice, measurements and configuration: [voice-hungarian.md](voice-hungarian.md).
 
 ## VM Split Example
 

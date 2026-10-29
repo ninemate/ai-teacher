@@ -106,10 +106,21 @@ curl -X POST http://127.0.0.1:8081/ingest/reindex \
   -d '{"full_reindex": false, "remove_missing": true}'
 ```
 
+## Voice Service
+
+The optional `voice` container has no published port and no authentication of its own, like Qdrant and Ollama: only containers on the Compose network reach it. Browsers reach it only through the API's `/voice/status`, `/voice/transcribe` and `/voice/speak`, which need a session, and the POSTs also need the CSRF token.
+
+- Uploads are capped at `VOICE_MAX_UPLOAD_MB` in both the API and the voice service, and recordings at `VOICE_STT_MAX_SECONDS`. Text to read is capped at `VOICE_TTS_MAX_CHARS`.
+- The client's file name is never used as a path: only its extension is passed on, as a decoder hint, and uploads go to a private temporary directory that is deleted after transcription.
+- A voice can only be chosen from `VOICE_TTS_VOICES`, so a request cannot point the loader at another file.
+- Recordings and transcripts are not stored or logged; the log has only durations and timings.
+- The UI plays the generated audio from `blob:` URLs, which the CSP allows with `media-src 'self' blob:`.
+
 ## Exposure Rules
 
 - Keep Qdrant internal.
 - Keep Ollama internal.
+- Keep the voice service internal.
 - Keep the ingestion port on `127.0.0.1`.
 - Prefer VPN for remote access, with HTTPS and app login on top.
 - Never run with `TEACHER_AUTH_DISABLED=true` on a reachable host.

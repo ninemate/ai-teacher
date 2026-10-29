@@ -53,6 +53,7 @@ jobs:
       - name: Build Docker images
         run: |
           docker compose --env-file .env -f compose/docker-compose.yml build --parallel
+          docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-compose.voice.example.yml build voice
 
   deploy:
     runs-on: [self-hosted, linux, x64]

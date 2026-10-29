@@ -7,5 +7,6 @@
 - Is the RTX 3070 dedicated to this VM permanently?
 - Which Hungarian-capable chat model performs best on the actual materials?
 - ~~Is scheduled indexing preferred over manual reindex?~~ Scheduled, over watched folders (see `docs/document-ingestion.md`).
-- Is offline Hungarian TTS quality good enough to justify the extra service?
+- Is offline Hungarian TTS quality good enough to justify the extra service? Piper's Hungarian voices are intelligible and need no GPU, so the service is built as an optional overlay (see `docs/voice-hungarian.md`). Whether the listener likes Imre, Anna or Berta is still to be tried on the phone.
+- Is CPU dictation fast enough on the VM, or should Whisper move to the GPU?
 - Should quizzes and flashcards be stored, or generated on demand only?

@@ -6,6 +6,8 @@
         + teacher_compose_overlays
         + (['compose/docker-compose.nvidia.example.yml'] if teacher_gpu_enabled | bool else [])
         + (['compose/docker-compose.voice.example.yml'] if teacher_enable_voice | bool else [])
+        + (['compose/docker-compose.voice.nvidia.example.yml']
+           if teacher_enable_voice | bool and teacher_voice_gpu_enabled | bool else [])
       }}
 
 - name: Ensure teacher stack directories exist

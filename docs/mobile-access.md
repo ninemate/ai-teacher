@@ -23,6 +23,13 @@ Use `Caddy` with HTTPS if VPN is not acceptable. The app login still applies; Ca
 - "Kijelentkezés" at the top of the page logs out on the server too.
 - After 10 wrong passwords in 15 minutes the login page asks to wait before trying again.
 
+## Voice on the Phone
+
+When the voice overlay runs (see [voice-hungarian.md](voice-hungarian.md)), the page shows **Diktálás** under the question and **Felolvasás** under the answer.
+
+- Phone browsers only allow the microphone over HTTPS. Over plain HTTP (e.g. a bare VPN address) the page offers **Hangfelvétel feltöltése** instead, which sends a clip recorded with the phone's recorder app.
+- Read-aloud works over HTTP too. The phone may require one tap on the player before sound starts.
+
 ## Non-Goals
 
 - No unauthenticated UI, even on the VPN
@@ -33,6 +40,6 @@ Use `Caddy` with HTTPS if VPN is not acceptable. The app login still applies; Ca
 1. Father opens the phone browser.
 2. He connects through VPN or a protected HTTPS entrypoint.
 3. He logs in once on that phone.
-4. He types a Hungarian question.
-5. He gets a Hungarian answer and source list.
+4. He types or dictates a Hungarian question.
+5. He gets a Hungarian answer and source list, and can have the answer read aloud.
 

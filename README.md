@@ -14,7 +14,8 @@ This repository is intentionally separate from any GPU image-generation stack. I
 - Hungarian-first RAG chat API and mobile-friendly web UI
 - Stored quizzes and flashcard decks generated from the library, with source references, spaced-repetition review for cards and quiz attempt history (`/study/...`)
 - Ansible-driven deployment to a separate VM
-- Optional NVIDIA and optional voice scaffolding
+- Optional offline Hungarian voice: dictation with faster-whisper and read-aloud with Piper, both on the CPU by default (`make dev-up-voice`, see `docs/voice-hungarian.md`)
+- Optional NVIDIA overlay
 
 ## Chosen MVP Stack
 
@@ -39,7 +40,7 @@ Why this stack:
 - Source documents remain on the mounted share.
 - Indexed chunk text, vectors, SQLite metadata, model cache, and logs are stored locally.
 - 7B to 8B quantized chat models are the practical starting point for `8 GB VRAM`.
-- Voice is optional because Hungarian STT/TTS quality and resource use need separate validation.
+- Voice is optional and uses no VRAM by default; the voice container needs about 2-2.5 GB of RAM at peak (Whisper turbo plus Piper voices).
 
 ## Quick Start
 
@@ -83,7 +84,8 @@ pip install pytest sqlalchemy pydantic-settings fastapi httpx \
 python -m pytest
 ```
 
-The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed. The OCR tests mock Tesseract;
+The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed. The voice tests mock Whisper and Piper;
+a real Piper-to-Whisper round trip runs when `VOICE_TEST_PIPER_DIR` points to downloaded voices (see `docs/voice-hungarian.md`). The OCR tests mock Tesseract;
 a smoke test with the real engine runs only when `tesseract` with the `hun` and `eng` language packs is installed.
 The `index_one_document` tests also need `qdrant-client` and `sentence-transformers` (or the full
 `services/ingestion/requirements.txt`) and are skipped without them.
@@ -131,14 +133,14 @@ Implemented now:
 - Incremental indexing behavior
 - Mobile-friendly web UI
 - Ansible structure and deployment roles
-- Optional voice placeholder service
+- Optional offline Hungarian voice service: Piper TTS (three Hungarian voices) and faster-whisper STT, wired into the API and UI
 - OCR (Tesseract, `hun+eng`) for scanned PDF pages, cached locally
 
 Not fully implemented yet:
 
 - MOBI/AZW conversion pipeline
 - Production-grade SSO or identity provider integration
-- Real Hungarian offline STT/TTS backend wiring
+- Voice latency and GPU use measured on the target VM (the numbers in `docs/voice-hungarian.md` are from a desktop CPU)
 
 ## Next Docs
 
