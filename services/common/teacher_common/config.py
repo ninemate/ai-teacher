@@ -67,10 +67,8 @@ class Settings(BaseSettings):
         alias="INGESTION_BASE_URL",
     )
     voice_base_url: str = Field(default="http://voice:8090", alias="VOICE_BASE_URL")
-    voice_stt_backend: str = Field(default="faster-whisper", alias="VOICE_STT_BACKEND")
-    voice_tts_backend: str = Field(default="disabled", alias="VOICE_TTS_BACKEND")
-    voice_stt_model: str = Field(default="base", alias="VOICE_STT_MODEL")
-    voice_stt_device: str = Field(default="auto", alias="VOICE_STT_DEVICE")
+    voice_max_upload_mb: float = Field(default=15, gt=0, alias="VOICE_MAX_UPLOAD_MB")
+    voice_timeout_seconds: float = Field(default=300, gt=0, alias="VOICE_TIMEOUT_SECONDS")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
     ocr_dpi: int = Field(default=300, alias="OCR_DPI")
     ocr_language: str = Field(default="hun+eng", alias="OCR_LANGUAGE")

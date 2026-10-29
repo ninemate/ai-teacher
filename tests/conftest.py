@@ -81,6 +81,13 @@ def ingestion_main():
     return _load("ingestion_main", ROOT / "services" / "ingestion" / "app" / "main.py")
 
 
+@pytest.fixture(scope="session")
+def voice_main():
+    """The voice service as its container runs it. Engines load lazily, so this works without them installed."""
+    sys.path.insert(0, str(ROOT / "services" / "voice" / "app"))
+    return _load("voice_main", ROOT / "services" / "voice" / "app" / "main.py")
+
+
 @pytest.fixture
 def session():
     from teacher_common import models, study_models  # noqa: F401
