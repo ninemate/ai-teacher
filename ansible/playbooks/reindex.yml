@@ -1,10 +1,25 @@
 - hosts: teacher
   become: true
   tasks:
+    - name: Read the ingestion token from the deployed environment file
+      ansible.builtin.slurp:
+        src: "{{ teacher_stack_dir }}/.env"
+      register: teacher_env_file
+      no_log: true
+
+    - name: Extract the ingestion token
+      ansible.builtin.set_fact:
+        teacher_ingest_token_effective: >-
+          {{ teacher_env_file.content | b64decode
+             | regex_findall('(?m)^TEACHER_INGEST_TOKEN=(\S+)$') | first | default('') }}
+      no_log: true
+
     - name: Trigger manual reindex
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ teacher_ingest_port }}/ingest/reindex"
         method: POST
+        headers:
+          Authorization: "Bearer {{ teacher_ingest_token_effective }}"
         body_format: json
         body:
           full_reindex: false

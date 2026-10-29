@@ -1,9 +1,11 @@
+import logging
+import secrets
 import threading
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from teacher_common.config import get_settings
@@ -35,8 +37,20 @@ class ReindexRequest(BaseModel):
     remove_missing: bool = True
 
 
+def require_ingest_token(authorization: str = Header(default="")) -> None:
+    """Only callers holding TEACHER_INGEST_TOKEN (the API, ops scripts) may use /ingest endpoints."""
+    expected = settings.teacher_ingest_token
+    if not expected:
+        raise HTTPException(status_code=503, detail="TEACHER_INGEST_TOKEN is not configured")
+    scheme, _, supplied = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not secrets.compare_digest(supplied.strip().encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="Invalid or missing ingest token", headers={"WWW-Authenticate": "Bearer"})
+
+
 @app.on_event("startup")
 def startup_event() -> None:
+    if not settings.teacher_ingest_token:
+        logging.getLogger("uvicorn").warning("TEACHER_INGEST_TOKEN is empty: /ingest endpoints refuse every call.")
     Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
     ensure_collection()
@@ -55,7 +69,7 @@ def health():
     }
 
 
-@app.get("/ingest/status")
+@app.get("/ingest/status", dependencies=[Depends(require_ingest_token)])
 def ingest_status():
     with session_scope() as session:
         row = session.execute(select(IngestRun).order_by(IngestRun.started_at.desc())).scalars().first()
@@ -76,7 +90,7 @@ def ingest_status():
         }
 
 
-@app.post("/ingest/reindex")
+@app.post("/ingest/reindex", dependencies=[Depends(require_ingest_token)])
 def reindex(payload: ReindexRequest):
     if current_state["running"]:
         raise HTTPException(status_code=409, detail="Indexing already running")

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Bejelentkezés – Teacher Agent</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="shell login-shell">
+      <section class="hero">
+        <p class="eyebrow">Self-hosted teacher agent</p>
+        <h1>Bejelentkezés</h1>
+        <p class="lead">A tanulósegéd használatához jelentkezz be.</p>
+      </section>
+
+      <form class="panel" method="post" action="/login">
+        {% if error %}
+        <p class="form-error" role="alert">{{ error }}</p>
+        {% endif %}
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <input type="hidden" name="next" value="{{ next }}" />
+
+        <label for="username">Felhasználónév</label>
+        <input
+          id="username"
+          name="username"
+          type="text"
+          autocomplete="username"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
+          required
+          autofocus
+        />
+
+        <label for="password">Jelszó</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+
+        <button type="submit" class="primary">Belépés</button>
+      </form>
+    </main>
+  </body>
+</html>

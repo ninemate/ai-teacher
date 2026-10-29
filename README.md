@@ -43,7 +43,7 @@ Why this stack:
 
 ## Quick Start
 
-1. Copy `.env.example` to `.env` and adjust paths and credentials.
+1. Copy `.env.example` to `.env` and adjust paths and credentials. Set `TEACHER_AUTH_USERS` (`make hash-password`) and `TEACHER_INGEST_TOKEN` (`openssl rand -hex 32`).
 2. Ensure your network share is mounted at `TEACHER_MOUNT_POINT`.
 3. Start the local dev stack:
 
@@ -63,6 +63,7 @@ docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-c
 
 ```bash
 curl -X POST http://127.0.0.1:8081/ingest/reindex \
+  -H "Authorization: Bearer $(sed -n 's/^TEACHER_INGEST_TOKEN=//p' .env)" \
   -H 'Content-Type: application/json' \
   -d '{"full_reindex": false, "remove_missing": true}'
 ```
@@ -101,7 +102,8 @@ flowchart TD
 - Do not expose the UI publicly without VPN or HTTPS plus authentication.
 - Do not commit network-share credentials or `.env`.
 - Prefer `WireGuard` or `Tailscale` for phone access.
-- If you expose over HTTPS, enable app auth and/or reverse-proxy auth.
+- The UI and API require a login (`TEACHER_AUTH_USERS`, argon2 hashes); see `docs/security.md`.
+- The ingestion `/ingest` endpoints require `TEACHER_INGEST_TOKEN`.
 - Indexed chunk text is stored locally. Treat the local SSD as sensitive data.
 
 ## Repo Layout

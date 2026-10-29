@@ -49,6 +49,21 @@
     dest: "{{ teacher_stack_dir }}/services/"
     mode: preserve
 
+- name: Read the current environment file
+  ansible.builtin.slurp:
+    src: "{{ teacher_stack_dir }}/.env"
+  register: teacher_current_env
+  failed_when: false
+
+- name: Keep or generate the ingestion token
+  ansible.builtin.set_fact:
+    teacher_ingest_token_effective: >-
+      {{ teacher_ingest_token
+         or (teacher_current_env.content | default('') | b64decode
+             | regex_findall('(?m)^TEACHER_INGEST_TOKEN=(\S+)$') | first | default(''))
+         or lookup('ansible.builtin.password', '/dev/null', chars=['ascii_letters', 'digits'], length=48) }}
+  no_log: true
+
 - name: Template environment file
   ansible.builtin.template:
     src: .env.j2
