@@ -77,11 +77,16 @@ http://127.0.0.1:8080
 ## Tests
 
 ```bash
-pip install pytest sqlalchemy pydantic-settings fastapi httpx
+pip install pytest sqlalchemy pydantic-settings fastapi httpx \
+  argon2-cffi python-multipart jinja2 pyyaml croniter \
+  PyMuPDF Pillow pytesseract beautifulsoup4 ebooklib lingua-language-detector python-docx
 python -m pytest
 ```
 
-The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed.
+The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed. The OCR tests mock Tesseract;
+a smoke test with the real engine runs only when `tesseract` with the `hun` and `eng` language packs is installed.
+The `index_one_document` tests also need `qdrant-client` and `sentence-transformers` (or the full
+`services/ingestion/requirements.txt`) and are skipped without them.
 
 ## Architecture
 
@@ -127,10 +132,10 @@ Implemented now:
 - Mobile-friendly web UI
 - Ansible structure and deployment roles
 - Optional voice placeholder service
+- OCR (Tesseract, `hun+eng`) for scanned PDF pages, cached locally
 
 Not fully implemented yet:
 
-- OCR for scanned PDFs
 - MOBI/AZW conversion pipeline
 - Production-grade SSO or identity provider integration
 - Real Hungarian offline STT/TTS backend wiring

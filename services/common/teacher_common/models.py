@@ -63,6 +63,24 @@ class IngestRun(Base):
 
 
 
+class OcrRecord(Base):
+    """Marks a document whose scanned pages were OCR'd, so incremental runs do not redo it."""
+
+    __tablename__ = "ocr_documents"
+
+    id = Column(Integer, primary_key=True)
+    source_path = Column(String(2048), unique=True, nullable=False, index=True)
+    source_hash = Column(String(64), nullable=False)
+    language = Column(String(64), nullable=False)
+    dpi = Column(Integer, nullable=False)
+    pages_total = Column(Integer, nullable=False, default=0)
+    pages_ocr = Column(Integer, nullable=False, default=0)
+    pages_pending = Column(Integer, nullable=False, default=0)
+    status = Column(String(32), nullable=False)
+    message = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
 

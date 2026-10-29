@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
     ocr_dpi: int = Field(default=300, alias="OCR_DPI")
     ocr_language: str = Field(default="hun+eng", alias="OCR_LANGUAGE")
+    ocr_min_chars: int = Field(default=50, alias="OCR_MIN_CHARS")
+    ocr_timeout_seconds: int = Field(default=900, alias="OCR_TIMEOUT_SECONDS")
+    ocr_max_pages: int = Field(default=0, alias="OCR_MAX_PAGES")
+    ocr_cache_dir: str = Field(default="/data/metadata/ocr_cache", alias="OCR_CACHE_DIR")
 
     @property
     def scan_extensions(self) -> list[str]:

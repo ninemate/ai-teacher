@@ -17,7 +17,8 @@ from teacher_common.documents import (
     parse_document,
 )
 from teacher_common.embeddings import embed_passages, warmup_embeddings
-from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun
+from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun, OcrRecord
+from teacher_common.ocr import record_ocr
 from teacher_common.qdrant_store import (
     build_points,
     delete_points_for_source,
@@ -212,13 +213,14 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
             message = "No watched folders configured; nothing to index"
             remove_missing = False
         known = load_known_documents()
+        reprocess = load_reprocess_paths()
 
         for file_path in scan_watched_files(library_root, watch, settings.scan_extensions, report):
             scanned += 1
             current_state["current_file"] = str(file_path)
             seen_paths.add(str(file_path))
             try:
-                outcome = index_one_document(file_path, full_reindex=full_reindex, known=known)
+                outcome = index_one_document(file_path, full_reindex=full_reindex, known=known, reprocess=reprocess)
                 if outcome == "indexed":
                     indexed += 1
                 elif outcome == "skipped":
@@ -357,24 +359,58 @@ def load_known_documents() -> dict[str, tuple[int, int]]:
     return {path: (size, mtime) for path, size, mtime in rows}
 
 
+def load_reprocess_paths() -> set[str]:
+    """Unchanged PDFs that still need work: failed ones (the OCR cache makes a retry cheap), ones OCR'd with
+    another language or DPI, and ones indexed while OCR was off."""
+    if not settings.ocr_enabled:
+        return set()
+    with session_scope() as session:
+        failed = session.execute(
+            select(DocumentRecord.source_path).where(
+                DocumentRecord.deleted.is_(False),
+                DocumentRecord.status == "failed",
+                DocumentRecord.file_type == "pdf",
+            )
+        ).scalars()
+        paths = set(failed)
+        rows = session.execute(
+            select(OcrRecord.source_path, OcrRecord.status, OcrRecord.language, OcrRecord.dpi)
+        ).all()
+    wanted = (settings.ocr_language, settings.ocr_dpi)
+    paths.update(path for path, status, language, dpi in rows if status == "disabled" or (language, dpi) != wanted)
+    return paths
+
+
 def index_one_document(
-    file_path: Path, full_reindex: bool, known: dict[str, tuple[int, int]] | None = None
+    file_path: Path,
+    full_reindex: bool,
+    known: dict[str, tuple[int, int]] | None = None,
+    reprocess: set[str] | None = None,
 ) -> str:
     stat = file_path.stat()
     # size + mtime first: only changed or new files get hashed (a read of the whole file over the network).
     if known is None:
         known = load_known_documents()
-    if not full_reindex and known.get(str(file_path)) == (stat.st_size, int(stat.st_mtime)):
+    if reprocess is None:
+        reprocess = load_reprocess_paths()
+    if (
+        not full_reindex
+        and known.get(str(file_path)) == (stat.st_size, int(stat.st_mtime))
+        and str(file_path) not in reprocess
+    ):
         return "skipped"
 
     file_hash = hash_file(file_path)
-    parsed = parse_document(file_path)
+    parsed = parse_document(file_path, file_hash=file_hash)
     chunks = chunk_segments(
         parsed.segments,
         chunk_size=settings.ingest_chunk_size,
         chunk_overlap=settings.ingest_chunk_overlap,
     )
     if not chunks:
+        if parsed.ocr is not None:
+            with session_scope() as session:
+                record_ocr(session, str(file_path), file_hash, parsed.ocr, settings)
         raise ValueError("No extractable text found")
 
     vectors = embed_passages(chunk.text for chunk in chunks)
@@ -451,6 +487,8 @@ def index_one_document(
                     preview=row["preview"],
                 )
             )
+        if parsed.ocr is not None:
+            record_ocr(session, str(file_path), file_hash, parsed.ocr, settings)
 
     return "indexed"
 

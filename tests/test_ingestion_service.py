@@ -18,8 +18,8 @@ def svc(tmp_path, monkeypatch):
     hashed: list[str] = []
     documents = types.ModuleType("teacher_common.documents")
     documents.chunk_segments = lambda segments, chunk_size, chunk_overlap: [types.SimpleNamespace(text="t", locator="p1")]
-    documents.parse_document = lambda path: types.SimpleNamespace(
-        segments=[], title=None, author=None, language="en"
+    documents.parse_document = lambda path, file_hash=None: types.SimpleNamespace(
+        segments=[], title=None, author=None, language="en", ocr=None
     )
 
     def hash_file(path):
@@ -147,7 +147,7 @@ def test_unwatching_a_folder_removes_its_documents(svc):
 
 
 def test_failed_file_is_counted_and_reported(svc, monkeypatch):
-    def fail(path):
+    def fail(path, file_hash=None):
         raise ValueError("boom")
 
     monkeypatch.setattr(svc, "parse_document", fail)
