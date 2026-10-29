@@ -10,7 +10,6 @@ chunking:
   chunk_overlap: 200
 
 indexing:
-  schedule_seconds: 0
   remove_missing: true
   store_chunk_text_locally: true
 
@@ -18,3 +17,34 @@ limits:
   max_parallel_documents: 1
   max_parallel_embeddings: 1
 
+
+# Copy to config/ingestion/ingestion.yml (mounted at /app/config/ingestion/ingestion.yml,
+# override with INGEST_CONFIG_PATH). Only the `schedule` and `watch` sections are read
+# from this file; the other settings above come from the environment (.env).
+
+# When to reindex the watched folders. Disabled by default: use POST /ingest/reindex.
+# Set either interval_seconds (min 60) or cron, not both.
+schedule:
+  enabled: false
+  # interval_seconds: 21600
+  cron: "30 2 * * *"        # every night at 02:30
+  timezone: Europe/Budapest # for cron; default UTC
+  run_on_startup: false     # also start a run when the service starts
+
+# Only these folders are scanned. Paths are relative to the library mount point
+# ("." = the whole library). With no folders nothing is indexed, and nothing is removed.
+watch:
+  # Glob patterns (case-insensitive, `*` also matches `/`) applied to every folder,
+  # matched against the path inside the folder or the bare file/directory name.
+  exclude:
+    - "#recycle"
+    - "@eaDir"
+  folders:
+    - path: Books/Physics
+    - path: Scans/Lecture notes
+      recursive: true
+      exclude: ["drafts", "*~.pdf"]   # in addition to the global excludes
+      include: []                     # when set, only matching files are indexed
+      extensions: [.pdf]              # overrides scan_extensions for this folder
+    - path: Books/Archive
+      enabled: false

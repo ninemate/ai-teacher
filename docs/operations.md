@@ -10,7 +10,10 @@
 ## Reindex Strategy
 
 - manual reindex is the safest starting point
-- scheduled indexing can be enabled with `INGEST_SCHEDULE_SECONDS`
+- list the folders to index under `watch.folders` in `config/ingestion/ingestion.yml`; nothing else on the share is scanned
+- scheduled indexing is enabled in the `schedule` section of that file (interval or cron); it is off by default and manual `POST /ingest/reindex` keeps working, sharing the same lock
+- check `GET /ingest/schedule` for last run, next run, counts and errors (see `docs/document-ingestion.md`)
+- if a watched folder is missing (share not mounted), its documents are kept and the run reports an error
 - full reindex should be reserved for parser changes or index corruption recovery
 
 ## Backups

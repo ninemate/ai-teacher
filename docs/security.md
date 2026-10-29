@@ -93,7 +93,7 @@ Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY
 
 ## Ingestion Service
 
-The ingestion service is published on the host only on `127.0.0.1:${TEACHER_INGEST_PORT}` and inside the compose network. Its `/ingest/status` and `/ingest/reindex` endpoints require `Authorization: Bearer ${TEACHER_INGEST_TOKEN}`; `/health` stays open for health checks.
+The ingestion service is published on the host only on `127.0.0.1:${TEACHER_INGEST_PORT}` and inside the compose network. Its `/ingest/status`, `/ingest/schedule` and `/ingest/reindex` endpoints require `Authorization: Bearer ${TEACHER_INGEST_TOKEN}`; `/health` stays open for health checks.
 
 - The API sends the token when the UI or API triggers a reindex, so users never handle it.
 - If `TEACHER_INGEST_TOKEN` is empty the endpoints refuse every call (`503`). Generate one with `openssl rand -hex 32`.

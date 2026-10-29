@@ -26,6 +26,7 @@ _db_dir = tempfile.mkdtemp(prefix="teacher-tests-")
 os.environ.update(
     {
         "METADATA_DB_URL": f"sqlite:///{_db_dir}/teacher.db",
+        "INGEST_CONFIG_PATH": f"{_db_dir}/none.yml",
         "TEACHER_AUTH_USERS": ";".join(f"{name}:{_hasher.hash(pw)}" for name, pw in PASSWORDS.items()),
         "TEACHER_AUTH_USERS_FILE": "",
         "TEACHER_AUTH_DISABLED": "false",
