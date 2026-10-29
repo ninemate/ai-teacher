@@ -61,3 +61,16 @@ class IngestRun(Base):
     started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     finished_at = Column(DateTime(timezone=True), nullable=True)
 
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    # SHA-256 of the cookie token, so a copy of the database does not hand out live sessions.
+    token_hash = Column(String(64), primary_key=True)
+    username = Column(String(64), nullable=False, index=True)
+    csrf_token = Column(String(64), nullable=False)
+    # Fingerprint of the user's password hash at login; a changed password invalidates old sessions.
+    credential_tag = Column(String(64), nullable=False)
+    created_at = Column(Integer, nullable=False)
+    expires_at = Column(Integer, nullable=False, index=True)

@@ -1,9 +1,4 @@
 services:
-  api:
-    environment:
-      TEACHER_AUTH_USERNAME: ""
-      TEACHER_AUTH_PASSWORD: ""
-
   qdrant:
     ports:
       - 127.0.0.1:${TEACHER_QDRANT_PORT:-6333}:6333

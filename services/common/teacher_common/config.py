@@ -1,4 +1,7 @@
+import re
 from functools import lru_cache
+from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -51,8 +54,14 @@ class Settings(BaseSettings):
     )
     ingest_chunk_size: int = Field(default=1200, alias="INGEST_CHUNK_SIZE")
     ingest_chunk_overlap: int = Field(default=200, alias="INGEST_CHUNK_OVERLAP")
-    teacher_auth_username: str = Field(default="", alias="TEACHER_AUTH_USERNAME")
-    teacher_auth_password: str = Field(default="", alias="TEACHER_AUTH_PASSWORD")
+    teacher_auth_users: str = Field(default="", alias="TEACHER_AUTH_USERS")
+    teacher_auth_users_file: str = Field(default="", alias="TEACHER_AUTH_USERS_FILE")
+    teacher_auth_disabled: bool = Field(default=False, alias="TEACHER_AUTH_DISABLED")
+    teacher_session_ttl_hours: int = Field(default=720, ge=1, alias="TEACHER_SESSION_TTL_HOURS")
+    teacher_cookie_secure: Literal["auto", "true", "false"] = Field(default="auto", alias="TEACHER_COOKIE_SECURE")
+    teacher_login_max_attempts: int = Field(default=10, ge=1, alias="TEACHER_LOGIN_MAX_ATTEMPTS")
+    teacher_login_window_seconds: int = Field(default=900, ge=1, alias="TEACHER_LOGIN_WINDOW_SECONDS")
+    teacher_ingest_token: str = Field(default="", alias="TEACHER_INGEST_TOKEN")
     ingestion_base_url: str = Field(
         default="http://ingestion:8081",
         alias="INGESTION_BASE_URL",
@@ -72,7 +81,30 @@ class Settings(BaseSettings):
 
     @property
     def auth_enabled(self) -> bool:
-        return bool(self.teacher_auth_username and self.teacher_auth_password)
+        return not self.teacher_auth_disabled
+
+    def auth_users(self) -> dict[str, str]:
+        """Return username -> password hash from TEACHER_AUTH_USERS and TEACHER_AUTH_USERS_FILE.
+
+        Entries are `username:hash`, separated by newlines or `;`. Lines starting with `#` are ignored.
+        """
+        raw = self.teacher_auth_users
+        if self.teacher_auth_users_file:
+            raw += "\n" + Path(self.teacher_auth_users_file).read_text(encoding="utf-8")
+        users: dict[str, str] = {}
+        for entry in re.split(r"[;\n]", raw):
+            entry = entry.strip()
+            if not entry or entry.startswith("#"):
+                continue
+            username, sep, password_hash = entry.partition(":")
+            username, password_hash = username.strip(), password_hash.strip()
+            if not sep or not USERNAME_PATTERN.fullmatch(username) or not password_hash.startswith("$argon2"):
+                raise ValueError(f"Invalid TEACHER_AUTH_USERS entry for user {username!r}: expected username:$argon2id$...")
+            users[username] = password_hash
+        return users
+
+
+USERNAME_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 
 @lru_cache(maxsize=1)

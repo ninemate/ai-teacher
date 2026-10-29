@@ -167,7 +167,7 @@ def test_runs_never_overlap_and_manual_trigger_shares_the_lock(svc, monkeypatch)
         return original(*args, **kwargs)
 
     monkeypatch.setattr(svc, "index_one_document", slow)
-    client = TestClient(svc.app)
+    client = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"})
 
     first = threading.Thread(target=svc.run_indexing, args=(False, True, "scheduled"))
     first.start()
@@ -183,7 +183,7 @@ def test_runs_never_overlap_and_manual_trigger_shares_the_lock(svc, monkeypatch)
 
 
 def test_manual_trigger_runs_and_releases_lock(svc):
-    client = TestClient(svc.app)
+    client = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"})
     assert client.post("/ingest/reindex", json={}).json()["status"] == "started"
     for _ in range(100):
         if not svc.index_lock.locked():
@@ -195,7 +195,7 @@ def test_manual_trigger_runs_and_releases_lock(svc):
 
 def test_schedule_endpoint_reports_state(svc):
     svc.ingest_config.schedule = ScheduleConfig(enabled=True, cron="0 3 * * *")
-    client = TestClient(svc.app)
+    client = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"})
     body = client.get("/ingest/schedule").json()
     assert body["schedule"]["enabled"] is True
     assert body["schedule"]["cron"] == "0 3 * * *"
@@ -253,7 +253,7 @@ def test_errors_survive_a_restart(svc):
     svc.run_indexing(False, True)
     assert svc.last_run["errors"]
     svc.last_run.clear()  # new process: only the database is left
-    body = TestClient(svc.app).get("/ingest/schedule").json()
+    body = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"}).get("/ingest/schedule").json()
     assert body["last_run"]["errors"]
     assert any("not found" in e for e in body["last_run"]["errors"])
     assert "\n" not in body["last_run"]["message"]

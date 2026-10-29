@@ -29,8 +29,13 @@ teacher_ingest_scan_extensions: ".pdf,.epub,.txt,.md,.docx"
 teacher_ingest_chunk_size: 1200
 teacher_ingest_chunk_overlap: 200
 
-teacher_auth_username: ""
-teacher_auth_password: ""
+# `username:argon2-hash` entries separated by `;` (see docs/security.md). Keep real values in Vault.
+teacher_auth_users: ""
+teacher_auth_disabled: false
+teacher_session_ttl_hours: 720
+teacher_cookie_secure: auto
+# Left empty, deploy keeps the token already on the host or generates a new one.
+teacher_ingest_token: ""
 
 teacher_voice_stt_backend: faster-whisper
 teacher_voice_stt_model: base
@@ -54,5 +59,6 @@ teacher_share_credentials_domain: ""
 
 teacher_caddy_domain: teacher.example.internal
 teacher_caddy_email: admin@example.com
+teacher_caddy_username: ""
 teacher_caddy_password_hash: ""
 

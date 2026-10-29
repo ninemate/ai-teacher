@@ -1,9 +1,10 @@
 {{ teacher_caddy_domain }} {
   encode zstd gzip
+  header Strict-Transport-Security "max-age=31536000"
 
-  {% if teacher_caddy_password_hash %}
+  {% if teacher_caddy_username and teacher_caddy_password_hash %}
   basicauth {
-    {{ teacher_auth_username }} {{ teacher_caddy_password_hash }}
+    {{ teacher_caddy_username }} {{ teacher_caddy_password_hash }}
   }
   {% endif %}
 
