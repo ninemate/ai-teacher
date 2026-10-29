@@ -2,8 +2,9 @@ teacher_http_bind: 127.0.0.1
 teacher_gpu_enabled: true
 teacher_enable_voice: false
 teacher_enable_reverse_proxy: false
-teacher_auth_username: father
-teacher_auth_password: change-me-with-vault
+# Set from Vault, e.g. "apa:$argon2id$v=19$m=65536,t=3,p=4$..."
+teacher_auth_users: ""
+teacher_cookie_secure: "true"
 share_type: cifs
 share_server: 192.168.1.10
 share_path: /ebooks

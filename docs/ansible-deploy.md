@@ -45,8 +45,12 @@ Group variables live in `ansible/inventory/group_vars/` (next to the inventories
 Use Ansible Vault or external secret injection for:
 
 - network share credentials
-- app auth password
+- app login users: `teacher_auth_users`, `username:argon2-hash` entries separated by `;` (see `docs/security.md`)
 - reverse proxy credentials
+
+The CI deploy to the self-hosted runner reads `teacher_auth_users` from the GitHub secret `TEACHER_AUTH_USERS`. Until that secret is set the app starts but nobody can log in.
+
+`teacher_ingest_token` can stay empty: the deploy keeps the token already in the host's `.env`, or generates one on the first deploy. `reindex.yml` reads it from there.
 
 ## GPU Path
 

@@ -1,11 +1,15 @@
+import logging
+import math
 import secrets
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
+import auth
 import httpx
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -17,11 +21,20 @@ from teacher_common.embeddings import embed_query, warmup_embeddings
 from teacher_common.models import DocumentRecord, IngestRun
 from teacher_common.qdrant_store import ensure_collection, search
 
+APP_DIR = Path(__file__).resolve().parent
+PUBLIC_PATHS = {"/health", "/login"}
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+    "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
+
 settings = get_settings()
-security = HTTPBasic(auto_error=False)
+auth_users = settings.auth_users()
+login_limiter = auth.LoginRateLimiter(settings.teacher_login_max_attempts, settings.teacher_login_window_seconds)
 app = FastAPI(title="teacher-agent-api", version="0.1.0")
-app.mount("/static", StaticFiles(directory="/app/static"), name="static")
-templates = Jinja2Templates(directory="/app/templates")
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=APP_DIR / "templates")
 
 
 class ChatRequest(BaseModel):
@@ -40,27 +53,55 @@ class ReindexRequest(BaseModel):
     remove_missing: bool = True
 
 
-def require_auth(credentials: HTTPBasicCredentials | None = Depends(security)) -> None:
-    if not settings.auth_enabled:
-        return
-    if credentials is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    username_ok = secrets.compare_digest(credentials.username, settings.teacher_auth_username)
-    password_ok = secrets.compare_digest(credentials.password, settings.teacher_auth_password)
-    if not (username_ok and password_ok):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+def _route_path(request: Request) -> str:
+    # The path the router matches on. `request.url.path` is rebuilt from the Host header and can be spoofed.
+    return request.scope["path"]
+
+
+def _is_public(path: str) -> bool:
+    return path in PUBLIC_PATHS or path.startswith("/static/")
+
+
+@app.middleware("http")
+async def require_session(request: Request, call_next):
+    """Default deny: every route except health, login and static files needs a session."""
+    request.state.session = None
+    if request.method in UNSAFE_METHODS and not auth.origin_allowed(request):
+        return JSONResponse({"detail": "A kérés másik oldalról érkezett."}, status_code=403)
+    if settings.auth_enabled and not _is_public(_route_path(request)):
+        token = request.cookies.get(auth.SESSION_COOKIE)
+        session = await run_in_threadpool(auth.load_session, token, auth_users)
+        if session is None:
+            if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+                target = _route_path(request) + (f"?{request.url.query}" if request.url.query else "")
+                return RedirectResponse(f"/login?next={quote(target)}", status_code=303)
+            return JSONResponse({"detail": "Bejelentkezés szükséges."}, status_code=401)
+        if request.method in UNSAFE_METHODS and not auth.csrf_valid(request, session):
+            return JSONResponse({"detail": "Hiányzó vagy érvénytelen CSRF token."}, status_code=403)
+        request.state.session = session
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    path = _route_path(request)
+    if not path.startswith(("/docs", "/redoc")):
+        response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    if not path.startswith("/static/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
 
 
 @app.on_event("startup")
 def startup_event() -> None:
+    if not settings.auth_enabled:
+        logging.getLogger("uvicorn").warning("TEACHER_AUTH_DISABLED is set: the UI and API are open to anyone.")
+    elif not auth_users:
+        logging.getLogger("uvicorn").warning("TEACHER_AUTH_USERS is empty: nobody can log in.")
     Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
     ensure_collection()
@@ -83,15 +124,100 @@ def _pull_ollama_model() -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, _: None = Depends(require_auth)):
+def index(request: Request):
+    session = request.state.session
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
             "auth_enabled": settings.auth_enabled,
+            "username": session.username if session else None,
+            "csrf_token": session.csrf_token if session else "",
             "default_level": "beginner",
         },
     )
+
+
+def _render_login(request: Request, next_path: str, error: str | None = None, status_code: int = 200) -> Response:
+    login_csrf = secrets.token_urlsafe(32)
+    response = templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"csrf_token": login_csrf, "next": next_path, "error": error},
+        status_code=status_code,
+    )
+    auth.set_cookie(response, request, settings, auth.LOGIN_CSRF_COOKIE, login_csrf, max_age=3600)
+    return response
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/"):
+    next_path = auth.safe_next(next)
+    if not settings.auth_enabled or auth.load_session(request.cookies.get(auth.SESSION_COOKIE), auth_users):
+        return RedirectResponse(next_path, status_code=303)
+    return _render_login(request, next_path)
+
+
+@app.post("/login", response_class=HTMLResponse)
+def login(
+    request: Request,
+    username: str = Form(""),
+    password: str = Form(""),
+    csrf_token: str = Form(""),
+    next: str = Form("/"),
+):
+    next_path = auth.safe_next(next)
+    if not settings.auth_enabled:
+        return RedirectResponse(next_path, status_code=303)
+
+    cookie_csrf = request.cookies.get(auth.LOGIN_CSRF_COOKIE, "")
+    if not auth.same_secret(cookie_csrf, csrf_token):
+        return _render_login(request, next_path, "Az űrlap lejárt. Kérlek, próbáld újra.", status_code=400)
+
+    username = username.strip()
+    client_key = f"ip:{request.client.host if request.client else 'unknown'}"
+    limit_keys = [client_key] + ([f"user:{username}"] if username in auth_users else [])
+    retry_after = login_limiter.acquire(limit_keys)
+    if retry_after:
+        minutes = math.ceil(retry_after / 60)
+        response = _render_login(
+            request,
+            next_path,
+            f"Túl sok sikertelen próbálkozás. Próbáld újra {minutes} perc múlva.",
+            status_code=429,
+        )
+        response.headers["Retry-After"] = str(retry_after)
+        return response
+
+    if len(password) > 1024 or not auth.verify_credentials(auth_users, username, password):
+        return _render_login(request, next_path, "Hibás felhasználónév vagy jelszó.", status_code=401)
+
+    login_limiter.release(limit_keys)
+    login_limiter.reset(f"user:{username}")
+    ttl_seconds = settings.teacher_session_ttl_hours * 3600
+    token, _ = auth.create_session(username, auth_users[username], ttl_seconds)
+    response = RedirectResponse(next_path, status_code=303)
+    auth.set_cookie(response, request, settings, auth.SESSION_COOKIE, token, max_age=ttl_seconds)
+    response.delete_cookie(auth.LOGIN_CSRF_COOKIE, path="/")
+    return response
+
+
+@app.post("/logout")
+def logout(request: Request):
+    auth.delete_session(request.cookies.get(auth.SESSION_COOKIE))
+    response = JSONResponse({"status": "logged_out"})
+    response.delete_cookie(auth.SESSION_COOKIE, path="/")
+    return response
+
+
+@app.get("/session")
+def current_session(request: Request):
+    session = request.state.session
+    return {
+        "auth_enabled": settings.auth_enabled,
+        "username": session.username if session else None,
+        "csrf_token": session.csrf_token if session else None,
+    }
 
 
 @app.get("/health")
@@ -102,7 +228,7 @@ def health():
 
 
 @app.get("/sources")
-def list_sources(_: None = Depends(require_auth)):
+def list_sources():
     with session_scope() as session:
         rows = session.execute(
             select(DocumentRecord).where(DocumentRecord.deleted.is_(False)).order_by(DocumentRecord.last_indexed_at.desc())
@@ -122,7 +248,7 @@ def list_sources(_: None = Depends(require_auth)):
 
 
 @app.get("/ingest/status")
-def ingest_status(_: None = Depends(require_auth)):
+def ingest_status():
     with session_scope() as session:
         row = session.execute(select(IngestRun).order_by(IngestRun.started_at.desc())).scalars().first()
         if row is None:
@@ -141,18 +267,19 @@ def ingest_status(_: None = Depends(require_auth)):
 
 
 @app.post("/ingest/reindex")
-def trigger_reindex(payload: ReindexRequest, _: None = Depends(require_auth)):
+def trigger_reindex(payload: ReindexRequest):
     with httpx.Client(timeout=10.0) as client:
         response = client.post(
             f"{settings.ingestion_base_url}/ingest/reindex",
             json=payload.model_dump(),
+            headers={"Authorization": f"Bearer {settings.teacher_ingest_token}"},
         )
         response.raise_for_status()
         return response.json()
 
 
 @app.post("/chat")
-def chat(payload: ChatRequest, _: None = Depends(require_auth)):
+def chat(payload: ChatRequest):
     return generate_teaching_response(
         task="answer",
         prompt_input=payload.question,
@@ -162,7 +289,7 @@ def chat(payload: ChatRequest, _: None = Depends(require_auth)):
 
 
 @app.post("/quiz")
-def quiz(payload: TaskRequest, _: None = Depends(require_auth)):
+def quiz(payload: TaskRequest):
     return generate_teaching_response(
         task="quiz",
         prompt_input=payload.topic,
@@ -172,7 +299,7 @@ def quiz(payload: TaskRequest, _: None = Depends(require_auth)):
 
 
 @app.post("/summary")
-def summary(payload: TaskRequest, _: None = Depends(require_auth)):
+def summary(payload: TaskRequest):
     return generate_teaching_response(
         task="summary",
         prompt_input=payload.topic,
@@ -182,7 +309,7 @@ def summary(payload: TaskRequest, _: None = Depends(require_auth)):
 
 
 @app.post("/flashcards")
-def flashcards(payload: TaskRequest, _: None = Depends(require_auth)):
+def flashcards(payload: TaskRequest):
     return generate_teaching_response(
         task="flashcards",
         prompt_input=payload.topic,
@@ -192,7 +319,7 @@ def flashcards(payload: TaskRequest, _: None = Depends(require_auth)):
 
 
 @app.post("/voice/transcribe")
-def voice_transcribe(_: None = Depends(require_auth), audio: UploadFile = File(...)):
+def voice_transcribe(audio: UploadFile = File(...)):
     with httpx.Client(timeout=60.0) as client:
         response = client.post(
             f"{settings.voice_base_url}/voice/transcribe",
@@ -204,7 +331,7 @@ def voice_transcribe(_: None = Depends(require_auth), audio: UploadFile = File(.
 
 
 @app.post("/voice/speak")
-def voice_speak(payload: TaskRequest, _: None = Depends(require_auth)):
+def voice_speak(payload: TaskRequest):
     with httpx.Client(timeout=60.0) as client:
         response = client.post(
             f"{settings.voice_base_url}/voice/speak",
@@ -287,11 +414,10 @@ def call_ollama(prompt: str, json_mode: bool = False) -> str:
 
 
 # Stored quizzes and flashcard decks (/study/...). Defined at the bottom so the
-# helpers above exist; auth is applied here, not inside the router.
+# helpers above exist; the session and CSRF middleware protects them like every other route.
 app.include_router(
     build_study_router(
         retrieve=lambda query, top_k, source_paths: retrieve_sources(query, top_k, source_paths),
         llm=lambda prompt, json_mode: call_ollama(prompt, json_mode=json_mode),
     ),
-    dependencies=[Depends(require_auth)],
 )

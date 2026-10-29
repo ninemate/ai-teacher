@@ -1,3 +1,5 @@
+import importlib.util
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -5,9 +7,32 @@ import fitz
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
-from teacher_common import documents, ocr
+from teacher_common import ocr
 from teacher_common.db import Base
 from teacher_common.models import OcrRecord
+
+
+def _load_real_documents():
+    """conftest stubs teacher_common.documents for the API/ingestion tests; these tests need the real parser."""
+    stub = sys.modules.get("teacher_common.documents")
+    path = Path(__file__).resolve().parents[1] / "services" / "common" / "teacher_common" / "documents.py"
+    spec = importlib.util.spec_from_file_location("teacher_common.documents", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["teacher_common.documents"] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if stub is not None:
+            sys.modules["teacher_common.documents"] = stub
+    return module
+
+
+documents = _load_real_documents()
+
+
+@pytest.fixture(autouse=True)
+def real_documents(monkeypatch):
+    monkeypatch.setitem(sys.modules, "teacher_common.documents", documents)
 
 TEXT = "A magyar nyelv ragozó nyelv, amelyben a toldalékok sorrendje szigorú szabályokat követ. " * 3
 
