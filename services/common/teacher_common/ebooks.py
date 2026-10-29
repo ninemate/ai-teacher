@@ -104,7 +104,8 @@ def convert_ebook(path: Path) -> ConvertedEbook:
     ):
         if found.exists():
             return ConvertedEbook(found, kind, workdir)
+    is_pdf = (workdir / "book.001.pdf").exists()
     shutil.rmtree(workdir, ignore_errors=True)
-    if (workdir / "book.001.pdf").exists():
+    if is_pdf:
         raise ValueError(f"{path.name} is a print-replica/PDF Kindle book; it has no text to extract")
     raise ValueError(f"Could not convert {path.name}: the unpacker produced no readable output")

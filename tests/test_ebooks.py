@@ -232,3 +232,17 @@ def test_failed_unpack_leaves_no_temp_dir(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="corrupt index"):
         documents.parse_document(src)
     assert list(tmp.iterdir()) == []
+
+
+def test_print_replica_book_gets_specific_error_and_no_temp_dir(tmp_path, monkeypatch):
+    created = []
+
+    def fake_unpack(infile, outdir, epubver="A"):
+        created.append(Path(outdir))
+        (Path(outdir) / "book.001.pdf").write_bytes(b"%PDF-1.4")
+
+    monkeypatch.setattr("mobi.kindleunpack.unpackBook", fake_unpack)
+    src = make_mobi(tmp_path / "k.azw", html_book(TEXT_HU))
+    with pytest.raises(ValueError, match="print-replica"):
+        documents.parse_document(src)
+    assert created and not created[0].exists()
