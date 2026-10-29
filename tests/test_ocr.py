@@ -317,3 +317,78 @@ def test_ingestion_records_ocr_when_result_is_empty(tmp_path, ingestion, monkeyp
     row = _ocr_row(ingestion.engine, pdf)
     assert row is not None
     assert (row.pages_total, row.pages_ocr) == (2, 0)
+
+
+class _Killed(BaseException):
+    """Stands in for the process being stopped (deploy, restart) in the middle of a file."""
+
+
+def test_finished_pages_survive_a_stop_mid_file(tmp_path, monkeypatch):
+    calls = []
+
+    def engine(image, lang, timeout):
+        calls.append(1)
+        if len(calls) == 3:
+            raise _Killed
+        return f"oldal szövege {len(calls)}"
+
+    monkeypatch.setattr(ocr, "ocr_image", engine)
+    pdf = make_pdf(tmp_path / "scan.pdf", [None, None, None])
+    cfg = make_cfg(tmp_path)
+    with pytest.raises(_Killed):
+        documents.parse_pdf(pdf, file_hash="34" * 32, cfg=cfg)
+    calls.clear()
+    monkeypatch.setattr(ocr, "ocr_image", lambda image, lang, timeout: calls.append(1) or "harmadik oldal")
+    parsed = documents.parse_pdf(pdf, file_hash="34" * 32, cfg=cfg)
+    assert len(calls) == 1  # only the page that was in progress is OCR'd again
+    assert parsed.ocr.pages_cached == 2
+    assert parsed.ocr.status == "complete"
+
+
+def _budgeted_engine(monkeypatch):
+    """OCRs `budget["pages"]` pages, then reports the per-file time limit as hit."""
+    budget = {"pages": 0}
+
+    def engine(image, lang, timeout):
+        if budget["pages"] <= 0:
+            raise ocr.OcrTimeoutError("Tesseract process timeout")
+        budget["pages"] -= 1
+        return "Szkennelt oldal szövege, elég hosszú ahhoz, hogy darab legyen."
+
+    monkeypatch.setattr(ocr, "ocr_image", engine)
+    return budget
+
+
+def test_time_limited_pdf_is_resumed_by_later_runs(tmp_path, ingestion, monkeypatch):
+    budget = _budgeted_engine(monkeypatch)
+    ingestion.cfg.ocr_timeout_seconds = 60
+    pdf = make_pdf(tmp_path / "book.pdf", [None, None, None])
+    pending = []
+    for _ in range(3):
+        budget["pages"] = 1
+        assert ingestion.main.index_one_document(pdf, False) == "indexed"
+        pending.append(_ocr_row(ingestion.engine, pdf).pages_pending)
+    assert pending == [2, 1, 0]
+    assert _ocr_row(ingestion.engine, pdf).status == "complete"
+    assert ingestion.main.index_one_document(pdf, False) == "skipped"
+
+
+def test_time_limited_pdf_without_progress_is_not_resumed_forever(tmp_path, ingestion, monkeypatch):
+    budget = _budgeted_engine(monkeypatch)  # no page ever fits into the budget
+    ingestion.cfg.ocr_timeout_seconds = 60
+    pdf = make_pdf(tmp_path / "slow.pdf", [TEXT, None])
+    assert ingestion.main.index_one_document(pdf, False) == "indexed"
+    assert ocr.resumable(_ocr_row(ingestion.engine, pdf).status, _ocr_row(ingestion.engine, pdf).message)
+    assert ingestion.main.index_one_document(pdf, False) == "indexed"  # one more try
+    row = _ocr_row(ingestion.engine, pdf)
+    assert row.status == "partial" and "no progress" in row.message
+    assert ingestion.main.index_one_document(pdf, False) == "skipped"
+    assert budget["pages"] == 0
+
+
+def test_page_limit_partial_is_not_resumed(tmp_path, ingestion):
+    ingestion.cfg.ocr_max_pages = 1
+    pdf = make_pdf(tmp_path / "capped.pdf", [None, None])
+    assert ingestion.main.index_one_document(pdf, False) == "indexed"
+    assert _ocr_row(ingestion.engine, pdf).status == "partial"
+    assert ingestion.main.index_one_document(pdf, False) == "skipped"

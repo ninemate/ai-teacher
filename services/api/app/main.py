@@ -266,16 +266,36 @@ def ingest_status():
         }
 
 
+def _ingestion_request(method: str, path: str, json: dict | None = None):
+    """Call the ingestion service with the ingest token; pass its refusals (409 while a run is going) through."""
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.request(
+                method,
+                f"{settings.ingestion_base_url}{path}",
+                json=json,
+                headers={"Authorization": f"Bearer {settings.teacher_ingest_token}"},
+            )
+    except httpx.HTTPError as exc:
+        logging.getLogger("uvicorn").warning("Ingestion service unreachable: %s", exc)
+        raise HTTPException(status_code=502, detail="Az indexelő szolgáltatás nem érhető el.") from exc
+    if response.status_code == 409:
+        raise HTTPException(status_code=409, detail="Az indexelés már fut.")
+    if response.status_code >= 400:
+        # 401/503 here mean the token is missing or differs between the services: a server problem.
+        logging.getLogger("uvicorn").warning("Ingestion service answered %s for %s", response.status_code, path)
+        raise HTTPException(status_code=502, detail="Az indexelő szolgáltatás hibát jelzett.")
+    return response.json()
+
+
 @app.post("/ingest/reindex")
 def trigger_reindex(payload: ReindexRequest):
-    with httpx.Client(timeout=10.0) as client:
-        response = client.post(
-            f"{settings.ingestion_base_url}/ingest/reindex",
-            json=payload.model_dump(),
-            headers={"Authorization": f"Bearer {settings.teacher_ingest_token}"},
-        )
-        response.raise_for_status()
-        return response.json()
+    return _ingestion_request("POST", "/ingest/reindex", json=payload.model_dump())
+
+
+@app.get("/ingest/schedule")
+def ingest_schedule():
+    return _ingestion_request("GET", "/ingest/schedule")
 
 
 @app.post("/chat")

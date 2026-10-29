@@ -309,3 +309,33 @@ def test_completely_emptied_folder_is_kept_until_unwatched(svc):
     svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path="other")])  # unwatching removes it
     svc.run_indexing(False, True)
     assert "watched/a.txt" not in live_paths(svc)
+
+
+def test_run_left_running_by_a_stopped_process_is_closed_at_startup(svc):
+    from teacher_common.db import session_scope
+
+    with session_scope() as session:
+        session.add(svc.models.IngestRun(status="running", message="Indexing started (scheduled)"))
+    assert svc.close_interrupted_runs() == 1
+    body = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"}).get("/ingest/status").json()
+    assert body["status"] == "interrupted"
+    assert body["finished_at"] is not None
+    assert svc.close_interrupted_runs() == 0
+
+
+def test_failure_that_cannot_be_recorded_does_not_abort_the_run(svc, monkeypatch):
+    (svc.library / "watched" / "z.txt").write_text("z")
+
+    def fail(path, file_hash=None):
+        if Path(path).name == "a.txt":
+            raise ValueError("boom")
+        return types.SimpleNamespace(segments=[], title=None, author=None, language="en", ocr=None)
+
+    def vanished(path, message):
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(svc, "parse_document", fail)
+    monkeypatch.setattr(svc, "store_error_record", vanished)
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "completed"
+    assert (svc.last_run["failed"], svc.last_run["indexed"]) == (1, 1)

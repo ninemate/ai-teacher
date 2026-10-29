@@ -17,3 +17,4 @@ ansible/group_vars/prod.yml
 ansible/group_vars/vault.yml
 services/**/.cache/
 .scratch/
+config/ingestion/ingestion.yml

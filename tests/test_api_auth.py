@@ -266,6 +266,44 @@ def test_reindex_forwards_ingest_token(api_main, client, monkeypatch):
     assert seen["authorization"] == f"Bearer {INGEST_TOKEN}"
 
 
+def _fake_ingestion(api_main, monkeypatch, handler) -> None:
+    fake_httpx = SimpleNamespace(
+        Client=lambda **kw: httpx.Client(transport=httpx.MockTransport(handler), **kw), HTTPError=httpx.HTTPError
+    )
+    monkeypatch.setattr(api_main, "httpx", fake_httpx)
+
+
+def test_reindex_while_a_run_is_going_answers_409_not_500(api_main, client, monkeypatch):
+    _fake_ingestion(api_main, monkeypatch, lambda request: httpx.Response(409, json={"detail": "running"}))
+    login(client)
+    response = client.post("/ingest/reindex", json={}, headers={"X-CSRF-Token": session_csrf(client)})
+    assert response.status_code == 409
+
+
+def test_reindex_with_ingestion_down_answers_502(api_main, client, monkeypatch):
+    def down(request):
+        raise httpx.ConnectError("connection refused", request=request)
+
+    _fake_ingestion(api_main, monkeypatch, down)
+    login(client)
+    response = client.post("/ingest/reindex", json={}, headers={"X-CSRF-Token": session_csrf(client)})
+    assert response.status_code == 502
+
+
+def test_schedule_is_proxied_with_the_ingest_token(api_main, client, monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"], seen["authorization"] = request.url.path, request.headers.get("authorization")
+        return httpx.Response(200, json={"schedule": {"enabled": True}, "running": False})
+
+    _fake_ingestion(api_main, monkeypatch, handler)
+    assert client.get("/ingest/schedule").status_code == 401
+    login(client)
+    assert client.get("/ingest/schedule").json()["schedule"]["enabled"] is True
+    assert seen == {"path": "/ingest/schedule", "authorization": f"Bearer {INGEST_TOKEN}"}
+
+
 def test_auth_can_be_switched_off_explicitly(api_main, client, monkeypatch):
     monkeypatch.setattr(api_main.settings, "teacher_auth_disabled", True)
     assert client.get("/sources").status_code == 200
