@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     )
     retrieval_top_k: int = Field(default=6, alias="RETRIEVAL_TOP_K")
     max_context_chars: int = Field(default=18000, alias="MAX_CONTEXT_CHARS")
+    study_top_k: int = Field(default=10, alias="STUDY_TOP_K")
+    study_max_attempts: int = Field(default=2, alias="STUDY_MAX_ATTEMPTS")
     ingest_schedule_seconds: int = Field(default=0, alias="INGEST_SCHEDULE_SECONDS")
     ingest_remove_missing: bool = Field(default=True, alias="INGEST_REMOVE_MISSING")
     ingest_scan_extensions: str = Field(

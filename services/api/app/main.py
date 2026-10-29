@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from study_routes import build_router as build_study_router
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.embeddings import embed_query, warmup_embeddings
@@ -374,9 +375,9 @@ def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: 
     return {"answer": answer, "sources": hits}
 
 
-def retrieve_sources(question: str, top_k: int):
+def retrieve_sources(question: str, top_k: int, source_paths: list[str] | None = None):
     query_vector = embed_query(question)
-    results = search(query_vector, limit=top_k)
+    results = search(query_vector, limit=top_k, source_paths=source_paths)
     return [
         {
             "chunk_id": item.payload.get("chunk_id"),
@@ -393,8 +394,8 @@ def retrieve_sources(question: str, top_k: int):
     ]
 
 
-def call_ollama(prompt: str) -> str:
-    payload = {
+def call_ollama(prompt: str, json_mode: bool = False) -> str:
+    payload: dict = {
         "model": settings.ollama_model,
         "prompt": prompt,
         "stream": False,
@@ -403,8 +404,20 @@ def call_ollama(prompt: str) -> str:
             "num_ctx": 8192,
         },
     }
+    if json_mode:
+        payload["format"] = "json"
     with httpx.Client(timeout=180.0) as client:
         response = client.post(f"{settings.ollama_base_url}/api/generate", json=payload)
         response.raise_for_status()
     data = response.json()
     return data.get("response", "").strip()
+
+
+# Stored quizzes and flashcard decks (/study/...). Defined at the bottom so the
+# helpers above exist; the session and CSRF middleware protects them like every other route.
+app.include_router(
+    build_study_router(
+        retrieve=lambda query, top_k, source_paths: retrieve_sources(query, top_k, source_paths),
+        llm=lambda prompt, json_mode: call_ollama(prompt, json_mode=json_mode),
+    ),
+)

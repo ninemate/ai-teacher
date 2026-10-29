@@ -27,3 +27,6 @@ The default prompt instructs the model to:
 - SQLite keeps metadata local without another service.
 - This is smaller and easier to migrate than a full Postgres stack for the MVP.
 
+## Stored Study Material
+
+Quizzes and flashcards reuse the same retrieval and Ollama path but ask for JSON (`format: json`) with numbered sources, validate it, retry on malformed output, and persist the result. See "Stored Quizzes and Flashcards" in [architecture](architecture.md).

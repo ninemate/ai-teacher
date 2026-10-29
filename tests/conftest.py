@@ -13,12 +13,15 @@ from pathlib import Path
 
 import pytest
 from argon2 import PasswordHasher
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
 PASSWORDS = {"apa": "helyes-jelszo-123", "anya": "masik-jelszo-456"}
 INGEST_TOKEN = "test-ingest-token"
 
 _hasher = PasswordHasher()
+# Must be set before teacher_common.config is first imported (settings are cached).
 _db_dir = tempfile.mkdtemp(prefix="teacher-tests-")
 os.environ.update(
     {
@@ -28,6 +31,7 @@ os.environ.update(
         "TEACHER_AUTH_DISABLED": "false",
         "TEACHER_COOKIE_SECURE": "auto",
         "TEACHER_INGEST_TOKEN": INGEST_TOKEN,
+        "TEACHER_PROMPT_PATH": str(ROOT / "config" / "prompts" / "teacher_hu.md"),
     }
 )
 sys.path[:0] = [str(ROOT / "services" / "common"), str(ROOT / "services" / "api" / "app")]
@@ -74,3 +78,14 @@ def ingestion_main():
 
     init_db()
     return _load("ingestion_main", ROOT / "services" / "ingestion" / "app" / "main.py")
+
+
+@pytest.fixture
+def session():
+    from teacher_common import models, study_models  # noqa: F401
+    from teacher_common.db import Base
+
+    engine = create_engine("sqlite://", future=True)
+    Base.metadata.create_all(engine)
+    with sessionmaker(bind=engine, future=True)() as s:
+        yield s

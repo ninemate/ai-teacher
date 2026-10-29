@@ -6,6 +6,7 @@
     <title>Teacher Agent</title>
     <meta name="csrf-token" content="{{ csrf_token }}" />
     <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/study.css" />
   </head>
   <body>
     <main class="shell">
@@ -48,9 +49,39 @@
         <h3>Források</h3>
         <ul id="sources"></ul>
       </section>
+
+      <section class="panel study" id="study">
+        <h2>Tanulás</h2>
+        <p class="lead">Mentett kvízek és villámkártyák a könyvtárból. A kártyák az ismétlési ütemezés szerint jönnek elő.</p>
+
+        <label for="study-topic">Téma (nem kötelező, ha választasz dokumentumot)</label>
+        <input id="study-topic" type="text" placeholder="Például: a sejt felépítése" />
+
+        <details>
+          <summary>Dokumentumok kiválasztása</summary>
+          <div class="doc-list" id="study-docs">Betöltés...</div>
+        </details>
+
+        <label for="study-count">Darabszám (üresen: alapértelmezett)</label>
+        <input id="study-count" type="number" inputmode="numeric" min="1" max="30" />
+
+        <div class="actions">
+          <button id="study-gen-quiz" type="button" class="generate primary">Kvíz mentése</button>
+          <button id="study-gen-deck" type="button" class="generate primary">Kártyapakli mentése</button>
+        </div>
+        <p id="study-status" class="status" role="status"></p>
+
+        <div class="tabs" role="tablist">
+          <button type="button" class="secondary" role="tab" data-tab="quizzes" aria-selected="true">Kvízek</button>
+          <button type="button" class="secondary" role="tab" data-tab="decks" aria-selected="false">Kártyák</button>
+        </div>
+        <div id="study-list"></div>
+        <div id="study-session"></div>
+      </section>
     </main>
 
     <script src="/static/app.js" defer></script>
+    <script src="/static/study.js" defer></script>
   </body>
 </html>
 

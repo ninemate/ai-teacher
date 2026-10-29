@@ -26,7 +26,7 @@ Three layers, each useful on its own:
 | `GET /login`, `POST /login` | the login page itself |
 | `/static/*` | CSS and JS for the login page; no private data |
 
-Everything else, including `/`, `/chat`, `/quiz`, `/summary`, `/flashcards`, `/sources`, `/ingest/*`, `/voice/*`, `/session`, `/logout`, `/docs` and `/openapi.json`, answers `401` without a session (a browser asking for a page is redirected to `/login`). The check is a default-deny middleware, so a new route is protected without any extra code. `tests/test_api_auth.py` walks every registered route to keep it that way.
+Everything else, including `/`, `/chat`, `/quiz`, `/summary`, `/flashcards`, `/study/*`, `/sources`, `/ingest/*`, `/voice/*`, `/session`, `/logout`, `/docs` and `/openapi.json`, answers `401` without a session (a browser asking for a page is redirected to `/login`). The check is a default-deny middleware, so a new route is protected without any extra code. `tests/test_api_auth.py` walks every registered route to keep it that way.
 
 ## App Login
 

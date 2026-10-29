@@ -112,6 +112,16 @@ def test_state_changing_requests_need_csrf_token(client):
     assert client.post("/logout").status_code == 403
 
 
+def test_study_routes_need_session_and_csrf(client):
+    assert client.get("/study/quizzes").status_code == 401
+    login(client)
+    assert client.get("/study/quizzes").status_code == 200
+    assert client.post("/study/decks", json={"topic": "sejt"}).status_code == 403
+    assert client.delete("/study/quizzes/1").status_code == 403
+    deleted = client.delete("/study/quizzes/1", headers={"X-CSRF-Token": session_csrf(client)})
+    assert deleted.status_code == 404
+
+
 @pytest.mark.parametrize("origin", ["https://evil.example", "https://[", "null"])
 def test_cross_origin_post_is_rejected(client, origin):
     login(client)
