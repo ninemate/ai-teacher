@@ -60,7 +60,7 @@ def confidence_from_data(data) -> tuple[str, float | None]:
     ``None`` when no word was scored, e.g. an empty page.
     """
     words: list[tuple[tuple[int, int, int, int], str, int]] = []
-    rows = zip(data["block_num"], data["par_num"], data["line_num"], data["word_num"], data["text"], data["conf"])
+    rows = zip(data["block_num"], data["par_num"], data["line_num"], data["word_num"], data["text"], data["conf"], strict=True)
     for block, par, line, word, text, conf in rows:
         if isinstance(text, str) and text.strip():
             words.append(((int(block), int(par), int(line), int(word)), text.strip(), int(conf)))
