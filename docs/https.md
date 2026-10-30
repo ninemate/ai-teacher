@@ -71,6 +71,8 @@ Use this when the host has a real name, for example from a public DNS name or an
 
 3. `make dev-up` (recreates the proxy). Renewal is up to you: replace the files and run `docker compose ... restart proxy`.
 
+Switching an existing install from `internal`: `/ca.crt` stops serving the old root (it answers with the HTTPS redirect), but the old CA, including its private key, stays in the `caddy_data` volume. Remove the old root from the devices that trusted it. If you will not go back to `internal`, delete `/data/caddy/pki` in the proxy container, or remove the `caddy_data` volume, so its key no longer exists.
+
 Other ways to get a trusted certificate without touching phones: Tailscale (`tailscale cert <name>.ts.net` gives a publicly trusted certificate for the tailnet name; use those files as above) or a DNS-challenge certificate from Let's Encrypt for an internal name.
 
 ## Headers and forwarding
