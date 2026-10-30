@@ -93,7 +93,7 @@ Planned changes:
 
 - **Per-user / role-based isolation (RBAC).** Documents belong to collections; each user or role sees only the collections it is allowed to. The filter is applied in retrieval (Qdrant payload filter) and in the study features (quizzes, decks and attempts are scoped to their owner), not only in the UI.
 - **Page-level citations.** Chunks carry their page (or section) so answers cite `title, page` instead of just the document, and the UI can point to the exact location. This extends the `locator` already stored with source references.
-- **Egress blocking.** The model, vector store, voice and ingestion containers run on an internal-only Compose network with no route to the internet, so private library content cannot leave the host even if a component misbehaves. Model and voice downloads happen at build or pull time, from a host that has access.
+- **Egress blocking.** Containers that handle private content (`ollama`, `qdrant`, `voice`, `ingestion`) run on an internal-only Compose network with no route to the internet. `api` also reads retrieved private content, so it gets no general outbound access either: it joins the internal network and is reached only through the proxy, the single container with a published port. The goal is that private library content cannot leave the host even if a component misbehaves. Model and voice downloads happen at build or pull time, from a host that has access.
 - **Compose HTTPS overlay in deploys.** Use the same Caddy overlay as local dev instead of a separately installed host proxy (open question in [open-questions.md](open-questions.md)).
 - **OCR for image-only EPUB/DOCX**, **voice measurements on the target GPU** and **sentence-by-sentence TTS streaming** for long answers (see [voice-hungarian.md](voice-hungarian.md)).
 - **SSO / identity provider** instead of users configured in `.env` (only if the user count grows).
@@ -230,12 +230,14 @@ flowchart LR
 - Both engines run on the CPU by default, so the GPU stays with the chat model. `compose/docker-compose.voice.nvidia.example.yml` moves Whisper to the GPU (about 1-1.5 GB, unloaded when idle).
 - Engine choice, measurements and configuration: [voice-hungarian.md](voice-hungarian.md).
 
-## GPU Sharing Example
+## GPU Sharing Example (Illustrative)
+
+One possible pattern when several workloads share a multi-GPU host; the split is whatever your hardware and workloads need.
 
 ```mermaid
 flowchart TB
-  Host[Physical Host: several NVIDIA GPUs] --> VM1[Other GPU Workload VM: most GPUs]
-  Host --> VM2[Teacher-Agent VM: 1 GPU]
+  Host[Physical Host: N NVIDIA GPUs] --> VM1[Other GPU Workload VM: some GPUs]
+  Host --> VM2[Teacher-Agent VM: at least 1 GPU]
   VM2 --> Teacher[Teacher-Agent Stack]
 ```
 

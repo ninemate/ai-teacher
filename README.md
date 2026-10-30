@@ -41,7 +41,7 @@ Why this stack:
 - Do not assume the full library fits on local SSD.
 - Source documents remain on the mounted share.
 - Indexed chunk text, vectors, SQLite metadata, model cache, and logs are stored locally.
-- Size the chat model to the VRAM of your GPU: a quantized 7B to 8B model is a practical starting point for GPUs with roughly 8 GB of VRAM, and larger models need more (see [docs/model-selection.md](docs/model-selection.md)).
+- Size the chat model to the VRAM you actually have free: model weights plus context (KV cache) plus anything else sharing the GPU (voice on the GPU, other workloads) must fit. A quantized 7B to 8B model is a common starting point; see [docs/model-selection.md](docs/model-selection.md).
 - Voice is optional and uses no VRAM by default; the voice container needs about 2-2.5 GB of RAM at peak (Whisper turbo plus Piper voices).
 
 ## Quick Start

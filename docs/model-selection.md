@@ -1,6 +1,6 @@
 # Model Selection
 
-The limiting factors are the VRAM of a single NVIDIA GPU and the system RAM of the host. The chat model must fit into one GPU's VRAM unless you configure layer-split across several GPUs. The guidance below assumes a GPU with roughly 8 GB of VRAM and modest system RAM; adjust it upwards if you have more.
+The limiting factors are the VRAM of a single NVIDIA GPU and the system RAM of the host. The chat model must fit into one GPU's VRAM unless you configure layer-split across several GPUs. Budget VRAM as model weights plus context (KV cache) plus any other concurrent GPU workload (for example Whisper on the GPU), and leave headroom. The guidance below is generic; scale it to the VRAM and RAM you have.
 
 ## Practical Default
 
@@ -16,7 +16,7 @@ Reasoning:
 
 - broadly capable instruct family
 - good multilingual behavior
-- a realistic fit for an 8 GB-class GPU when quantized
+- a realistic fit for small-to-mid VRAM budgets when quantized
 
 ## Safe Alternatives
 
@@ -25,7 +25,7 @@ Reasoning:
 
 ## What Not To Assume
 
-- Do not assume a 13B+ model is comfortable on an 8 GB-class GPU; check the model's VRAM need (weights plus context) against your card.
+- Do not assume a 13B+ model is comfortable on a small-VRAM GPU; check the model's VRAM need (weights plus context, plus other GPU workloads) against the VRAM available to it.
 - Do not assume a model that looks good in benchmarks will teach well in Hungarian without testing.
 - Do not assume GPU inference is mandatory for dev mode.
 

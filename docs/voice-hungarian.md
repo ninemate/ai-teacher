@@ -51,7 +51,7 @@ Measured on a desktop CPU without GPU, 2026-10-29. Piper spoke six Hungarian tea
 - Browser recordings (webm/opus from Chrome and Firefox, mp4/aac from Safari) gave the same transcription as WAV.
 - Peak memory in the voice container: about 1.7 GB for Whisper, plus about 0.2-0.7 GB for Piper depending on how many voices have been used.
 
-Imre is the default because it was the most intelligible. Which voice sounds best to the listener is a matter of taste, so the UI offers all three and remembers the choice per phone.
+Imre is the default because it was the most intelligible. Which voice sounds best to the user is a matter of taste, so the UI offers all three and remembers the choice per phone.
 
 ### VRAM on a Shared GPU
 
@@ -64,7 +64,7 @@ If dictation on the CPU is too slow on the host, add `compose/docker-compose.voi
 - sets `VOICE_STT_DEVICE=auto`: GPU when available, with a fallback to the CPU if loading on the GPU fails, e.g. out of memory
 - unloads Whisper after `VOICE_STT_GPU_IDLE_UNLOAD_SECONDS` (default 300) without use, so Ollama gets the memory back
 
-Whisper turbo in `int8_float16` needs roughly 1-1.5 GB. With `qwen2.5:7b-instruct-q4_K_M` at 8k context (about 5.5-6 GB) that fits on an 8 GB GPU, but with little headroom; with less VRAM use a smaller chat model or keep Whisper on the CPU. The GPU path has not been measured on a target card yet.
+Whisper turbo in `int8_float16` needs roughly 1-1.5 GB. With `qwen2.5:7b-instruct-q4_K_M` at 8k context (about 5.5-6 GB) the two together need roughly 7-7.5 GB, so check that your free VRAM covers the chat model's weights and context plus Whisper with some headroom; otherwise use a smaller chat model or keep Whisper on the CPU. The GPU path has not been measured on a target card yet.
 
 ## Enabling It
 
@@ -101,7 +101,7 @@ docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-c
 | `VOICE_STT_GPU_IDLE_UNLOAD_SECONDS` | `300` | GPU overlay only |
 | `VOICE_TTS_BACKEND` | `piper` | `disabled` turns read-aloud off |
 | `VOICE_TTS_VOICES` | `hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium` | baked in at build time; the first is the default |
-| `VOICE_TTS_LENGTH_SCALE` | `1.0` | above 1 speaks slower, e.g. `1.15` for an older listener |
+| `VOICE_TTS_LENGTH_SCALE` | `1.0` | above 1 speaks slower, e.g. `1.15` for slower listening |
 | `VOICE_TTS_MAX_CHARS` | `6000` | longer text is refused (`413`) |
 | `VOICE_MAX_UPLOAD_MB` | `15` | upload limit, enforced by both the API and the voice service |
 
