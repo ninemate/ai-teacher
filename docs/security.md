@@ -36,7 +36,7 @@ Users come from configuration, not from a database. Each user is `username:argon
 
 ```bash
 # .env — single quotes, because the hash contains `$`
-TEACHER_AUTH_USERS='apa:$argon2id$v=19$m=65536,t=3,p=4$...;anya:$argon2id$v=19$...'
+TEACHER_AUTH_USERS='alice:$argon2id$v=19$m=65536,t=3,p=4$...;bob:$argon2id$v=19$...'
 ```
 
 Alternatively, point `TEACHER_AUTH_USERS_FILE` at a file inside the api container (for example a mounted Docker secret) with one `username:hash` per line; `#` starts a comment. Both sources are merged.
@@ -83,7 +83,7 @@ An attempt is counted before its password is checked, in the same step as the li
 Notes:
 
 - The counter lives in the API process's memory. The API runs as a single process; a restart clears the counters.
-- Behind Caddy all requests arrive from the proxy's address, so the per-address limit is shared by everyone using that proxy. With a family-sized user list that is acceptable; the per-user limit still applies.
+- Behind Caddy all requests arrive from the proxy's address, so the per-address limit is shared by everyone using that proxy. With a small user list that is acceptable; the per-user limit still applies.
 - An attacker who can reach the login page can lock a user out for a window. The VPN keeps that population small.
 - Unknown usernames cost the same password-hash check as wrong passwords, so response time does not reveal which usernames exist.
 

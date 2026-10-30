@@ -41,7 +41,7 @@ When the voice overlay runs (see [voice-hungarian.md](voice-hungarian.md)), the 
 
 ## User Flow
 
-1. Father opens the phone browser.
+1. The user opens the phone browser.
 2. He connects through VPN or a protected HTTPS entrypoint.
 3. He logs in once on that phone.
 4. He types or dictates a Hungarian question.

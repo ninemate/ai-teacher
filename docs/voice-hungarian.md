@@ -19,7 +19,7 @@ Everything runs offline in the `voice` container. Models are downloaded when the
 ### Why Piper for TTS
 
 - **Hungarian voices exist and are free to use.** Piper has three Hungarian voices (Imre, male; Anna and Berta, female). Each is about 63 MB, the training data is CC0, and they were fine-tuned from the English `lessac` voice.
-- **No GPU needed.** On the CPU it synthesizes far faster than real time. The 8 GB card stays free for the chat model and Whisper.
+- **No GPU needed.** On the CPU it synthesizes far faster than real time. The GPU's VRAM stays free for the chat model and Whisper.
 - **Hungarian text handling is built in.** Piper phonemizes with espeak-ng, which reads Hungarian numbers, dates, ordinals ("1. lépés" → "első lépés", "XIV. Lajos" → "tizennegyedik"), units and most abbreviations ("pl.", "stb.", "ill.", "ún.", "vö.") correctly. The few it spells out letter by letter are expanded first (see Text Clean-up).
 - **Alternatives considered:**
   - Coqui XTTS-v2 supports Hungarian and sounds more natural, but needs about 2-4 GB of VRAM or is slow on the CPU, and its model licence is non-commercial.
@@ -38,7 +38,7 @@ Piper's engine is GPL-3.0. It runs as a separate service and is not linked into 
 
 ### Measurements
 
-Measured on a 16-core desktop CPU without GPU, 2026-10-29. Piper spoke six Hungarian teaching sentences (57 words); Whisper transcribed them back. This "round-trip" word error rate measures TTS intelligibility and STT accuracy together. It is not a substitute for listening, but it ranks the options. Some counted errors are harmless ("II." for "második").
+Measured on a desktop CPU without GPU, 2026-10-29. Piper spoke six Hungarian teaching sentences (57 words); Whisper transcribed them back. This "round-trip" word error rate measures TTS intelligibility and STT accuracy together. It is not a substitute for listening, but it ranks the options. Some counted errors are harmless ("II." for "második").
 
 | | Imre | Anna | Berta |
 | --- | --- | --- | --- |
@@ -53,18 +53,18 @@ Measured on a 16-core desktop CPU without GPU, 2026-10-29. Piper spoke six Hunga
 
 Imre is the default because it was the most intelligible. Which voice sounds best to the listener is a matter of taste, so the UI offers all three and remembers the choice per phone.
 
-### VRAM on the shared RTX 3070
+### VRAM on a Shared GPU
 
 The default uses no GPU memory at all: both engines run on the CPU, and the chat model keeps the whole card.
 
-If dictation on the CPU is too slow on the VM, add `compose/docker-compose.voice.nvidia.example.yml`. It:
+If dictation on the CPU is too slow on the host, add `compose/docker-compose.voice.nvidia.example.yml`. It:
 
 - builds the image with cuBLAS and cuDNN (`VOICE_CUDA=true`, about 1.5 GB more image)
 - reserves GPU 0
 - sets `VOICE_STT_DEVICE=auto`: GPU when available, with a fallback to the CPU if loading on the GPU fails, e.g. out of memory
 - unloads Whisper after `VOICE_STT_GPU_IDLE_UNLOAD_SECONDS` (default 300) without use, so Ollama gets the memory back
 
-Whisper turbo in `int8_float16` needs roughly 1-1.5 GB. With `qwen2.5:7b-instruct-q4_K_M` at 8k context (about 5.5-6 GB) that fits on 8 GB, but with little headroom. The GPU path has not been measured on the target card yet.
+Whisper turbo in `int8_float16` needs roughly 1-1.5 GB. With `qwen2.5:7b-instruct-q4_K_M` at 8k context (about 5.5-6 GB) that fits on an 8 GB GPU, but with little headroom; with less VRAM use a smaller chat model or keep Whisper on the CPU. The GPU path has not been measured on a target card yet.
 
 ## Enabling It
 
@@ -155,7 +155,7 @@ VOICE_TEST_PIPER_DIR=./piper-voices python -m pytest tests/test_voice_service.py
 
 ## Known Limits
 
-- CPU dictation latency depends on the VM's cores. If it is too slow, try `VOICE_STT_MODEL=medium`, or move Whisper to the GPU.
+- CPU dictation latency depends on the host's cores. If it is too slow, try `VOICE_STT_MODEL=medium`, or move Whisper to the GPU.
 - Piper's `medium` Hungarian voices are clear but noticeably synthetic, and stress on rare or foreign words can be off.
-- Long answers are synthesized in one piece before playback starts. On the test machine a 6000-character answer (about 6.5 minutes of speech, 3 MB of MP3) took 8.8 s. Typical answers are well under 2000 characters. Sentence-by-sentence streaming would be the next step if this proves too slow on the VM.
+- Long answers are synthesized in one piece before playback starts. On the measurement machine a 6000-character answer (about 6.5 minutes of speech, 3 MB of MP3) took 8.8 s. Typical answers are well under 2000 characters. Sentence-by-sentence streaming would be the next step if this proves too slow on the host.
 - Hungarian fine-tuned Whisper checkpoints exist on Hugging Face. Any CTranslate2 conversion can be set as `VOICE_STT_MODEL`, but none has been evaluated here.

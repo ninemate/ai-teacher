@@ -1,6 +1,6 @@
 # Architecture
 
-The MVP is a text-first RAG system designed for a dedicated teacher-agent VM. It is intentionally separate from any other AI workload stack.
+The MVP is a text-first RAG system designed for a dedicated teacher-agent host or VM. It is self-contained and does not share services with any other AI workload stack.
 
 ## Core Services
 
@@ -121,8 +121,8 @@ The UI section "Tanulás" on the main page (`static/study.js`, `study.css`) list
 
 ```mermaid
 flowchart TD
-  Phone[Father's Phone] -->|Preferred: VPN| VPN[WireGuard or Tailscale]
-  VPN --> Host[Teacher-Agent VM]
+  Phone[Phone] -->|Preferred: VPN| VPN[WireGuard or Tailscale]
+  VPN --> Host[Teacher-Agent Host]
   Host --> UI[FastAPI UI]
   Phone -->|HTTPS + app login| Caddy[Caddy: compose overlay or host role]
   Caddy --> UI
@@ -145,11 +145,11 @@ flowchart LR
 - Both engines run on the CPU by default, so the GPU stays with the chat model. `compose/docker-compose.voice.nvidia.example.yml` moves Whisper to the GPU (about 1-1.5 GB, unloaded when idle).
 - Engine choice, measurements and configuration: [voice-hungarian.md](voice-hungarian.md).
 
-## VM Split Example
+## GPU Sharing Example
 
 ```mermaid
 flowchart TB
-  Host[Physical Host: up to 8x RTX 3070] --> VM1[Image Generation VM: 7 GPUs]
+  Host[Physical Host: several NVIDIA GPUs] --> VM1[Other GPU Workload VM: most GPUs]
   Host --> VM2[Teacher-Agent VM: 1 GPU]
   VM2 --> Teacher[Teacher-Agent Stack]
 ```
@@ -159,7 +159,7 @@ flowchart TB
 - The source library remains on the share.
 - Index data lives locally for speed.
 - Chunk text is stored locally as part of the RAG index payload.
-- Sequential ingestion is a deliberate default to protect `16 GB RAM`.
+- Sequential ingestion is a deliberate default to keep memory use low on hosts with limited RAM.
 - Only folders listed in `config/ingestion/ingestion.yml` are scanned; the share may hold far more than is indexed.
 - Stored quizzes and decks keep a copy of their source references (path, title, locator), not foreign keys, so a reindex or a deleted document does not break them.
 
