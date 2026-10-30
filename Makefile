@@ -1,7 +1,7 @@
 COMPOSE_BASE=docker compose --env-file .env -f compose/docker-compose.yml
 COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml -f compose/docker-compose.proxy.yml
 
-.PHONY: dev-up dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test test-chat test-ingest hash-password
+.PHONY: dev-up dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test test-chat test-ingest hash-password model-update test-egress
 
 dev-up:
 	$(COMPOSE_DEV) up -d --build
@@ -34,13 +34,28 @@ nvidia-check:
 test:
 	python -m pytest
 
-# Needs TEACHER_USER and TEACHER_PASSWORD in the environment.
+# Needs TEACHER_USER and TEACHER_PASSWORD in the environment. Speaks to the HTTPS proxy;
+# the private services publish no host ports (CURL_INSECURE=1 trusts the internal CA).
 test-chat:
-	scripts/smoke-chat.sh "http://$${TEACHER_HTTP_BIND:-127.0.0.1}:$${TEACHER_HTTP_PORT:-8080}"
+	CURL_INSECURE=$${CURL_INSECURE:-1} scripts/smoke-chat.sh \
+		"https://$${TEACHER_PROXY_HOST:-localhost}:$${TEACHER_HTTPS_PORT:-8443}"
 
+# Asks the ingestion service for /ingest/status from inside the private network
+# (the service publishes no host port). Needs `.env` on this host.
 test-ingest:
-	curl -fsS "http://127.0.0.1:$${TEACHER_INGEST_PORT:-8081}/ingest/status" \
-		-H "Authorization: Bearer $$(sed -n 's/^TEACHER_INGEST_TOKEN=//p' .env)"
+	$(COMPOSE_BASE) exec -T ingestion \
+		python -c "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8081/ingest/status', headers={'Authorization': 'Bearer ' + os.environ['TEACHER_INGEST_TOKEN']}); print(urllib.request.urlopen(r).read().decode())"
+
+# Pulls models for the internal Ollama container through a temporary edge-network
+# connection, then disconnects it again. This is the only channel that may reach the
+# internet; the private services keep none at runtime (docs/security.md).
+model-update:
+	bash scripts/model-update.sh
+
+# Proves the egress rule (Private AI acceptance test 11). --config-only works
+# without a running stack.
+test-egress:
+	bash scripts/test-egress-block.sh
 
 # Prints an argon2 hash for TEACHER_AUTH_USERS.
 hash-password:

@@ -21,7 +21,7 @@ Caddy was chosen over nginx because it needs no certificate tooling for the defa
 | `TEACHER_TLS_DIR` | `../certs` | Host directory mounted read-only at `/certs` (relative to `compose/`, so `certs/` in the repo root; git-ignored). |
 | `TEACHER_HSTS` | `max-age=0` | `Strict-Transport-Security` value. See below. |
 
-With the proxy running, set `TEACHER_HTTP_BIND=127.0.0.1` so the API's own plain-HTTP port (8080) is not reachable from other devices. Set `TEACHER_COOKIE_SECURE=true` once you only use the HTTPS address.
+With the proxy running, `TEACHER_PROXY_BIND=127.0.0.1` keeps the HTTPS port on this machine only; the private services publish no host ports at all, so only the HTTPS port can be reached from other devices. Set `TEACHER_COOKIE_SECURE=true` once you only use the HTTPS address.
 
 ## Default: internal CA (self-signed)
 
@@ -78,7 +78,7 @@ Other ways to get a trusted certificate without touching phones: Tailscale (`tai
 ## Headers and forwarding
 
 - Caddy adds `Strict-Transport-Security`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`, and removes `Server`. The API adds its own CSP and `Cache-Control: no-store` (see [security.md](security.md)).
-- **HSTS** is `max-age=0` by default. Browsers remember HSTS per host name, not per port: a real HSTS header on `localhost` would make the browser force HTTPS on `http://localhost:8080` too and break plain-HTTP dev. Switch it on (`max-age=31536000`) once you use real certificates on a dedicated name.
+- **HSTS** is `max-age=0` by default. Browsers remember HSTS per host name: a real HSTS header on a name you also use elsewhere locally would force HTTPS there. Switch it on (`max-age=31536000`) once you use real certificates on a dedicated name.
 - The request `Host` is passed through unchanged, so the API's CSRF `Origin`/`Host` check works. `X-Forwarded-Proto: https`, `X-Forwarded-For` and `X-Forwarded-Host` are set by Caddy and overwrite anything the client sent, so the API's `Secure` cookie logic (`TEACHER_COOKIE_SECURE=auto`) cannot be fooled from outside.
 - Behind the proxy the API sees every request coming from the proxy container, so the per-address login rate limit is shared; see [security.md](security.md).
 - HTTP/3 is disabled (the UDP port is not published); HTTP/1.1 and HTTP/2 are on.

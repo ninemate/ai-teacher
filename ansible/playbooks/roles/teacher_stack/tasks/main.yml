@@ -1,8 +1,10 @@
 - name: Build effective compose overlay list
+  # docker-compose.proxy.yml is always part of the stack: the private services publish
+  # no host ports, so the compose proxy is the only entry point.
   ansible.builtin.set_fact:
     teacher_effective_compose_files: >-
       {{
-        ['compose/docker-compose.yml']
+        ['compose/docker-compose.yml', 'compose/docker-compose.proxy.yml']
         + teacher_compose_overlays
         + (['compose/docker-compose.nvidia.example.yml'] if teacher_gpu_enabled | bool else [])
         + (['compose/docker-compose.voice.example.yml'] if teacher_enable_voice | bool else [])
@@ -67,6 +69,12 @@
   ansible.builtin.copy:
     src: "{{ teacher_repo_local_path }}/services/"
     dest: "{{ teacher_stack_dir }}/services/"
+    mode: preserve
+
+- name: Copy scripts directory (egress test, model updates)
+  ansible.builtin.copy:
+    src: "{{ teacher_repo_local_path }}/scripts/"
+    dest: "{{ teacher_stack_dir }}/scripts/"
     mode: preserve
 
 - name: Read the current environment file

@@ -8,6 +8,13 @@
   }
   {% endif %}
 
-  reverse_proxy 127.0.0.1:{{ teacher_http_port }}
+  # The stack's own compose proxy is the API's only published port (HTTPS, internal CA).
+  # The private services publish no host ports, so this host Caddy terminates TLS named
+  # after real certificates and forwards to the compose proxy; the internal CA is not
+  # verified here, app auth stays on (docs/security.md).
+  reverse_proxy https://127.0.0.1:{{ teacher_https_port }} {
+    transport http {
+      tls_insecure_skip_verify
+    }
+  }
 }
-

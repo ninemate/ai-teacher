@@ -54,6 +54,10 @@ jobs:
         run: |
           docker compose --env-file .env -f compose/docker-compose.yml build --parallel
 
+      - name: Check the egress rule in the compose config
+        run: |
+          bash scripts/test-egress-block.sh --config-only
+
   deploy:
     runs-on: [self-hosted, linux, x64]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -76,11 +80,13 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: "false"
           TEACHER_AUTH_USERS: ${{ secrets.TEACHER_AUTH_USERS }}
 
-      - name: Healthcheck
+      - name: Healthcheck and egress probe
         run: |
           for attempt in $(seq 1 120); do
-            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/health >/dev/null \
-              && curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8081/health >/dev/null; then
+            if ansible-playbook -i ansible/inventory/selfhosted.ini \
+                 ansible/playbooks/healthcheck.yml >/dev/null 2>&1; then
+              ansible-playbook -i ansible/inventory/selfhosted.ini \
+                ansible/playbooks/healthcheck.yml
               exit 0
             fi
             sleep 5

@@ -2,6 +2,7 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.13.6
     restart: unless-stopped
+    networks: [private]
     expose:
       - "6333"
     environment:
@@ -18,6 +19,7 @@ services:
   ollama:
     image: ollama/ollama:0.6.6
     restart: unless-stopped
+    networks: [private]
     expose:
       - "11434"
     environment:
@@ -38,6 +40,7 @@ services:
       context: ..
       dockerfile: services/api/Dockerfile
     restart: unless-stopped
+    networks: [private]
     depends_on:
       qdrant:
         condition: service_healthy
@@ -68,8 +71,6 @@ services:
       TEACHER_INGEST_TOKEN: ${TEACHER_INGEST_TOKEN:-}
       INGESTION_BASE_URL: http://ingestion:8081
       VOICE_BASE_URL: ${VOICE_BASE_URL}
-    ports:
-      - ${TEACHER_HTTP_BIND}:${TEACHER_HTTP_PORT}:8000
     volumes:
       - ${TEACHER_MOUNT_POINT}:/library:ro
       - ${TEACHER_DATA_DIR}/metadata:/data/metadata
@@ -86,6 +87,7 @@ services:
       context: ..
       dockerfile: services/ingestion/Dockerfile
     restart: unless-stopped
+    networks: [private]
     depends_on:
       qdrant:
         condition: service_healthy
@@ -111,8 +113,6 @@ services:
       OCR_TIMEOUT_SECONDS: ${OCR_TIMEOUT_SECONDS:-900}
       OCR_MAX_PAGES: ${OCR_MAX_PAGES:-0}
       OCR_CACHE_DIR: ${OCR_CACHE_DIR:-/data/metadata/ocr_cache}
-    ports:
-      - 127.0.0.1:${TEACHER_INGEST_PORT}:8081
     volumes:
       - ${TEACHER_MOUNT_POINT}:/library:ro
       - ${TEACHER_DATA_DIR}/metadata:/data/metadata
@@ -124,6 +124,55 @@ services:
       timeout: 10s
       retries: 5
 
+  egress_probe:
+    # Disposable container used by scripts/test-egress-block.sh (make test-egress, "Private AI"
+    # acceptance test 11): it joins the private network and must fail to reach the internet.
+    image: busybox:1.36
+    profiles: ["egress-test"]
+    networks: [private]
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        blocked=0
+        probe() {
+          # $$1 what, $$2 address, $$3 port. Reaching the internet from the private network
+          # breaks the egress rule, so the test fails then. ($$ must be doubled here:
+          # compose would otherwise substitute them while loading the file.)
+          if nc -z -w 4 "$$2" "$$3" 2>/dev/null; then
+            echo "FAIL: $$1 ($$2:$$3) is reachable from the private network" >&2
+            blocked=1
+          else
+            echo "ok: $$1 ($$2:$$3) unreachable (blocked, as it should be)"
+          fi
+        }
+        probe "TCP to a resolver" 9.9.9.9 53
+        probe "TCP to Google DNS" 8.8.8.8 53
+        probe "TCP to Cloudflare HTTPS" 1.1.1.1 443
+        if nslookup example.com 9.9.9.9 >/dev/null 2>&1; then
+          echo "FAIL: DNS query to 9.9.9.9 answered" >&2
+          blocked=1
+        else
+          echo "ok: DNS to 9.9.9.9 blocked"
+        fi
+        # Informational: from this container the stack's own services should be reachable
+        # (they live on the same private network). Nobody is expected to be up for a bare probe.
+        (nc -z -w 2 qdrant 6333 2>/dev/null && echo "in-network: qdrant:6333 reachable") \
+          || echo "in-network: qdrant:6333 not reachable (stack not up)"
+        if [ "$$blocked" -eq 0 ]; then
+          echo "PASS: no egress to the internet from the private network"
+        else
+          echo "FAIL: the private network reached the internet" >&2
+        fi
+        exit "$$blocked"
+
 networks:
+  # Edge network for the published ports (the reverse proxy only).
   default:
     name: ${COMPOSE_PROJECT_NAME}
+  # Everything carrying private content (api, ingestion, voice, qdrant, ollama) sits here.
+  # internal: true means no route to the internet, so no private service can reach
+  # an external AI cloud (rough equivalent: docker network create --internal).
+  private:
+    name: ${COMPOSE_PROJECT_NAME}_private
+    internal: true

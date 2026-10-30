@@ -15,7 +15,7 @@ ansible-galaxy collection install -r ansible/requirements.yml
 - `deploy.yml`: full deploy
 - `stop.yml`: stop the stack
 - `restart.yml`: restart running containers
-- `healthcheck.yml`: call service health endpoints
+- `healthcheck.yml`: wait for container health, then run the egress audit (containers on the internal network only, no ports, live probe; see docs/security.md)
 - `mount-share.yml`: mount the library share only
 - `reindex.yml`: trigger manual reindex
 
@@ -55,3 +55,7 @@ The CI deploy to the self-hosted runner reads `teacher_auth_users` from the GitH
 ## GPU Path
 
 If `teacher_gpu_enabled=true`, the deploy role adds the NVIDIA Compose overlay and can optionally install the NVIDIA Container Toolkit role.
+
+## Network
+
+The deployment always includes the compose proxy (`docker-compose.proxy.yml`): the private services sit on an internal network, publish no host ports, and the proxy is the only entry point (`TEACHER_PROXY_HOST`/`TEACHER_PROXY_BIND`/`TEACHER_HTTPS_PORT` set from `group_vars`; see docs/security.md). `teacher_enable_reverse_proxy=true` additionally installs a host-level Caddy in front of the stack proxy (real certificates etc.); it forwards to `https://127.0.0.1:{{ teacher_https_port }}` and skips the stack's internal CA.

@@ -9,6 +9,7 @@ This system handles private library content and private user questions. Treat it
 - Vault or external secret handling for real passwords
 - read-only network-share mount by default
 - private access path for the UI
+- private services with no egress to the internet (see [Network Egress](#network-egress))
 
 ## Access Model
 
@@ -93,26 +94,51 @@ Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY
 
 ## Ingestion Service
 
-The ingestion service is published on the host only on `127.0.0.1:${TEACHER_INGEST_PORT}` and inside the compose network. Its `/ingest/status`, `/ingest/schedule` and `/ingest/reindex` endpoints require `Authorization: Bearer ${TEACHER_INGEST_TOKEN}`; `/health` stays open for health checks.
+The ingestion service lives on the internal compose network and publishes no host port. It is reached inside the stack (the API calls `http://ingestion:8081`) or from the stack host with `docker compose exec` / `make test-ingest`. Its `/ingest/status`, `/ingest/schedule` and `/ingest/reindex` endpoints require `Authorization: Bearer ${TEACHER_INGEST_TOKEN}`; `/health` stays open for health checks.
 
 - Logged-in users reach `GET /ingest/schedule` and `POST /ingest/reindex` through the API, which adds the token, so users never handle it. The API's `GET /ingest/status` reads the last run from the shared SQLite file. A reindex during a running (for example scheduled) run answers `409`; an unreachable ingestion service answers `502`.
 - If `TEACHER_INGEST_TOKEN` is empty the endpoints refuse every call (`503`). Generate one with `openssl rand -hex 32`.
 - The Ansible deploy keeps the token already in the host's `.env`, or generates one on first deploy, unless `teacher_ingest_token` is set. `reindex.yml` and `make test-ingest` read it from `.env`.
 
 ```bash
-curl -X POST http://127.0.0.1:8081/ingest/reindex \
-  -H "Authorization: Bearer $TEACHER_INGEST_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"full_reindex": false, "remove_missing": true}'
+# from the stack host; reads the token the deploy put in the stack's .env
+make test-ingest
 ```
+
+## Network Egress
+
+Requirement "Private AI v1.1" (acceptance test 11): private AI services must not send library content or user questions to an external AI cloud, and the block must be a technical rule, not a promise. There is no deployment layer above compose, so the rule lives in `compose/docker-compose.yml`:
+
+- `api`, `ingestion`, `voice`, `qdrant` and `ollama` all attach to one network named `${COMPOSE_PROJECT_NAME}_private` with **`internal: true`** — the Docker equivalent of `docker network create --internal`. Containers on it get no route to the internet: outbound packets cannot leave the host, and (verified, Docker 29) published ports on the network do not bind, so an internal service is also un-reachable even by accident.
+- Only the Caddy reverse proxy (`compose/docker-compose.proxy.yml`) is additionally on the routable edge network (`default`) and the only service that pins host ports (HTTPS + the plain-HTTP redirect). Remote access is VPN-only; no port forwarding of private services exists, and none is needed: everything the browser needs goes through the proxy.
+- The API and the ingestion service publish **no host ports at all**. The UI/API is reached through the proxy; the ingestion service only from inside the network (the API, or `docker compose exec`).
+
+### Model updating is offline work
+
+Downloads are not a runtime activity on the private network:
+
+- The embedding model is baked into the `api` and `ingestion` images at build time (`services/*/Dockerfile`); switching it means a rebuild with the new `EMBEDDING_MODEL`, which is an explicit build step on a machine with internet.
+- Ollama models are pulled with `make model-update` (`scripts/model-update.sh`): it attaches the running `ollama` container to the edge network, pulls the asked models, then disconnects it again. Since the Dockerfiles haven't changed, the pull is the only channel that touches the internet; everything else — queries, OCR, embedding, HTTPS — runs entirely locally.
+
+The egress rule is re-provable at any time with `make test-egress` (`scripts/test-egress-block.sh`), which runs in three layers:
+
+1. **config** — audits the merged compose config (networks, exclusivity and ports of every service, `internal: true` on the private one) without touching the stack;
+2. **containers** — audited against the same rule with `docker inspect` (`egress_check.py`), catching accidental host-port publishing or stray network attachment;
+3. **probe** — a disposable container joins the private network and must fail to reach public IPs (TCP 53/443 to assorted resolvers) plus a DNS answer; the audit also checks the containers in part 2 above, and a DNS query attempt is included, so a quiet DNS leak (used by several telemetry paths) trips it too.
+
+Run `make test-egress` after any change to the compose network configuration. CI runs the config audit on every build and the full three-part audit on the deployed host.
+
+### Layers under the egress rule
+
+An internal network has no route to the internet by itself, but the ways around it exist and are checked for: a `docker network connect`, a second network on a service or a different resolver outside Docker (which the audit and the probe catch, both locally and in the playbook/CI). Host-level firewall (nftables/ufw) rules on the Docker bridge interfaces would add defence in depth for paths outside Docker; they are not automated for now — the repo has one deployment layer, compose, and the rule lives where the stack runs.
 
 ## Exposure Rules
 
-- Keep Qdrant internal.
-- Keep Ollama internal.
-- Keep the ingestion port on `127.0.0.1`.
-- With the compose proxy, set `TEACHER_HTTP_BIND=127.0.0.1` so only the HTTPS port is reachable from other devices.
+- Keep Qdrant, Ollama, the ingestion service and the API on the `private` network only (`internal: true`, no host ports).
+- Keep the API internal: it is reached through the compose proxy's HTTPS (or VPN TLS), never through a forwarded host port.
+- Only the compose proxy pins host ports; set `TEACHER_PROXY_BIND=127.0.0.1` unless the VPN needs otherwise.
 - Prefer VPN for remote access, with HTTPS and app login on top.
+- Run `make test-egress` after any change to the compose network configuration; run it again after `make model-update`.
 - Never run with `TEACHER_AUTH_DISABLED=true` on a reachable host.
 
 ## Secrets

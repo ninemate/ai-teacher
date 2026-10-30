@@ -13,6 +13,10 @@ The MVP is a text-first RAG system designed for a dedicated teacher-agent VM. It
 
 `api` and `ingestion` share one SQLite file under `${TEACHER_DATA_DIR}/metadata` (documents, chunks, ingest runs, OCR records, login sessions, quizzes and decks). Both call `init_db()` at startup. SQLite waits up to 30 seconds for the other container's write instead of failing.
 
+## Network and Egress
+
+All private services (`api`, `ingestion`, `voice`, `qdrant`, `ollama`) sit on one internal Docker network (`internal: true`) with no route to the internet; only the Caddy reverse proxy also joins the routable edge network and publishes ports. Model updates run separately (`make model-update`); the egress-free setup is proven by `make test-egress`. See [security.md](security.md).
+
 ## High-Level Flow
 
 ```mermaid

@@ -4,6 +4,7 @@ services:
       context: ..
       dockerfile: services/voice/Dockerfile
     restart: unless-stopped
+    networks: [private]
     deploy:
       resources:
         reservations:

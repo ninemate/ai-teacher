@@ -26,31 +26,40 @@ openssl rand -hex 32                     # paste as TEACHER_INGEST_TOKEN=
 make dev-up
 ```
 
-5. Pull a model:
+The private services (api, ingestion, voice, qdrant, ollama) sit on an internal network with no route to the internet, and publish no host ports; only the HTTPS proxy is exposed (see [security.md](security.md)).
+
+5. Pull a model — the private services have no egress, so model updates are an explicit step that briefly connects the Ollama container to the edge network:
 
 ```bash
-docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-compose.dev.yml exec ollama ollama pull qwen2.5:7b-instruct-q4_K_M
+make model-update   # pulls OLLAMA_MODEL from .env (add names as arguments for several)
 ```
 
-6. If you want LAN or phone access during testing, set `TEACHER_PROXY_HOST` to the host's address and `TEACHER_PROXY_BIND=0.0.0.0` in `.env` (HTTPS proxy, see [https.md](https.md)). Leave `TEACHER_HTTP_BIND` on `127.0.0.1`.
+The embedding model is baked into the api/ingestion images at build time; a new `EMBEDDING_MODEL` means a rebuild.
 
-7. Trigger indexing:
+6. If you want LAN or phone access during testing, set `TEACHER_PROXY_HOST` to the host's address and `TEACHER_PROXY_BIND=0.0.0.0` in `.env` (HTTPS proxy, see [https.md](https.md)). For anything beyond VPN testing, prefer the VPN: the stack has no other open port.
+
+7. Trigger indexing (the ingestion container publishes no host port; this asks it through `docker compose exec`):
 
 ```bash
 make test-ingest
-curl -X POST http://127.0.0.1:8081/ingest/reindex \
-  -H "Authorization: Bearer $(sed -n 's/^TEACHER_INGEST_TOKEN=//p' .env)" \
-  -H 'Content-Type: application/json' \
-  -d '{"full_reindex": false, "remove_missing": true}'
 ```
 
-8. Open `https://localhost:8443` and log in. The certificate comes from Caddy's local CA: either accept the browser warning or trust the root (`curl -o teacher-ca.crt http://localhost:8088/ca.crt`, see [https.md](https.md)). `http://127.0.0.1:8080` still reaches the API directly on this machine, without TLS.
+8. Open `https://localhost:8443` and log in. The certificate comes from Caddy's local CA: either accept the browser warning or trust the root (`curl -o teacher-ca.crt http://localhost:8088/ca.crt`, see [https.md](https.md)). There is no direct plain-HTTP API port any more.
+
+9. Prove the egress rule:
+
+```bash
+make test-egress
+```
+
+Checks the compose config, the running containers and a live probe from inside the private network (see [security.md](security.md)). Parts of it skip when the stack is not running.
 
 ## Dev Notes
 
-- The default `.env.example` keeps the UI bound to `127.0.0.1`.
+- The default `.env.example` keeps the proxy bound to `127.0.0.1`.
 - The login is on in dev too. `TEACHER_AUTH_DISABLED=true` turns it off for a purely local experiment; never on a reachable host.
 - `make test` runs the unit tests (`pip install pytest` plus the api requirements first).
-- `make test-chat` logs in and asks one question; it needs `TEACHER_USER` and `TEACHER_PASSWORD` in the environment.
+- `make test-chat` logs in through the proxy and asks one question; it needs `TEACHER_USER` and `TEACHER_PASSWORD` in the environment (`CURL_INSECURE=1` is set by default for the internal CA).
 - `make dev-up` includes `compose/docker-compose.proxy.yml` (Caddy). Plain HTTP on port 8088 redirects to HTTPS.
+- To poke a private service from the host, use `docker compose exec` (see `compose/docker-compose.dev.yml`).
 - For actual remote access, use VPN plus HTTPS; the app login stays on.

@@ -5,6 +5,9 @@ services:
   proxy:
     image: caddy:2.11.7-alpine
     restart: unless-stopped
+    # Edge network for the published ports, private network to reach the API. The proxy
+    # is the only service with host ports and the only one with a routable network.
+    networks: [default, private]
     depends_on:
       api:
         condition: service_healthy

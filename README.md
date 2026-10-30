@@ -54,10 +54,10 @@ Why this stack:
 make dev-up
 ```
 
-5. Pull a chat model into Ollama from inside the running container:
+5. Pull a chat model — the private services have no egress, so model updates are an explicit step through a temporary edge-network connection:
 
 ```bash
-docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-compose.dev.yml exec ollama ollama pull qwen2.5:7b-instruct-q4_K_M
+make model-update   # pulls OLLAMA_MODEL from .env (see docs/security.md)
 ```
 
 6. If you need LAN or phone access during testing, set `TEACHER_PROXY_HOST` and `TEACHER_PROXY_BIND=0.0.0.0` in `.env`; the HTTPS proxy and certificate trust are described in [docs/https.md](docs/https.md).
@@ -65,10 +65,7 @@ docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-c
 7. Trigger indexing (or wait for the schedule):
 
 ```bash
-curl -X POST http://127.0.0.1:8081/ingest/reindex \
-  -H "Authorization: Bearer $(sed -n 's/^TEACHER_INGEST_TOKEN=//p' .env)" \
-  -H 'Content-Type: application/json' \
-  -d '{"full_reindex": false, "remove_missing": true}'
+make test-ingest          # asks /ingest/status from inside the private network
 ```
 
 8. Open the UI and log in:
@@ -77,7 +74,7 @@ curl -X POST http://127.0.0.1:8081/ingest/reindex \
 https://localhost:8443
 ```
 
-The certificate is from Caddy's local CA; see [docs/https.md](docs/https.md) to trust it. The API is also on `http://127.0.0.1:8080` on this machine.
+The certificate is from Caddy's local CA; see [docs/https.md](docs/https.md) to trust it. The private services publish no host ports; only the proxy is exposed, and `make test-egress` proves they cannot reach the internet (see docs/security.md).
 
 ## Tests
 
@@ -95,6 +92,10 @@ The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed. T
 a smoke test with the real engine runs only when `tesseract` with the `hun` and `eng` language packs is installed.
 The OCR-through-ingestion tests also need `qdrant-client` (or the full `services/ingestion/requirements.txt`)
 and are skipped without it; the embedding model is stubbed.
+
+The compose-level egress rule ("private services cannot reach the internet") is proven separately, runnable
+locally without CI: `make test-egress` (`scripts/test-egress-block.sh` + `scripts/egress_check.py`). Its config
+audit needs only Docker and the compose config; the live probe needs running containers. See docs/security.md.
 
 ## Architecture
 

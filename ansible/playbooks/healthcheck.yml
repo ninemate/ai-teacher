@@ -1,23 +1,112 @@
+# Health of the private services is answered by their container health checks: the
+# services sit on an internal network and publish no host ports (docs/security.md).
+# It also runs the egress audit: the deployed host must prove the private services
+# cannot reach the internet (Private AI acceptance test 11).
 - hosts: teacher
   become: true
   tasks:
-    - name: Check API health
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ teacher_http_port }}/health"
-        method: GET
-        return_content: true
-      register: api_health
-
-    - name: Check ingestion health
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ teacher_ingest_port }}/health"
-        method: GET
-        return_content: true
-      register: ingest_health
+    - name: Wait for the private services to be healthy
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - --format
+          - "{{ '{{' }} .State.Health.Status {{ '}}' }}"
+          - "{{ teacher_project_name }}-{{ item }}-1"
+      loop: "{{ ['qdrant', 'ollama', 'api', 'ingestion'] + (['voice'] if teacher_enable_voice | bool else []) }}"
+      register: teacher_health_results
+      until: teacher_health_results.stdout == "healthy"
+      retries: 48
+      delay: 5
+      changed_when: false
 
     - name: Show health summary
       ansible.builtin.debug:
-        msg:
-          api: "{{ api_health.json }}"
-          ingestion: "{{ ingest_health.json }}"
+        msg: >-
+          {{ dict(["qdrant", "ollama", "api", "ingestion"]
+                  + (["voice"] if teacher_enable_voice | bool else [])
+                  | zip(teacher_health_results.results | map(attribute="stdout") | list))
+          }}
 
+    - name: Look up the private compose network
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --env-file
+          - .env
+          - -f
+          - compose/docker-compose.yml
+          - config
+          - --format
+          - json
+        chdir: "{{ teacher_stack_dir }}"
+      register: teacher_compose_config
+      changed_when: false
+
+    - name: Note the private network name
+      ansible.builtin.set_fact:
+        teacher_private_network: >-
+          {{ (teacher_compose_config.stdout | from_json)['networks']['private']['name'] }}
+
+    - name: Check the private network is internal (no route to the internet)
+      ansible.builtin.command:
+        argv:
+          - docker
+          - network
+          - inspect
+          - "{{ teacher_private_network }}"
+          - --format
+          - "{{ '{{' }} .Internal {{ '}}' }}"
+      register: teacher_network_internal
+      changed_when: false
+      failed_when: teacher_network_internal.stdout != "true"
+
+    - name: Resolve the containers of the private services
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --env-file
+          - .env
+          - -f
+          - compose/docker-compose.yml
+          - ps
+          - -q
+          - "{{ item }}"
+        chdir: "{{ teacher_stack_dir }}"
+      loop: "{{ ['qdrant', 'ollama', 'api', 'ingestion'] + (['voice'] if teacher_enable_voice | bool else []) }}"
+      register: teacher_service_cids
+      changed_when: false
+
+    - name: Assert each private service container is on the internal network only, with no ports
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ teacher_stack_dir }}/scripts/egress_check.py"
+          - container
+          - "{{ item.item }}"
+          - "{{ teacher_private_network }}"
+          - "{{ item.stdout }}"
+      loop: "{{ teacher_service_cids.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      changed_when: false
+
+    - name: Probe the internet from the private network (every connection must be blocked)
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --env-file
+          - .env
+          - --profile
+          - egress-test
+          - -f
+          - compose/docker-compose.yml
+          - run
+          - --rm
+          - --no-deps
+          - egress_probe
+        chdir: "{{ teacher_stack_dir }}"
+      changed_when: false
