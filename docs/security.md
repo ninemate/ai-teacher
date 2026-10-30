@@ -95,7 +95,7 @@ Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY
 
 The ingestion service is published on the host only on `127.0.0.1:${TEACHER_INGEST_PORT}` and inside the compose network. Its `/ingest/status`, `/ingest/schedule` and `/ingest/reindex` endpoints require `Authorization: Bearer ${TEACHER_INGEST_TOKEN}`; `/health` stays open for health checks.
 
-- The API sends the token when the UI or API triggers a reindex, so users never handle it.
+- Logged-in users reach `GET /ingest/schedule` and `POST /ingest/reindex` through the API, which adds the token, so users never handle it. The API's `GET /ingest/status` reads the last run from the shared SQLite file. A reindex during a running (for example scheduled) run answers `409`; an unreachable ingestion service answers `502`.
 - If `TEACHER_INGEST_TOKEN` is empty the endpoints refuse every call (`503`). Generate one with `openssl rand -hex 32`.
 - The Ansible deploy keeps the token already in the host's `.env`, or generates one on first deploy, unless `teacher_ingest_token` is set. `reindex.yml` and `make test-ingest` read it from `.env`.
 
