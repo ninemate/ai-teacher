@@ -32,8 +32,11 @@ def svc(tmp_path, monkeypatch):
     embeddings.warmup_embeddings = lambda: None
     store = types.ModuleType("teacher_common.qdrant_store")
     store.deleted_sources = []
+    store.deleted_workspaces = []
+    store.built = []
     store.build_points = lambda **kw: []
     store.delete_points_for_source = lambda source: store.deleted_sources.append(source)
+    store.delete_points_for_workspace = lambda workspace: store.deleted_workspaces.append(workspace)
     store.ensure_collection = lambda: None
     store.recreate_collection = lambda: None
     store.upsert_points = lambda points: None
@@ -53,6 +56,10 @@ def svc(tmp_path, monkeypatch):
 
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    from teacher_common.db import session_scope
+    from teacher_common.models import Workspace
+    with session_scope() as session:
+        session.add(Workspace(id="legacy", name="Legacy", owner_username="legacy"))
 
     library = tmp_path / "lib"
     (library / "watched").mkdir(parents=True)
@@ -88,6 +95,45 @@ def test_only_watched_folders_are_indexed(svc):
     assert svc.last_run["status"] == "completed"
     assert svc.last_run["scanned"] == 1 and svc.last_run["indexed"] == 1
     assert svc.last_run["trigger"] == "scheduled"
+
+
+def test_watched_folder_assigns_workspace_and_full_reindex_preserves_other_workspaces(svc):
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+    from teacher_common.models import DocumentRecord, Workspace
+
+    with session_scope() as session:
+        session.add(Workspace(id="user:anya", name="Anya", owner_username="anya"))
+        session.add(DocumentRecord(
+            workspace_id="legacy",
+            source_path=str(svc.library / "other" / "b.txt"),
+            source_hash="legacy-hash",
+            file_type="txt",
+            size_bytes=1,
+            modified_timestamp=1,
+            title="Legacy source",
+            status="indexed",
+            chunk_count=1,
+        ))
+    svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path="watched", workspace="user:anya")])
+    assert svc.run_indexing(False, True)
+    with session_scope() as session:
+        indexed = session.execute(
+            select(svc.DocumentRecord).where(svc.DocumentRecord.source_path == str(svc.library / "watched" / "a.txt"))
+        ).scalar_one()
+        assert indexed.workspace_id == "user:anya"
+        preserved = session.execute(
+            select(svc.DocumentRecord).where(svc.DocumentRecord.source_path == str(svc.library / "other" / "b.txt"))
+        ).scalar_one()
+        assert preserved.workspace_id == "legacy"
+
+    svc.run_indexing(True, True)
+    with session_scope() as session:
+        preserved = session.execute(
+            select(svc.DocumentRecord).where(svc.DocumentRecord.source_path == str(svc.library / "other" / "b.txt"))
+        ).scalar_one()
+        assert preserved.workspace_id == "legacy"
+    assert svc.store.deleted_workspaces == ["user:anya"]
 
 
 def test_unchanged_files_are_not_rehashed(svc):

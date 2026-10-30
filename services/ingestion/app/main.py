@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from teacher_common import study_store
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.documents import (
@@ -18,13 +19,13 @@ from teacher_common.documents import (
 )
 from teacher_common.ebooks import DrmProtectedError
 from teacher_common.embeddings import embed_passages, warmup_embeddings
-from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun, OcrRecord
+from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun, OcrRecord, Workspace
 from teacher_common.ocr import record_ocr, resumable
 from teacher_common.qdrant_store import (
     build_points,
     delete_points_for_source,
+    delete_points_for_workspace,
     ensure_collection,
-    recreate_collection,
     upsert_points,
 )
 from teacher_common.scheduling import IndexScheduler, load_ingest_config
@@ -76,11 +77,7 @@ def startup_event() -> None:
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "running": current_state["running"],
-        "current_file": current_state["current_file"],
-    }
+    return {"status": "ok", "running": current_state["running"]}
 
 
 @app.get("/ingest/status", dependencies=[Depends(require_ingest_token)])
@@ -212,22 +209,37 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
         if not library_root.exists():
             raise RuntimeError(f"Library path not found: {library_root}")
 
+        watch = ingest_config.watch
+        workspace_ids = {folder.workspace for folder in watch.active_folders}
+        if workspace_ids:
+            with session_scope() as session:
+                existing_workspaces = set(
+                    session.execute(select(Workspace.id).where(Workspace.id.in_(workspace_ids))).scalars()
+                )
+            missing_workspaces = workspace_ids - existing_workspaces
+            if missing_workspaces:
+                raise RuntimeError("Unknown indexing workspace(s): " + ", ".join(sorted(missing_workspaces)))
         if full_reindex:
             # A full reindex wipes the index first, so make sure there is something to rebuild it from.
             problem = full_reindex_blocker(library_root)
             if problem:
                 raise RuntimeError(f"Full reindex refused, existing index left untouched: {problem}")
+            for workspace_id in workspace_ids:
+                delete_points_for_workspace(workspace_id)
             with session_scope() as session:
-                session.query(ChunkRecord).delete()
-                session.query(DocumentRecord).delete()
-            recreate_collection()
+                rows = session.execute(
+                    select(DocumentRecord).where(DocumentRecord.workspace_id.in_(workspace_ids))
+                ).scalars().all() if workspace_ids else []
+                for row in rows:
+                    delete_points_for_source(row.source_path)
+                    study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+                    session.query(OcrRecord).filter(OcrRecord.source_path == row.source_path).delete()
+                    session.delete(row)
 
         scanned = indexed = skipped = failed = deleted = 0
         seen_paths: set[str] = set()
         report = ScanReport()
         message = "Indexing completed"
-        watch = ingest_config.watch
-
         if not watch.active_folders:
             # Never fall back to walking the whole share, and never treat "nothing watched" as "all deleted".
             message = "No watched folders configured; nothing to index"
@@ -240,7 +252,14 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
             current_state["current_file"] = str(file_path)
             seen_paths.add(str(file_path))
             try:
-                outcome = index_one_document(file_path, full_reindex=full_reindex, known=known, reprocess=reprocess)
+                workspace_id = workspace_for_path(file_path, library_root, watch)
+                outcome = index_one_document(
+                    file_path,
+                    full_reindex=full_reindex,
+                    known=known,
+                    reprocess=reprocess,
+                    workspace_id=workspace_id,
+                )
                 if outcome == "indexed":
                     indexed += 1
                 elif outcome == "skipped":
@@ -251,7 +270,7 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
                     logger.warning("Skipping DRM-protected ebook %s: %s", file_path, exc)
                 add_error(errors, f"{file_path}: {exc}")
                 try:
-                    store_error_record(file_path, str(exc))
+                    store_error_record(file_path, str(exc), workspace_id)
                 except Exception as record_exc:  # noqa: BLE001 - e.g. the file vanished meanwhile
                     logger.warning("Could not record the failure of %s: %s", file_path, record_exc)
 
@@ -263,7 +282,7 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
         mark_vanished_folders(library_root, watch, known, report, errors)
 
         if remove_missing:
-            deleted = remove_deleted_documents(seen_paths, report)
+            deleted = remove_deleted_documents(seen_paths, report, workspace_ids=workspace_ids)
 
         update_run(
             run_id=run_id,
@@ -330,8 +349,20 @@ def full_reindex_blocker(library_root: Path) -> str | None:
     return None
 
 
+def workspace_for_path(file_path: Path, library_root: Path, watch) -> str:
+    relative = file_path.relative_to(library_root).as_posix()
+    matches = []
+    for folder in watch.active_folders:
+        prefix = folder.path.rstrip("/")
+        if prefix in ("", ".") or relative == prefix or relative.startswith(prefix + "/"):
+            matches.append(folder)
+    if not matches:
+        raise ValueError(f"No watched workspace configured for {file_path}")
+    return max(matches, key=lambda folder: len(folder.path)).workspace
+
+
 def vanished_folders(
-    library_root: Path, watch, known: dict[str, tuple[int, int]], report: ScanReport
+    library_root: Path, watch, known: dict[str, tuple[int, int, str]], report: ScanReport
 ) -> list[str]:
     """Watched folders that look like an unmounted share rather than a clean-up.
 
@@ -357,7 +388,7 @@ def vanished_folders(
 
 
 def mark_vanished_folders(
-    library_root: Path, watch, known: dict[str, tuple[int, int]], report: ScanReport, errors: list[str]
+    library_root: Path, watch, known: dict[str, tuple[int, int, str]], report: ScanReport, errors: list[str]
 ) -> None:
     for path in vanished_folders(library_root, watch, known, report):
         report.unreadable_dirs.append(str(library_root / path))
@@ -373,15 +404,20 @@ def add_error(errors: list[str], message: str) -> None:
         errors.append(message)
 
 
-def load_known_documents() -> dict[str, tuple[int, int]]:
+def load_known_documents() -> dict[str, tuple[int, int, str]]:
     """Size and mtime of every live document, in one query, so unchanged files cost no DB round trip."""
     with session_scope() as session:
         rows = session.execute(
-            select(DocumentRecord.source_path, DocumentRecord.size_bytes, DocumentRecord.modified_timestamp).where(
+            select(
+                DocumentRecord.source_path,
+                DocumentRecord.size_bytes,
+                DocumentRecord.modified_timestamp,
+                DocumentRecord.workspace_id,
+            ).where(
                 DocumentRecord.deleted.is_(False)
             )
         ).all()
-    return {path: (size, mtime) for path, size, mtime in rows}
+    return {path: (size, mtime, workspace_id) for path, size, mtime, workspace_id in rows}
 
 
 def load_reprocess_paths() -> set[str]:
@@ -430,8 +466,9 @@ def load_reprocess_paths() -> set[str]:
 def index_one_document(
     file_path: Path,
     full_reindex: bool,
-    known: dict[str, tuple[int, int]] | None = None,
+    known: dict[str, tuple[int, int, str]] | None = None,
     reprocess: set[str] | None = None,
+    workspace_id: str = "legacy",
 ) -> str:
     stat = file_path.stat()
     # size + mtime first: only changed or new files get hashed (a read of the whole file over the network).
@@ -441,7 +478,7 @@ def index_one_document(
         reprocess = load_reprocess_paths()
     if (
         not full_reindex
-        and known.get(str(file_path)) == (stat.st_size, int(stat.st_mtime))
+        and known.get(str(file_path)) == (stat.st_size, int(stat.st_mtime), workspace_id)
         and str(file_path) not in reprocess
     ):
         return "skipped"
@@ -456,7 +493,7 @@ def index_one_document(
     if not chunks:
         if parsed.ocr is not None:
             with session_scope() as session:
-                record_ocr(session, str(file_path), file_hash, parsed.ocr, settings)
+                record_ocr(session, str(file_path), file_hash, parsed.ocr, settings, workspace_id)
         raise ValueError("No extractable text found")
 
     vectors = embed_passages(chunk.text for chunk in chunks)
@@ -476,9 +513,20 @@ def index_one_document(
             }
         )
 
-    delete_points_for_source(str(file_path))
+    with session_scope() as session:
+        if session.get(Workspace, workspace_id) is None:
+            raise ValueError(f"Unknown indexing workspace {workspace_id!r}")
+        existing = session.execute(
+            select(DocumentRecord).where(DocumentRecord.source_path == str(file_path))
+        ).scalar_one_or_none()
+        previous_workspace_id = existing.workspace_id if existing else workspace_id
+        if existing and previous_workspace_id != workspace_id:
+            study_store.delete_derived_items_for_source(session, str(file_path), previous_workspace_id)
+            session.query(OcrRecord).filter(OcrRecord.source_path == str(file_path)).delete()
+        delete_points_for_source(str(file_path))
     points = build_points(
         source_path=str(file_path),
+        workspace_id=workspace_id,
         title=parsed.title or file_path.stem,
         author=parsed.author,
         language=parsed.language,
@@ -492,6 +540,7 @@ def index_one_document(
         ).scalars().first()
         if existing is None:
             existing = DocumentRecord(
+                workspace_id=workspace_id,
                 source_path=str(file_path),
                 source_hash=file_hash,
                 file_type=file_path.suffix.lower().lstrip("."),
@@ -509,6 +558,7 @@ def index_one_document(
             session.flush()
         else:
             session.query(ChunkRecord).filter(ChunkRecord.document_id == existing.id).delete()
+            existing.workspace_id = workspace_id
             existing.source_hash = file_hash
             existing.file_type = file_path.suffix.lower().lstrip(".")
             existing.size_bytes = stat.st_size
@@ -526,6 +576,7 @@ def index_one_document(
         for row in chunk_rows:
             session.add(
                 ChunkRecord(
+                    workspace_id=workspace_id,
                     document_id=existing.id,
                     chunk_id=row["chunk_id"],
                     position=row["position"],
@@ -534,21 +585,31 @@ def index_one_document(
                 )
             )
         if parsed.ocr is not None:
-            record_ocr(session, str(file_path), file_hash, parsed.ocr, settings)
+            record_ocr(session, str(file_path), file_hash, parsed.ocr, settings, workspace_id)
 
     return "indexed"
 
 
-def remove_deleted_documents(seen_paths: set[str], report: ScanReport | None = None) -> int:
+def remove_deleted_documents(
+    seen_paths: set[str],
+    report: ScanReport | None = None,
+    workspace_ids: set[str] | None = None,
+) -> int:
     """Mark documents that were not seen as deleted, except under paths the scan could not read."""
     deleted = 0
     with session_scope() as session:
-        rows = session.execute(
-            select(DocumentRecord).where(DocumentRecord.deleted.is_(False))
-        ).scalars()
+        query = select(DocumentRecord).where(DocumentRecord.deleted.is_(False))
+        if workspace_ids is not None:
+            if not workspace_ids:
+                return 0
+            query = query.where(DocumentRecord.workspace_id.in_(workspace_ids))
+        rows = session.execute(query).scalars()
         for row in rows:
             if row.source_path not in seen_paths and not (report and report.is_unreliable(row.source_path)):
                 delete_points_for_source(row.source_path)
+                session.query(ChunkRecord).filter(ChunkRecord.document_id == row.id).delete()
+                session.query(OcrRecord).filter(OcrRecord.source_path == row.source_path).delete()
+                study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
                 row.deleted = True
                 row.status = "deleted"
                 row.last_indexed_at = datetime.now(UTC)
@@ -556,7 +617,7 @@ def remove_deleted_documents(seen_paths: set[str], report: ScanReport | None = N
     return deleted
 
 
-def store_error_record(file_path: Path, error_message: str) -> None:
+def store_error_record(file_path: Path, error_message: str, workspace_id: str = "legacy") -> None:
     stat = file_path.stat()
     with session_scope() as session:
         existing = session.execute(
@@ -564,6 +625,7 @@ def store_error_record(file_path: Path, error_message: str) -> None:
         ).scalars().first()
         if existing is None:
             existing = DocumentRecord(
+                workspace_id=workspace_id,
                 source_path=str(file_path),
                 source_hash="unknown",
                 file_type=file_path.suffix.lower().lstrip("."),

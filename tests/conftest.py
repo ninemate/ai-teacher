@@ -29,6 +29,7 @@ os.environ.update(
         "INGEST_CONFIG_PATH": f"{_db_dir}/none.yml",
         "TEACHER_AUTH_USERS": ";".join(f"{name}:{_hasher.hash(pw)}" for name, pw in PASSWORDS.items()),
         "TEACHER_AUTH_USERS_FILE": "",
+        "TEACHER_AUTH_ADMINS": "",
         "TEACHER_AUTH_DISABLED": "false",
         "TEACHER_COOKIE_SECURE": "auto",
         "TEACHER_INGEST_TOKEN": INGEST_TOKEN,
@@ -50,8 +51,9 @@ def _noop(*args, **kwargs):
 
 _stub("teacher_common.embeddings", embed_query=lambda text: [0.0], embed_passages=lambda texts: [],
       warmup_embeddings=_noop, embedding_dimension=lambda: 1)
-_stub("teacher_common.qdrant_store", ensure_collection=_noop, search=lambda vector, limit: [], build_points=_noop,
-      delete_points_for_source=_noop, recreate_collection=_noop, upsert_points=_noop)
+_stub("teacher_common.qdrant_store", ensure_collection=_noop,
+      search=lambda vector, limit, workspace_ids, source_paths=None: [], build_points=_noop,
+      delete_points_for_source=_noop, delete_points_for_workspace=_noop, recreate_collection=_noop, upsert_points=_noop)
 _stub("teacher_common.documents", chunk_segments=_noop, hash_file=_noop, iter_library_files=lambda *a: [],
       parse_document=_noop)
 

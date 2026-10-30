@@ -32,6 +32,11 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _allowed_workspace_ids(workspace_ids: set[str] | None) -> set[str]:
+    # Internal legacy callers stay confined to legacy data; HTTP routes always pass an explicit ACL scope.
+    return {"legacy"} if workspace_ids is None else workspace_ids
+
+
 # --- quizzes ------------------------------------------------------------------
 
 
@@ -87,8 +92,10 @@ def create_quiz_set(
     model: str | None,
     questions: list[dict],
     include_answers: bool = False,
+    workspace_id: str = "legacy",
 ) -> dict:
-    quiz = QuizSet(title=title, topic=topic, level=level, scope_sources=scope_sources, model=model)
+    quiz = QuizSet(workspace_id=workspace_id, title=title, topic=topic, level=level,
+                   scope_sources=scope_sources, model=model)
     quiz.questions = [
         QuizQuestion(
             position=index,
@@ -102,16 +109,26 @@ def create_quiz_set(
     ]
     session.add(quiz)
     session.flush()
-    return get_quiz_set(session, quiz.id, include_answers=include_answers)
+    return get_quiz_set(session, quiz.id, include_answers=include_answers, workspace_ids={workspace_id})
 
 
-def list_quiz_sets(session: Session) -> list[dict]:
-    rows = session.execute(select(QuizSet).order_by(QuizSet.id.desc())).scalars()
+def list_quiz_sets(session: Session, workspace_ids: set[str] | None = None) -> list[dict]:
+    allowed = _allowed_workspace_ids(workspace_ids)
+    if not allowed:
+        return []
+    rows = session.execute(
+        select(QuizSet).where(QuizSet.workspace_id.in_(allowed)).order_by(QuizSet.id.desc())
+    ).scalars()
     return [_quiz_summary(session, row) for row in rows]
 
 
-def get_quiz_set(session: Session, quiz_id: int, *, include_answers: bool = False) -> dict:
-    row = session.get(QuizSet, quiz_id)
+def get_quiz_set(
+    session: Session, quiz_id: int, *, include_answers: bool = False, workspace_ids: set[str] | None = None
+) -> dict:
+    allowed = _allowed_workspace_ids(workspace_ids)
+    row = session.execute(
+        select(QuizSet).where(QuizSet.id == quiz_id, QuizSet.workspace_id.in_(allowed))
+    ).scalar_one_or_none() if allowed else None
     if row is None:
         raise NotFoundError(f"quiz {quiz_id} not found")
     return {
@@ -120,19 +137,27 @@ def get_quiz_set(session: Session, quiz_id: int, *, include_answers: bool = Fals
     }
 
 
-def delete_quiz_set(session: Session, quiz_id: int) -> None:
-    row = session.get(QuizSet, quiz_id)
+def delete_quiz_set(session: Session, quiz_id: int, workspace_ids: set[str] | None = None) -> None:
+    allowed = _allowed_workspace_ids(workspace_ids)
+    row = session.execute(
+        select(QuizSet).where(QuizSet.id == quiz_id, QuizSet.workspace_id.in_(allowed))
+    ).scalar_one_or_none() if allowed else None
     if row is None:
         raise NotFoundError(f"quiz {quiz_id} not found")
     session.delete(row)
 
 
-def record_attempt(session: Session, quiz_id: int, answers: dict[int, int | None]) -> dict:
+def record_attempt(
+    session: Session, quiz_id: int, answers: dict[int, int | None], workspace_ids: set[str] | None = None
+) -> dict:
     """Grade ``answers`` (question id -> chosen option index) and store the result.
 
     Unanswered questions count as wrong; ids that are not part of the quiz are rejected.
     """
-    quiz = session.get(QuizSet, quiz_id)
+    allowed = _allowed_workspace_ids(workspace_ids)
+    quiz = session.execute(
+        select(QuizSet).where(QuizSet.id == quiz_id, QuizSet.workspace_id.in_(allowed))
+    ).scalar_one_or_none() if allowed else None
     if quiz is None:
         raise NotFoundError(f"quiz {quiz_id} not found")
     by_id = {q.id: q for q in quiz.questions}
@@ -156,8 +181,12 @@ def record_attempt(session: Session, quiz_id: int, answers: dict[int, int | None
     return {**serialize_attempt(attempt), "questions": [serialize_question(q, include_answers=True) for q in quiz.questions]}
 
 
-def list_attempts(session: Session, quiz_id: int) -> list[dict]:
-    if session.get(QuizSet, quiz_id) is None:
+def list_attempts(session: Session, quiz_id: int, workspace_ids: set[str] | None = None) -> list[dict]:
+    allowed = _allowed_workspace_ids(workspace_ids)
+    quiz = session.execute(
+        select(QuizSet).where(QuizSet.id == quiz_id, QuizSet.workspace_id.in_(allowed))
+    ).scalar_one_or_none() if allowed else None
+    if quiz is None:
         raise NotFoundError(f"quiz {quiz_id} not found")
     rows = session.execute(
         select(QuizAttempt).where(QuizAttempt.quiz_id == quiz_id).order_by(QuizAttempt.id.desc())
@@ -211,10 +240,12 @@ def create_deck(
     model: str | None,
     cards: list[dict],
     now: datetime | None = None,
+    workspace_id: str = "legacy",
 ) -> dict:
     now = now or utcnow()
     start = initial_state(now)
-    deck = FlashcardDeck(title=title, topic=topic, level=level, scope_sources=scope_sources, model=model)
+    deck = FlashcardDeck(workspace_id=workspace_id, title=title, topic=topic, level=level,
+                         scope_sources=scope_sources, model=model)
     deck.cards = [
         Flashcard(
             position=index,
@@ -231,31 +262,56 @@ def create_deck(
     ]
     session.add(deck)
     session.flush()
-    return get_deck(session, deck.id, now=now)
+    return get_deck(session, deck.id, now=now, workspace_ids={workspace_id})
 
 
-def list_decks(session: Session, now: datetime | None = None) -> list[dict]:
+def list_decks(
+    session: Session, now: datetime | None = None, workspace_ids: set[str] | None = None
+) -> list[dict]:
     now = now or utcnow()
-    rows = session.execute(select(FlashcardDeck).order_by(FlashcardDeck.id.desc())).scalars()
+    allowed = _allowed_workspace_ids(workspace_ids)
+    if not allowed:
+        return []
+    rows = session.execute(
+        select(FlashcardDeck).where(FlashcardDeck.workspace_id.in_(allowed)).order_by(FlashcardDeck.id.desc())
+    ).scalars()
     return [_deck_summary(session, row, now) for row in rows]
 
 
-def get_deck(session: Session, deck_id: int, now: datetime | None = None) -> dict:
-    row = session.get(FlashcardDeck, deck_id)
+def get_deck(
+    session: Session, deck_id: int, now: datetime | None = None, workspace_ids: set[str] | None = None
+) -> dict:
+    allowed = _allowed_workspace_ids(workspace_ids)
+    row = session.execute(
+        select(FlashcardDeck).where(FlashcardDeck.id == deck_id, FlashcardDeck.workspace_id.in_(allowed))
+    ).scalar_one_or_none() if allowed else None
     if row is None:
         raise NotFoundError(f"deck {deck_id} not found")
     return {**_deck_summary(session, row, now or utcnow()), "cards": [serialize_card(c) for c in row.cards]}
 
 
-def delete_deck(session: Session, deck_id: int) -> None:
-    row = session.get(FlashcardDeck, deck_id)
+def delete_deck(session: Session, deck_id: int, workspace_ids: set[str] | None = None) -> None:
+    allowed = _allowed_workspace_ids(workspace_ids)
+    row = session.execute(
+        select(FlashcardDeck).where(FlashcardDeck.id == deck_id, FlashcardDeck.workspace_id.in_(allowed))
+    ).scalar_one_or_none() if allowed else None
     if row is None:
         raise NotFoundError(f"deck {deck_id} not found")
     session.delete(row)
 
 
-def due_cards(session: Session, deck_id: int, limit: int = 20, now: datetime | None = None) -> list[dict]:
-    if session.get(FlashcardDeck, deck_id) is None:
+def due_cards(
+    session: Session,
+    deck_id: int,
+    limit: int = 20,
+    now: datetime | None = None,
+    workspace_ids: set[str] | None = None,
+) -> list[dict]:
+    allowed = _allowed_workspace_ids(workspace_ids)
+    deck = session.execute(
+        select(FlashcardDeck).where(FlashcardDeck.id == deck_id, FlashcardDeck.workspace_id.in_(allowed))
+    ).scalar_one_or_none() if allowed else None
+    if deck is None:
         raise NotFoundError(f"deck {deck_id} not found")
     rows = session.execute(
         select(Flashcard)
@@ -266,10 +322,18 @@ def due_cards(session: Session, deck_id: int, limit: int = 20, now: datetime | N
     return [serialize_card(row) for row in rows]
 
 
-def review_card(session: Session, card_id: int, grade: str, now: datetime | None = None) -> dict:
+def review_card(
+    session: Session, card_id: int, grade: str, now: datetime | None = None,
+    workspace_ids: set[str] | None = None,
+) -> dict:
     if grade not in GRADES:
         raise InvalidInputError(f"grade must be one of {sorted(GRADES)}")
-    card = session.get(Flashcard, card_id)
+    allowed = _allowed_workspace_ids(workspace_ids)
+    card = session.execute(
+        select(Flashcard)
+        .join(FlashcardDeck, Flashcard.deck_id == FlashcardDeck.id)
+        .where(Flashcard.id == card_id, FlashcardDeck.workspace_id.in_(allowed))
+    ).scalar_one_or_none() if allowed else None
     if card is None:
         raise NotFoundError(f"card {card_id} not found")
     now = now or utcnow()
@@ -286,3 +350,27 @@ def review_card(session: Session, card_id: int, grade: str, now: datetime | None
     card.last_reviewed_at = now
     session.flush()
     return serialize_card(card)
+
+
+def delete_derived_items_for_source(session: Session, source_path: str, workspace_id: str) -> None:
+    """Remove only this workspace's study material that depends on a deleted document."""
+    for quiz in session.execute(select(QuizSet).where(QuizSet.workspace_id == workspace_id)).scalars().all():
+        cited = any(
+            ref.get("source_path") == source_path
+            for question in quiz.questions
+            for ref in (question.sources or [])
+            if isinstance(ref, dict)
+        )
+        if source_path in (quiz.scope_sources or []) or cited:
+            session.delete(quiz)
+    for deck in session.execute(
+        select(FlashcardDeck).where(FlashcardDeck.workspace_id == workspace_id)
+    ).scalars().all():
+        cited = any(
+            ref.get("source_path") == source_path
+            for card in deck.cards
+            for ref in (card.sources or [])
+            if isinstance(ref, dict)
+        )
+        if source_path in (deck.scope_sources or []) or cited:
+            session.delete(deck)

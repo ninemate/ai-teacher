@@ -43,6 +43,7 @@ teacher_study_max_attempts: 2
 
 # `username:argon2-hash` entries separated by `;` (see docs/security.md). Keep real values in Vault.
 teacher_auth_users: ""
+teacher_auth_admins: ""
 teacher_auth_disabled: false
 teacher_session_ttl_hours: 720
 teacher_cookie_secure: auto

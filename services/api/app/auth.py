@@ -37,6 +37,7 @@ _DUMMY_HASH = password_hasher.hash(secrets.token_urlsafe(16))
 class SessionInfo:
     username: str
     csrf_token: str
+    role: str = "user"
 
 
 def verify_credentials(users: dict[str, str], username: str, password: str) -> bool:
@@ -56,7 +57,7 @@ def credential_tag(password_hash: str) -> str:
     return hashlib.sha256(password_hash.encode()).hexdigest()
 
 
-def create_session(username: str, password_hash: str, ttl_seconds: int) -> tuple[str, SessionInfo]:
+def create_session(username: str, password_hash: str, ttl_seconds: int, role: str = "user") -> tuple[str, SessionInfo]:
     token = secrets.token_urlsafe(32)
     csrf_token = secrets.token_urlsafe(32)
     now = int(time.time())
@@ -72,10 +73,10 @@ def create_session(username: str, password_hash: str, ttl_seconds: int) -> tuple
                 expires_at=now + ttl_seconds,
             )
         )
-    return token, SessionInfo(username=username, csrf_token=csrf_token)
+    return token, SessionInfo(username=username, csrf_token=csrf_token, role=role)
 
 
-def load_session(token: str | None, users: dict[str, str]) -> SessionInfo | None:
+def load_session(token: str | None, users: dict[str, str], admins: set[str] | None = None) -> SessionInfo | None:
     if not token:
         return None
     with session_scope() as db:
@@ -86,7 +87,8 @@ def load_session(token: str | None, users: dict[str, str]) -> SessionInfo | None
         if row.expires_at <= int(time.time()) or stored is None or row.credential_tag != credential_tag(stored):
             db.delete(row)
             return None
-        return SessionInfo(username=row.username, csrf_token=row.csrf_token)
+        return SessionInfo(username=row.username, csrf_token=row.csrf_token,
+                           role="admin" if row.username in (admins or set()) else "user")
 
 
 def delete_session(token: str | None) -> None:
