@@ -113,6 +113,8 @@ flowchart TD
   INGEST --> SQLITE
 ```
 
+The deployment view and the planned architecture (per-user isolation, page-level citations, egress blocking) are in [docs/architecture.md](docs/architecture.md).
+
 ## Security Warnings
 
 - Do not expose the UI publicly. Use a VPN, with HTTPS in front; the app login is a further layer, not a replacement.

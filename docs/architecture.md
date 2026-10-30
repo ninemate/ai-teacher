@@ -13,6 +13,91 @@ The MVP is a text-first RAG system designed for a dedicated teacher-agent host o
 
 `api` and `ingestion` share one SQLite file under `${TEACHER_DATA_DIR}/metadata` (documents, chunks, ingest runs, OCR records, login sessions, quizzes and decks). Both call `init_db()` at startup. SQLite waits up to 30 seconds for the other container's write instead of failing.
 
+## Current Architecture (Deployment View)
+
+What runs today and how the pieces connect. Optional parts (HTTPS proxy, voice, NVIDIA overlays) are dashed.
+
+```mermaid
+flowchart TB
+  subgraph Client[Client]
+    Phone[Phone or desktop browser]
+  end
+  subgraph Host[Teacher-agent host or VM, Docker Compose]
+    Proxy[Caddy proxy: HTTPS, optional overlay]
+    API[api: FastAPI UI + JSON API, app login]
+    ING[ingestion: scheduler, parsers, OCR, embeddings]
+    OLL[ollama: local LLM runtime]
+    QD[(qdrant: vectors + chunk text)]
+    VOX[voice: Piper TTS, faster-whisper STT, optional]
+    DB[(SQLite file in metadata volume)]
+    OCRC[(OCR page cache)]
+  end
+  subgraph Storage[Storage]
+    NAS[(NAS or file server: SMB/NFS share, read-only mount)]
+  end
+  GPU[[NVIDIA GPUs, optional overlay]]
+
+  Phone -->|VPN + HTTPS + login| Proxy
+  Proxy --> API
+  API --> QD
+  API --> OLL
+  API --> DB
+  API -->|bearer token: reindex, schedule| ING
+  API -.->|/voice/*| VOX
+  NAS -->|watched folders| ING
+  ING --> QD
+  ING --> DB
+  ING --> OCRC
+  OLL -.-> GPU
+  VOX -.->|optional Whisper on GPU| GPU
+```
+
+- Only the proxy (or the `api` port in plain dev mode) is meant to be reachable by clients. `qdrant`, `ollama`, `voice` and the ingestion port stay internal or on loopback.
+- The source library never leaves the share; only chunk text, vectors, metadata and the OCR cache are stored locally.
+
+## Planned Architecture
+
+These items are designed or under consideration but **not implemented** yet. They are listed here so the target shape is visible; see [open-questions.md](open-questions.md) for the unsettled parts.
+
+```mermaid
+flowchart TB
+  subgraph Client[Client]
+    Phone[Phone or desktop browser]
+  end
+  subgraph Host[Teacher-agent host or VM, Docker Compose]
+    Proxy[Caddy proxy]
+    API[api: per-user access checks]
+    ING[ingestion: collection / owner tagging, OCR for image-only EPUB/DOCX]
+    OLL[ollama]
+    QD[(qdrant: payload filtered by collection and role)]
+    VOX[voice: sentence-by-sentence TTS streaming]
+    DB[(SQLite: users, roles, collection ACLs)]
+  end
+  NAS[(NAS share)]
+  IDP[Identity provider, optional SSO]
+  NET((Internet))
+
+  Phone --> Proxy --> API
+  IDP -.->|SSO| API
+  API -->|filter by caller's collections| QD
+  API --> OLL
+  API --> DB
+  API --> ING
+  API -.-> VOX
+  NAS --> ING
+  ING --> QD
+  Host --x|no egress: internal-only network| NET
+```
+
+Planned changes:
+
+- **Per-user / role-based isolation (RBAC).** Documents belong to collections; each user or role sees only the collections it is allowed to. The filter is applied in retrieval (Qdrant payload filter) and in the study features (quizzes, decks and attempts are scoped to their owner), not only in the UI.
+- **Page-level citations.** Chunks carry their page (or section) so answers cite `title, page` instead of just the document, and the UI can point to the exact location. This extends the `locator` already stored with source references.
+- **Egress blocking.** The model, vector store, voice and ingestion containers run on an internal-only Compose network with no route to the internet, so private library content cannot leave the host even if a component misbehaves. Model and voice downloads happen at build or pull time, from a host that has access.
+- **Compose HTTPS overlay in deploys.** Use the same Caddy overlay as local dev instead of a separately installed host proxy (open question in [open-questions.md](open-questions.md)).
+- **OCR for image-only EPUB/DOCX**, **voice measurements on the target GPU** and **sentence-by-sentence TTS streaming** for long answers (see [voice-hungarian.md](voice-hungarian.md)).
+- **SSO / identity provider** instead of users configured in `.env` (only if the user count grows).
+
 ## High-Level Flow
 
 ```mermaid
