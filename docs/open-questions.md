@@ -14,7 +14,7 @@
 ## Answered
 
 - ~~Is scheduled indexing preferred over manual reindex?~~ Both: scheduled indexing (interval or cron) of watched folders, with manual reindex kept and sharing one lock. See `docs/document-ingestion.md`.
-- ~~Are scanned PDFs common enough to need OCR?~~ Yes: Tesseract OCR (`hun+eng`) for PDF pages without a text layer, cached per page and resumed across runs. Image-only EPUB/DOCX are not OCR'd.
+- ~~Should scanned PDFs be indexed?~~ Yes, they are OCR'd: Tesseract (`hun+eng`) for PDF pages without a text layer, cached per page and resumed across runs. Image-only EPUB/DOCX are not OCR'd. How much of the library is scanned is still open (above).
 - ~~Should quizzes and flashcards be stored, or generated on demand only?~~ Stored: generated quizzes and decks can be saved with their source references, with quiz attempts and SM-2 card reviews. Generating without saving still works.
 - ~~Does the app need its own login, or is the VPN enough?~~ Its own login too: argon2 users from configuration, server-side sessions, CSRF and login rate limits, on top of the VPN and HTTPS. See `docs/security.md`.
 - ~~Index the whole share or chosen folders?~~ Only folders listed under `watch.folders` in `config/ingestion/ingestion.yml`.

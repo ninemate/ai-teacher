@@ -1,7 +1,6 @@
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from teacher_common.config import get_settings
@@ -20,14 +19,14 @@ def init_db() -> None:
     from teacher_common import models, study_models  # noqa: F401
     from teacher_common.migrations import run_migrations
 
-    try:
-        Base.metadata.create_all(bind=engine)
-    except OperationalError as exc:
-        # Both services start together on a fresh volume: the other one may have created a table
-        # between our check and our CREATE. Checking again skips what exists now.
-        if "already exists" not in str(exc):
-            raise
-        Base.metadata.create_all(bind=engine)
+    with engine.connect() as connection:
+        if engine.dialect.name == "sqlite":
+            # Both services start together on a fresh volume. Holding the write lock for the whole schema
+            # makes the second one wait (busy timeout) and then find every table, instead of racing it
+            # table by table ("table ... already exists").
+            connection.exec_driver_sql("BEGIN EXCLUSIVE")
+        Base.metadata.create_all(bind=connection)
+        connection.commit()
     run_migrations(engine)
 
 

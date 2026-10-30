@@ -384,7 +384,10 @@ def load_known_documents() -> dict[str, tuple[int, int]]:
 def load_reprocess_paths() -> set[str]:
     """Unchanged PDFs that still need work: failed ones (the OCR cache makes a retry cheap), ones OCR'd with
     another language or DPI, ones indexed while OCR was off, and ones whose OCR stopped on the time budget
-    (each run OCRs the next pages, the cached ones are not repeated)."""
+    (each run OCRs the next pages, the cached ones are not repeated).
+
+    A failed PDF whose OCR stopped for good (stalled, page limit, failing page) is left alone: a retry would
+    stop at the same place, and a stalled scan would spend OCR_TIMEOUT_SECONDS on every run."""
     if not settings.ocr_enabled:
         return set()
     with session_scope() as session:
@@ -400,11 +403,11 @@ def load_reprocess_paths() -> set[str]:
             select(OcrRecord.source_path, OcrRecord.status, OcrRecord.message, OcrRecord.language, OcrRecord.dpi)
         ).all()
     wanted = (settings.ocr_language, settings.ocr_dpi)
-    paths.update(
-        path
-        for path, status, message, language, dpi in rows
-        if status == "disabled" or (language, dpi) != wanted or resumable(status, message)
-    )
+    for path, status, message, language, dpi in rows:
+        if status == "disabled" or (language, dpi) != wanted or resumable(status, message):
+            paths.add(path)
+        elif status == "partial":
+            paths.discard(path)
     return paths
 
 

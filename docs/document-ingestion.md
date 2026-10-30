@@ -117,7 +117,8 @@ Behaviour:
   - Page limit (`OCR_MAX_PAGES`, which counts cached pages too): not resumed. Raise the limit and run a full
     reindex; cached pages are not repeated.
 - **Failures stay local.** A broken page or file never aborts the run. A scanned PDF that failed outright is
-  retried on the next run (cheap thanks to the cache) while OCR is enabled. A page that failed (status `partial`
+  retried on the next run (cheap thanks to the cache) while OCR is enabled, unless its OCR record shows a stop
+  that a retry would repeat (stalled, page limit, failing page). A page that failed (status `partial`
   with "OCR failed on page N") is not retried automatically; a full reindex tries it again.
 - **Tesseract missing** (`unavailable`): the text-layer pages are indexed. After installing it, run a full reindex.
 - **Cache growth.** Cache files of changed or deleted documents are not removed. Delete `OCR_CACHE_DIR` to

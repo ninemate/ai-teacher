@@ -392,3 +392,22 @@ def test_page_limit_partial_is_not_resumed(tmp_path, ingestion):
     assert ingestion.main.index_one_document(pdf, False) == "indexed"
     assert _ocr_row(ingestion.engine, pdf).status == "partial"
     assert ingestion.main.index_one_document(pdf, False) == "skipped"
+
+
+def test_scan_without_any_text_that_stalls_is_not_retried_as_failed(tmp_path, ingestion, monkeypatch):
+    budget = _budgeted_engine(monkeypatch)  # no page ever fits into the budget, so no text at all
+    ingestion.cfg.ocr_timeout_seconds = 60
+    pdf = make_pdf(tmp_path / "slow-scan.pdf", [None, None])
+
+    def run_once() -> str:
+        try:
+            return ingestion.main.index_one_document(pdf, False)
+        except ValueError as exc:  # what run_indexing does with a file that yields no text
+            ingestion.main.store_error_record(pdf, str(exc))
+            return "failed"
+
+    assert run_once() == "failed"
+    assert run_once() == "failed"  # one more try on the time budget
+    assert "no progress" in _ocr_row(ingestion.engine, pdf).message
+    assert run_once() == "skipped"
+    assert budget["pages"] == 0
