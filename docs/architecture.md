@@ -124,7 +124,7 @@ flowchart TD
   Phone[Father's Phone] -->|Preferred: VPN| VPN[WireGuard or Tailscale]
   VPN --> Host[Teacher-Agent VM]
   Host --> UI[FastAPI UI]
-  Phone -->|Alternative: HTTPS + auth| Caddy[Caddy]
+  Phone -->|HTTPS + app login| Caddy[Caddy: compose overlay or host role]
   Caddy --> UI
 ```
 

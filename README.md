@@ -7,7 +7,7 @@ This repository is intentionally separate from any GPU image-generation stack. I
 ## What This Repo Implements
 
 - Mounted network-share based document library access
-- Incremental document ingestion for PDF, EPUB, TXT, Markdown, and DOCX, limited to configured watched folders
+- Incremental document ingestion for PDF, EPUB, TXT, Markdown, DOCX, and DRM-free MOBI/AZW/AZW3, limited to configured watched folders
 - Scheduled indexing (interval or cron) inside the ingestion service, plus manual reindex
 - OCR (Tesseract, `hun+eng`) for scanned PDF pages, cached locally and resumed across runs
 - Local metadata state in SQLite
@@ -60,7 +60,7 @@ make dev-up
 docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-compose.dev.yml exec ollama ollama pull qwen2.5:7b-instruct-q4_K_M
 ```
 
-6. If you need LAN access during testing, set `TEACHER_HTTP_BIND=0.0.0.0` in `.env`.
+6. If you need LAN or phone access during testing, set `TEACHER_PROXY_HOST` and `TEACHER_PROXY_BIND=0.0.0.0` in `.env`; the HTTPS proxy and certificate trust are described in [docs/https.md](docs/https.md).
 
 7. Trigger indexing (or wait for the schedule):
 
@@ -74,15 +74,17 @@ curl -X POST http://127.0.0.1:8081/ingest/reindex \
 8. Open the UI and log in:
 
 ```text
-http://127.0.0.1:8080
+https://localhost:8443
 ```
+
+The certificate is from Caddy's local CA; see [docs/https.md](docs/https.md) to trust it. The API is also on `http://127.0.0.1:8080` on this machine.
 
 ## Tests
 
 ```bash
 pip install pytest sqlalchemy pydantic-settings fastapi httpx \
   argon2-cffi python-multipart jinja2 pyyaml croniter tzdata \
-  PyMuPDF Pillow pytesseract beautifulsoup4 ebooklib lingua-language-detector python-docx
+  PyMuPDF Pillow pytesseract beautifulsoup4 ebooklib mobi lingua-language-detector python-docx
 python -m pytest
 ```
 
@@ -140,12 +142,12 @@ Implemented now:
 - App login for the UI and every API route (argon2 users from config, server-side sessions, CSRF, login rate limits); ingestion endpoints behind a bearer token
 - Stored quizzes and flashcard decks with source references, SM-2 card review and quiz attempt history
 - Mobile-friendly web UI
+- HTTPS in front of the UI via an optional Caddy overlay (`compose/docker-compose.proxy.yml`, see [docs/https.md](docs/https.md))
+- MOBI/AZW/AZW3 ingestion (pure-Python unpack to EPUB/HTML; DRM-protected books are skipped with a logged reason)
 - Voice service: Whisper STT scaffold behind an optional overlay; TTS answers 501
 
 Not implemented yet:
 
-- MOBI/AZW/KF8 conversion (files are reported as failed; convert to EPUB/PDF first)
-- HTTPS inside the Compose stack (the optional Ansible Caddy role exists; today TLS comes from the VPN or that role)
 - Real Hungarian offline STT/TTS backend wiring
 - OCR for image-only EPUB/DOCX
 - SSO or an identity provider (users are configured in `.env`)
@@ -160,5 +162,6 @@ Not implemented yet:
 - [Mobile Access](docs/mobile-access.md)
 - [Voice Hungarian](docs/voice-hungarian.md)
 - [Security](docs/security.md)
+- [HTTPS Reverse Proxy](docs/https.md)
 - [Operations](docs/operations.md)
 - [Open Questions](docs/open-questions.md)

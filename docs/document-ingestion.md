@@ -11,14 +11,26 @@ Implemented in the MVP:
 - TXT
 - Markdown
 - DOCX
+- MOBI, AZW, AZW3 (Kindle; DRM-free only, see below)
 
-Known but not implemented in the MVP:
+## MOBI / AZW / AZW3
 
-- MOBI
-- AZW
-- AZW3
+Kindle books are unpacked in the ingestion service with the pure-Python [`mobi`](https://pypi.org/project/mobi/) package
+(a KindleUnpack port), so the image needs no Calibre. It is added to `services/ingestion/requirements.txt` and installs with
+plain `pip`; the Dockerfile checks the import at build time.
 
-For those formats, convert to EPUB or PDF first, or add Calibre-based conversion later.
+- **KF8 / AZW3** books unpack to an EPUB that the normal EPUB parser reads (chapter locators `fejezet ...`).
+  **MOBI 6 / older AZW** books unpack to one HTML file, split at the book's page breaks (`fejezet N`). Title and author come
+  from the book's metadata, falling back to the file name.
+- **Encodings.** The unpacker decodes the book's own codepage (UTF-8 or Windows-1252) and writes UTF-8, so Hungarian accents
+  survive. Windows-1252 has no `ő`/`ű` (only `õ`/`û`), so an old-codepage book can only contain what its encoding could store.
+- **DRM.** The MOBI header is checked before anything is unpacked. An encrypted book is never decrypted: it is marked `failed`
+  with the reason (`... is DRM-protected ...; skipped`), logged as a warning by `teacher.ingestion`, and shown in the run's
+  error list. Kindle KFX/Topaz containers and print-replica books are also refused with a reason.
+- **Read-only share.** Unpacking happens in a temporary directory that is removed afterwards, also when conversion fails; the book on the share is only read.
+- **Scanning.** `.mobi`, `.azw` and `.azw3` are now part of the default `scan_extensions` / `INGEST_SCAN_EXTENSIONS`. If you set
+  that variable or a folder's `extensions` yourself, add them there (the Ansible variable `teacher_ingest_scan_extensions` defaults to the full list). Kindle books that failed with the old "not enabled" message are retried on the next run without a full reindex.
+- Image-only (comic/manga) books have no text and fail with "No extractable text found".
 
 ## Watched Folders
 

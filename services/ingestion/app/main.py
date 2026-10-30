@@ -16,6 +16,7 @@ from teacher_common.documents import (
     hash_file,
     parse_document,
 )
+from teacher_common.ebooks import DrmProtectedError
 from teacher_common.embeddings import embed_passages, warmup_embeddings
 from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun, OcrRecord
 from teacher_common.ocr import record_ocr, resumable
@@ -246,6 +247,8 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
                     skipped += 1
             except Exception as exc:  # noqa: BLE001 - one broken file must not abort the run
                 failed += 1
+                if isinstance(exc, DrmProtectedError):
+                    logger.warning("Skipping DRM-protected ebook %s: %s", file_path, exc)
                 add_error(errors, f"{file_path}: {exc}")
                 try:
                     store_error_record(file_path, str(exc))
@@ -384,13 +387,26 @@ def load_known_documents() -> dict[str, tuple[int, int]]:
 def load_reprocess_paths() -> set[str]:
     """Unchanged PDFs that still need work: failed ones (the OCR cache makes a retry cheap), ones OCR'd with
     another language or DPI, ones indexed while OCR was off, and ones whose OCR stopped on the time budget
-    (each run OCRs the next pages, the cached ones are not repeated).
+    (each run OCRs the next pages, the cached ones are not repeated). Also Kindle books that failed before
+    MOBI support existed.
 
     A failed PDF whose OCR stopped for good (stalled, page limit, failing page) is left alone: a retry would
     stop at the same place, and a stalled scan would spend OCR_TIMEOUT_SECONDS on every run."""
-    if not settings.ocr_enabled:
-        return set()
     with session_scope() as session:
+        # Kindle books that failed before MOBI support existed ("not enabled in the MVP parser") keep their size/mtime,
+        # so without this they would be skipped forever after the upgrade.
+        legacy_ebooks = set(
+            session.execute(
+                select(DocumentRecord.source_path).where(
+                    DocumentRecord.deleted.is_(False),
+                    DocumentRecord.status == "failed",
+                    DocumentRecord.file_type.in_(["mobi", "azw", "azw3"]),
+                    DocumentRecord.error_message.like("%not enabled in the MVP parser%"),
+                )
+            ).scalars()
+        )
+        if not settings.ocr_enabled:
+            return legacy_ebooks
         failed = session.execute(
             select(DocumentRecord.source_path).where(
                 DocumentRecord.deleted.is_(False),
@@ -398,7 +414,7 @@ def load_reprocess_paths() -> set[str]:
                 DocumentRecord.file_type == "pdf",
             )
         ).scalars()
-        paths = set(failed)
+        paths = legacy_ebooks | set(failed)
         rows = session.execute(
             select(OcrRecord.source_path, OcrRecord.status, OcrRecord.message, OcrRecord.language, OcrRecord.dpi)
         ).all()
