@@ -157,6 +157,46 @@ def test_failed_file_is_counted_and_reported(svc, monkeypatch):
     assert svc.last_run["status"] == "completed"
 
 
+def test_drm_protected_ebook_is_skipped_logged_and_recorded(svc, monkeypatch, caplog):
+    from teacher_common.ebooks import DrmProtectedError
+
+    (svc.library / "watched" / "vedett.azw").write_bytes(b"x")
+    svc.settings.ingest_scan_extensions = ".txt,.azw"
+
+    def parse(path, file_hash=None):
+        if path.suffix == ".azw":
+            raise DrmProtectedError("vedett.azw is DRM-protected (Mobipocket/Kindle encryption); skipped.")
+        return types.SimpleNamespace(segments=[], title=None, author=None, language="en", ocr=None)
+
+    monkeypatch.setattr(svc, "parse_document", parse)
+    with caplog.at_level("WARNING", logger="teacher.ingestion"):
+        svc.run_indexing(False, True)
+    assert svc.last_run["failed"] == 1
+    assert svc.last_run["indexed"] == 1  # the plain text file is unaffected
+    assert any("DRM-protected" in r.getMessage() and "vedett.azw" in r.getMessage() for r in caplog.records)
+    assert "DRM-protected" in svc.last_run["errors"][0]
+
+
+def test_kindle_books_that_failed_before_support_are_retried(svc):
+    from teacher_common.db import session_scope
+
+    book = svc.library / "watched" / "regi.mobi"
+    book.write_bytes(b"x")
+    svc.settings.ingest_scan_extensions = ".txt,.mobi"
+    stat = book.stat()
+    with session_scope() as session:
+        session.add(svc.DocumentRecord(
+            source_path=str(book), source_hash="unknown", file_type="mobi", size_bytes=stat.st_size,
+            modified_timestamp=int(stat.st_mtime), title="regi", status="failed", chunk_count=0, deleted=False,
+            error_message="mobi is not enabled in the MVP parser. Convert to EPUB/PDF/TXT",
+        ))
+    assert str(book) in svc.load_reprocess_paths()
+    svc.settings.ocr_enabled = False
+    assert str(book) in svc.load_reprocess_paths()
+    svc.run_indexing(False, True)
+    assert svc.last_run["indexed"] == 2  # a.txt and the formerly failed book (parsing is stubbed)
+
+
 def test_runs_never_overlap_and_manual_trigger_shares_the_lock(svc, monkeypatch):
     entered, release = threading.Event(), threading.Event()
     original = svc.index_one_document
@@ -309,3 +349,33 @@ def test_completely_emptied_folder_is_kept_until_unwatched(svc):
     svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path="other")])  # unwatching removes it
     svc.run_indexing(False, True)
     assert "watched/a.txt" not in live_paths(svc)
+
+
+def test_run_left_running_by_a_stopped_process_is_closed_at_startup(svc):
+    from teacher_common.db import session_scope
+
+    with session_scope() as session:
+        session.add(svc.models.IngestRun(status="running", message="Indexing started (scheduled)"))
+    assert svc.close_interrupted_runs() == 1
+    body = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"}).get("/ingest/status").json()
+    assert body["status"] == "interrupted"
+    assert body["finished_at"] is not None
+    assert svc.close_interrupted_runs() == 0
+
+
+def test_failure_that_cannot_be_recorded_does_not_abort_the_run(svc, monkeypatch):
+    (svc.library / "watched" / "z.txt").write_text("z")
+
+    def fail(path, file_hash=None):
+        if Path(path).name == "a.txt":
+            raise ValueError("boom")
+        return types.SimpleNamespace(segments=[], title=None, author=None, language="en", ocr=None)
+
+    def vanished(path, message):
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(svc, "parse_document", fail)
+    monkeypatch.setattr(svc, "store_error_record", vanished)
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "completed"
+    assert (svc.last_run["failed"], svc.last_run["indexed"]) == (1, 1)

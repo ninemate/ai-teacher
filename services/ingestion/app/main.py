@@ -16,9 +16,10 @@ from teacher_common.documents import (
     hash_file,
     parse_document,
 )
+from teacher_common.ebooks import DrmProtectedError
 from teacher_common.embeddings import embed_passages, warmup_embeddings
 from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun, OcrRecord
-from teacher_common.ocr import record_ocr
+from teacher_common.ocr import record_ocr, resumable
 from teacher_common.qdrant_store import (
     build_points,
     delete_points_for_source,
@@ -67,6 +68,7 @@ def startup_event() -> None:
         logging.getLogger("uvicorn").warning("TEACHER_INGEST_TOKEN is empty: /ingest endpoints refuse every call.")
     Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
+    close_interrupted_runs()
     ensure_collection()
     warmup_embeddings()
     scheduler.start()
@@ -163,6 +165,24 @@ def ingest_schedule():
     }
 
 
+def close_interrupted_runs() -> int:
+    """Runs still marked running belong to a process that stopped mid-run (deploy, restart, crash).
+
+    Only this service writes runs and it runs as one process, so at startup none of them can be live.
+    Their finished documents are kept; the next run picks up the rest, and OCR resumes from its cache.
+    """
+    with session_scope() as session:
+        rows = session.execute(select(IngestRun).where(IngestRun.status == "running")).scalars().all()
+        for row in rows:
+            row.status = "interrupted"
+            errors = split_message(row.message)[1]
+            row.message = with_errors("Interrupted: the ingestion service stopped during this run", errors)
+            row.finished_at = datetime.now(UTC)
+    if rows:
+        logger.warning("Marked %d unfinished indexing run(s) as interrupted", len(rows))
+    return len(rows)
+
+
 def run_indexing(full_reindex: bool, remove_missing: bool, trigger: str = "scheduled") -> bool:
     """Run synchronously if no other run holds the lock; returns False when it declined."""
     if not index_lock.acquire(blocking=False):
@@ -227,8 +247,13 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
                     skipped += 1
             except Exception as exc:  # noqa: BLE001 - one broken file must not abort the run
                 failed += 1
+                if isinstance(exc, DrmProtectedError):
+                    logger.warning("Skipping DRM-protected ebook %s: %s", file_path, exc)
                 add_error(errors, f"{file_path}: {exc}")
-                store_error_record(file_path, str(exc))
+                try:
+                    store_error_record(file_path, str(exc))
+                except Exception as record_exc:  # noqa: BLE001 - e.g. the file vanished meanwhile
+                    logger.warning("Could not record the failure of %s: %s", file_path, record_exc)
 
         for missing in report.missing_folders:
             add_error(errors, f"Watched folder not found or not a directory: {missing}")
@@ -361,10 +386,27 @@ def load_known_documents() -> dict[str, tuple[int, int]]:
 
 def load_reprocess_paths() -> set[str]:
     """Unchanged PDFs that still need work: failed ones (the OCR cache makes a retry cheap), ones OCR'd with
-    another language or DPI, and ones indexed while OCR was off."""
-    if not settings.ocr_enabled:
-        return set()
+    another language or DPI, ones indexed while OCR was off, and ones whose OCR stopped on the time budget
+    (each run OCRs the next pages, the cached ones are not repeated). Also Kindle books that failed before
+    MOBI support existed.
+
+    A failed PDF whose OCR stopped for good (stalled, page limit, failing page) is left alone: a retry would
+    stop at the same place, and a stalled scan would spend OCR_TIMEOUT_SECONDS on every run."""
     with session_scope() as session:
+        # Kindle books that failed before MOBI support existed ("not enabled in the MVP parser") keep their size/mtime,
+        # so without this they would be skipped forever after the upgrade.
+        legacy_ebooks = set(
+            session.execute(
+                select(DocumentRecord.source_path).where(
+                    DocumentRecord.deleted.is_(False),
+                    DocumentRecord.status == "failed",
+                    DocumentRecord.file_type.in_(["mobi", "azw", "azw3"]),
+                    DocumentRecord.error_message.like("%not enabled in the MVP parser%"),
+                )
+            ).scalars()
+        )
+        if not settings.ocr_enabled:
+            return legacy_ebooks
         failed = session.execute(
             select(DocumentRecord.source_path).where(
                 DocumentRecord.deleted.is_(False),
@@ -372,12 +414,16 @@ def load_reprocess_paths() -> set[str]:
                 DocumentRecord.file_type == "pdf",
             )
         ).scalars()
-        paths = set(failed)
+        paths = legacy_ebooks | set(failed)
         rows = session.execute(
-            select(OcrRecord.source_path, OcrRecord.status, OcrRecord.language, OcrRecord.dpi)
+            select(OcrRecord.source_path, OcrRecord.status, OcrRecord.message, OcrRecord.language, OcrRecord.dpi)
         ).all()
     wanted = (settings.ocr_language, settings.ocr_dpi)
-    paths.update(path for path, status, language, dpi in rows if status == "disabled" or (language, dpi) != wanted)
+    for path, status, message, language, dpi in rows:
+        if status == "disabled" or (language, dpi) != wanted or resumable(status, message):
+            paths.add(path)
+        elif status == "partial":
+            paths.discard(path)
     return paths
 
 

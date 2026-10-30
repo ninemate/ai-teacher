@@ -1,0 +1,32 @@
+# HTTPS reverse proxy (Caddy) in front of the API and web UI. Included by `make dev-up`.
+# Browse to https://${TEACHER_PROXY_HOST}:${TEACHER_HTTPS_PORT}; plain HTTP on
+# ${TEACHER_PROXY_HTTP_PORT} redirects there. See docs/https.md.
+services:
+  proxy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      TEACHER_PROXY_HOST: ${TEACHER_PROXY_HOST:-localhost}
+      TEACHER_HTTPS_PORT: ${TEACHER_HTTPS_PORT:-8443}
+      TEACHER_TLS: ${TEACHER_TLS:-internal}
+      TEACHER_HSTS: ${TEACHER_HSTS:-max-age=0}
+    ports:
+      - ${TEACHER_PROXY_BIND:-127.0.0.1}:${TEACHER_HTTPS_PORT:-8443}:443
+      - ${TEACHER_PROXY_BIND:-127.0.0.1}:${TEACHER_PROXY_HTTP_PORT:-8088}:80
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${TEACHER_TLS_DIR:-../certs}:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -15,7 +15,7 @@ This system handles private library content and private user questions. Treat it
 Three layers, each useful on its own:
 
 1. **VPN** (WireGuard or Tailscale) is the network path from the phone to the host. See [mobile-access.md](mobile-access.md).
-2. **HTTPS** in front of the app (Caddy or the VPN's own TLS, e.g. Tailscale Serve). This is the baseline, not an option.
+2. **HTTPS** in front of the app: the Caddy container in the compose stack (internal-CA certificate by default, real certs optional; see [https.md](https.md)), or the VPN's own TLS, e.g. Tailscale Serve. This is the baseline, not an option.
 3. **App login** built into the API: every page and API route needs a session, except the ones listed below.
 
 ### Routes Without Login
@@ -63,7 +63,7 @@ If `TEACHER_AUTH_USERS` is empty the app stays closed: nobody can log in, and th
 
 - After login the browser gets a random `teacher_session` cookie. Only its SHA-256 is stored, in the `auth_sessions` table of the SQLite metadata database, so a copy of the database does not hand out live sessions.
 - The cookie is `HttpOnly`, `SameSite=Lax` and `Path=/`. It lasts `TEACHER_SESSION_TTL_HOURS` (default 720, 30 days, so the phone does not ask every day).
-- `Secure`: with `TEACHER_COOKIE_SECURE=auto` (default) the cookie is marked Secure when the request came over HTTPS, either directly or through a proxy that sets `X-Forwarded-Proto: https` (Caddy does). Set `TEACHER_COOKIE_SECURE=true` once the app is only reached through HTTPS; `prod` does.
+- `Secure`: with `TEACHER_COOKIE_SECURE=auto` (default) the cookie is marked Secure when the request came over HTTPS, either directly or through a proxy that sets `X-Forwarded-Proto: https` (the compose proxy does, and replaces any value a client sent). Set `TEACHER_COOKIE_SECURE=true` once the app is only reached through HTTPS; `prod` does.
 - Logout (`POST /logout`, the "Kijelentkezés" button) deletes the session on the server, not only in the browser.
 - Sessions survive an API restart. To log everyone out, delete the rows from `auth_sessions` or change the passwords.
 
@@ -89,13 +89,13 @@ Notes:
 
 ### Response Headers
 
-Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` and a `Content-Security-Policy` that allows only same-origin scripts, styles and connections (`/docs` and `/redoc` are exempt from the CSP because Swagger loads from a CDN; they still need login). Everything except static files is `Cache-Control: no-store`, so answers do not linger in the phone's browser cache. HSTS belongs on the HTTPS terminator; the Caddy template sets it.
+Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` and a `Content-Security-Policy` that allows only same-origin scripts, styles and connections (`/docs` and `/redoc` are exempt from the CSP because Swagger loads from a CDN; they still need login). Everything except static files is `Cache-Control: no-store`, so answers do not linger in the phone's browser cache. HSTS belongs on the HTTPS terminator; the compose proxy sends it (off by default until real certs are used, see [https.md](https.md)) and so does the Ansible Caddy template.
 
 ## Ingestion Service
 
 The ingestion service is published on the host only on `127.0.0.1:${TEACHER_INGEST_PORT}` and inside the compose network. Its `/ingest/status`, `/ingest/schedule` and `/ingest/reindex` endpoints require `Authorization: Bearer ${TEACHER_INGEST_TOKEN}`; `/health` stays open for health checks.
 
-- The API sends the token when the UI or API triggers a reindex, so users never handle it.
+- Logged-in users reach `GET /ingest/schedule` and `POST /ingest/reindex` through the API, which adds the token, so users never handle it. The API's `GET /ingest/status` reads the last run from the shared SQLite file. A reindex during a running (for example scheduled) run answers `409`; an unreachable ingestion service answers `502`.
 - If `TEACHER_INGEST_TOKEN` is empty the endpoints refuse every call (`503`). Generate one with `openssl rand -hex 32`.
 - The Ansible deploy keeps the token already in the host's `.env`, or generates one on first deploy, unless `teacher_ingest_token` is set. `reindex.yml` and `make test-ingest` read it from `.env`.
 
@@ -122,6 +122,7 @@ The optional `voice` container has no published port and no authentication of it
 - Keep Ollama internal.
 - Keep the voice service internal.
 - Keep the ingestion port on `127.0.0.1`.
+- With the compose proxy, set `TEACHER_HTTP_BIND=127.0.0.1` so only the HTTPS port is reachable from other devices.
 - Prefer VPN for remote access, with HTTPS and app login on top.
 - Never run with `TEACHER_AUTH_DISABLED=true` on a reachable host.
 

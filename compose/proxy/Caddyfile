@@ -1,0 +1,62 @@
+# HTTPS front door for the teacher UI and API. Configured entirely through env vars
+# set in compose/docker-compose.proxy.yml (defaults come from .env).
+{
+	# Plain HTTP is handled explicitly below so the redirect can carry the host port.
+	# Caddy trusts no upstream proxy by default, so it overwrites any client-sent X-Forwarded-*
+	# and the API can rely on X-Forwarded-Proto.
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
+}
+
+# HTTPS. TEACHER_TLS is `internal` (Caddy's own local CA) or `<cert file> <key file>` inside /certs.
+https://{$TEACHER_PROXY_HOST:localhost} {
+	tls {$TEACHER_TLS:internal}
+	encode zstd gzip
+
+	header {
+		# HSTS is off (max-age=0) until real certs are in place: it is remembered per host,
+		# not per port, and would break plain-HTTP dev on the same name.
+		Strict-Transport-Security "{$TEACHER_HSTS:max-age=0}"
+		# Same values the API sets, so they also cover responses the proxy generates itself.
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		Permissions-Policy "camera=(), geolocation=(), payment=(), usb=(), microphone=(self)"
+		Cross-Origin-Opener-Policy same-origin
+		-Server
+	}
+
+	# Generous request cap for voice uploads; LLM answers can take minutes, so no response timeout.
+	request_body {
+		max_size 100MB
+	}
+
+	# Host is passed through unchanged (the API's Origin check compares Origin with Host);
+	# X-Forwarded-Proto/For/Host are added by reverse_proxy.
+	reverse_proxy api:8000 {
+		health_uri /health
+		health_interval 30s
+	}
+}
+
+# Plain HTTP: send everyone to HTTPS, except the public root certificate for phone setup.
+http://{$TEACHER_PROXY_HOST:localhost} {
+	# Only while the internal CA is in use: caddy_data keeps the old root after a switch to
+	# real certificates, and nobody should install that one any more.
+	@internal_ca_root {
+		path /ca.crt
+		expression `"{$TEACHER_TLS:internal}" == "internal"`
+	}
+	handle @internal_ca_root {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		header Content-Disposition `attachment; filename="teacher-ca.crt"`
+		file_server
+	}
+	handle {
+		redir https://{host}:{$TEACHER_HTTPS_PORT:8443}{uri} 308
+	}
+}

@@ -1,7 +1,7 @@
 """Stored quizzes and flashcard decks: generation, storage and review endpoints.
 
 Kept in its own module so main.py only needs one ``include_router`` call. The router has no
-auth of its own; the app includes it with its auth dependency (see ``main.py``).
+auth of its own: the session and CSRF middleware in ``main.py`` protects every route by default.
 """
 
 from collections.abc import Callable

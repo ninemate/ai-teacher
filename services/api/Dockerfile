@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HF_HUB_DISABLE_TELEMETRY=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl tesseract-ocr tesseract-ocr-hun tesseract-ocr-eng \
+    && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

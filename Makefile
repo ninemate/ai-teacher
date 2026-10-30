@@ -1,5 +1,5 @@
 COMPOSE_BASE=docker compose --env-file .env -f compose/docker-compose.yml
-COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml
+COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml -f compose/docker-compose.proxy.yml
 COMPOSE_VOICE=$(COMPOSE_DEV) -f compose/docker-compose.voice.example.yml
 
 .PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test test-chat test-ingest hash-password

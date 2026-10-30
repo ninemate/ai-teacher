@@ -11,14 +11,26 @@ Implemented in the MVP:
 - TXT
 - Markdown
 - DOCX
+- MOBI, AZW, AZW3 (Kindle; DRM-free only, see below)
 
-Known but not implemented in the MVP:
+## MOBI / AZW / AZW3
 
-- MOBI
-- AZW
-- AZW3
+Kindle books are unpacked in the ingestion service with the pure-Python [`mobi`](https://pypi.org/project/mobi/) package
+(a KindleUnpack port), so the image needs no Calibre. It is added to `services/ingestion/requirements.txt` and installs with
+plain `pip`; the Dockerfile checks the import at build time.
 
-For those formats, convert to EPUB or PDF first, or add Calibre-based conversion later.
+- **KF8 / AZW3** books unpack to an EPUB that the normal EPUB parser reads (chapter locators `fejezet ...`).
+  **MOBI 6 / older AZW** books unpack to one HTML file, split at the book's page breaks (`fejezet N`). Title and author come
+  from the book's metadata, falling back to the file name.
+- **Encodings.** The unpacker decodes the book's own codepage (UTF-8 or Windows-1252) and writes UTF-8, so Hungarian accents
+  survive. Windows-1252 has no `ő`/`ű` (only `õ`/`û`), so an old-codepage book can only contain what its encoding could store.
+- **DRM.** The MOBI header is checked before anything is unpacked. An encrypted book is never decrypted: it is marked `failed`
+  with the reason (`... is DRM-protected ...; skipped`), logged as a warning by `teacher.ingestion`, and shown in the run's
+  error list. Kindle KFX/Topaz containers and print-replica books are also refused with a reason.
+- **Read-only share.** Unpacking happens in a temporary directory that is removed afterwards, also when conversion fails; the book on the share is only read.
+- **Scanning.** `.mobi`, `.azw` and `.azw3` are now part of the default `scan_extensions` / `INGEST_SCAN_EXTENSIONS`. If you set
+  that variable or a folder's `extensions` yourself, add them there (the Ansible variable `teacher_ingest_scan_extensions` defaults to the full list). Kindle books that failed with the old "not enabled" message are retried on the next run without a full reindex.
+- Image-only (comic/manga) books have no text and fail with "No extractable text found".
 
 ## Watched Folders
 
@@ -40,9 +52,13 @@ A full reindex (`full_reindex: true`) wipes the index before rebuilding it, so i
 
 Configured in the `schedule` section of the same file; disabled by default. Use either `interval_seconds` (at least 60) or a five-field `cron` expression with an optional `timezone` (default UTC). `run_on_startup` also starts a run when the service comes up. If the file has no `schedule` section, the legacy `INGEST_SCHEDULE_SECONDS` still enables a fixed interval. An invalid config stops the service at startup with an error.
 
-The scheduler runs inside the ingestion service. Scheduled runs and `POST /ingest/reindex` share one lock, so runs never overlap: a manual request during a run gets `409`, a schedule slot that arrives during a run is skipped (missed slots are not queued).
+The scheduler runs inside the ingestion service. Scheduled runs and `POST /ingest/reindex` share one lock, so runs never overlap: a manual request during a run gets `409` (also through the API's `/ingest/reindex`), a schedule slot that arrives during a run is skipped (missed slots are not queued). The next slot is counted from the end of the run, so a long OCR run simply delays it.
 
-`GET /ingest/schedule` (bearer token like the other `/ingest` endpoints) returns the schedule (`enabled`, `interval_seconds`, `cron`, `next_run_at`, whether the last tick actually started a run), the watched folders, `running` / `current_file`, and `last_run`: `trigger` (`scheduled` or `manual`), `status`, `started_at`, `finished_at`, counts (`scanned`, `indexed`, `skipped`, `failed`, `deleted`), files scanned per folder, and up to 20 error messages. After a restart `last_run` is rebuilt from the database: status, counts, timestamps and the error messages, but not `trigger` or the per-folder counts. `GET /ingest/status` still returns the latest run as before.
+The service reads `ingestion.yml` at startup only; restart the `ingestion` container after editing it (the Ansible deploy does this when it writes the file).
+
+`GET /ingest/schedule` (bearer token like the other `/ingest` endpoints; logged-in users get the same through the API at `GET /ingest/schedule`) returns the schedule (`enabled`, `interval_seconds`, `cron`, `next_run_at`, whether the last tick actually started a run), the watched folders, `running` / `current_file`, and `last_run`: `trigger` (`scheduled` or `manual`), `status`, `started_at`, `finished_at`, counts (`scanned`, `indexed`, `skipped`, `failed`, `deleted`), files scanned per folder, and up to 20 error messages. After a restart `last_run` is rebuilt from the database: status, counts, timestamps and the error messages, but not `trigger` or the per-folder counts. `GET /ingest/status` still returns the latest run as before.
+
+A run whose process stopped (deploy, restart, crash) is marked `interrupted` when the service starts again. What it finished stays indexed, and the next run picks up the rest.
 
 ## Incremental Behavior
 
@@ -95,7 +111,8 @@ OCR'd chunks get the locator `oldal N (OCR)`.
 Behaviour:
 
 - **Read-only source.** The share is never written to. OCR text is cached as JSON under `OCR_CACHE_DIR`
-  (inside the existing metadata volume), keyed by file hash, language and DPI.
+  (inside the existing metadata volume), keyed by file hash, language and DPI. The cache is written after
+  every OCR'd page, so a stopped run loses at most the page in progress.
 - **Not redone.** Incremental runs skip unchanged files as before; a full reindex or a changed-but-identical
   file reuses the cached page text instead of running Tesseract again. Changing language or DPI re-OCRs.
 - **SQLite record.** The `ocr_documents` table records, per document, the OCR language, DPI, pages OCR'd,
@@ -103,7 +120,19 @@ Behaviour:
   `unavailable` (Tesseract missing) or `disabled` (indexed with OCR off while it had scanned pages;
   re-enabling OCR re-processes it on the next run). PDFs indexed before OCR tracking existed need one full reindex.
 - **Limits.** When the time or page limit is hit, the pages finished so far are indexed and cached and the
-  rest are left pending (`partial`). Raise the limit and run a full reindex to finish; cached pages are not repeated.
+  rest are left pending (`partial`).
+  - Time limit: the next run (scheduled or manual, incremental) processes the file again. Cached pages
+    cost nothing, so it spends a fresh `OCR_TIMEOUT_SECONDS` on the next pages. A large scan is finished
+    over several runs, and each run re-embeds the pages indexed so far. If a run adds no page (a single page
+    takes longer than the whole budget), the record is marked "Stalled" and the file is no longer retried.
+    Raise the limit and run a full reindex.
+  - Page limit (`OCR_MAX_PAGES`, which counts cached pages too): not resumed. Raise the limit and run a full
+    reindex; cached pages are not repeated.
 - **Failures stay local.** A broken page or file never aborts the run. A scanned PDF that failed outright is
-  retried on the next run (cheap thanks to the cache) while OCR is enabled.
+  retried on the next run (cheap thanks to the cache) while OCR is enabled, unless its OCR record shows a stop
+  that a retry would repeat (stalled, page limit, failing page). A page that failed (status `partial`
+  with "OCR failed on page N") is not retried automatically; a full reindex tries it again.
+- **Tesseract missing** (`unavailable`): the text-layer pages are indexed. After installing it, run a full reindex.
+- **Cache growth.** Cache files of changed or deleted documents are not removed. Delete `OCR_CACHE_DIR` to
+  reclaim the space; the next full reindex rebuilds what is still needed.
 

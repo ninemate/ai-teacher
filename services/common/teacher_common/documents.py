@@ -11,10 +11,10 @@ from docx import Document as DocxDocument
 from ebooklib import ITEM_DOCUMENT, epub
 from lingua import Language, LanguageDetectorBuilder
 
+from teacher_common.ebooks import EBOOK_EXTENSIONS, convert_ebook
 from teacher_common.ocr import OcrReport
 
-SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".txt", ".md", ".docx"}
-UNSUPPORTED_BUT_KNOWN = {".mobi", ".azw", ".azw3"}
+SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".txt", ".md", ".docx", *EBOOK_EXTENSIONS}
 
 
 @dataclass
@@ -85,10 +85,8 @@ def parse_document(path: Path, file_hash: str | None = None) -> ParsedDocument:
         return parse_plaintext(path)
     if suffix == ".docx":
         return parse_docx(path)
-    if suffix in UNSUPPORTED_BUT_KNOWN:
-        raise ValueError(
-            f"{suffix} is not enabled in the MVP parser. Convert to EPUB/PDF/TXT or add Calibre-based conversion later."
-        )
+    if suffix in EBOOK_EXTENSIONS:
+        return parse_mobi(path)
     raise ValueError(f"Unsupported file type: {suffix}")
 
 
@@ -137,6 +135,47 @@ def parse_pdf(path: Path, file_hash: str | None = None, cfg=None) -> ParsedDocum
         segments=segments,
         ocr=report,
     )
+
+
+def parse_mobi(path: Path) -> ParsedDocument:
+    """MOBI/AZW/AZW3: unpack to EPUB (KF8) or HTML (MOBI 6) in a temp dir and read that."""
+    converted = convert_ebook(path)
+    try:
+        if converted.kind == "epub":
+            parsed = parse_epub(converted.path)
+        else:
+            parsed = _parse_html_book(converted.path)
+    finally:
+        converted.cleanup()
+    if parsed.title is None or parsed.title == converted.path.stem:
+        parsed.title = path.stem
+    return parsed
+
+
+def _parse_html_book(path: Path) -> ParsedDocument:
+    # Bytes, not str: BeautifulSoup honours the <meta charset> the unpacker writes (UTF-8), so accents survive.
+    title, author = _opf_metadata(path.with_name("content.opf"))
+    soup = BeautifulSoup(path.read_bytes(), "html.parser")
+    if not title and soup.title:
+        title = soup.title.get_text().strip()
+    for tag in soup(["script", "style", "head"]):
+        tag.decompose()
+    segments: list[TextSegment] = []
+    for index, part in enumerate(re.split(r"<mbp:pagebreak\s*/?>", str(soup), flags=re.I), start=1):
+        text = normalize_text(BeautifulSoup(part, "html.parser").get_text("\n"))
+        if text:
+            segments.append(TextSegment(text=text, locator=f"fejezet {index}"))
+    combined = "\n\n".join(segment.text for segment in segments)
+    return ParsedDocument(title=title or None, author=author, language=detect_language(combined), segments=segments)
+
+
+def _opf_metadata(opf: Path) -> tuple[str, str | None]:
+    if not opf.is_file():
+        return "", None
+    soup = BeautifulSoup(opf.read_bytes(), "html.parser")
+    title = soup.find("dc:title")
+    author = soup.find("dc:creator")
+    return (title.get_text().strip() if title else ""), (author.get_text().strip() if author else None) or None
 
 
 def parse_epub(path: Path) -> ParsedDocument:
@@ -206,7 +245,7 @@ def chunk_segments(segments: Iterable[TextSegment], chunk_size: int, chunk_overl
 def iter_library_files(root: Path, extensions: Iterable[str]) -> Iterable[Path]:
     allowed = {item.lower() for item in extensions}
     for path in sorted(root.rglob("*")):
-        if path.is_file() and path.suffix.lower() in allowed.union(UNSUPPORTED_BUT_KNOWN):
+        if path.is_file() and path.suffix.lower() in allowed:
             yield path
 
 

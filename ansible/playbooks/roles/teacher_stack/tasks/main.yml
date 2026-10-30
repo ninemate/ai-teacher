@@ -38,6 +38,26 @@
     dest: "{{ teacher_stack_dir }}/config/"
     mode: preserve
 
+- name: Write the ingestion config (watched folders, schedule)
+  ansible.builtin.copy:
+    content: "{{ teacher_ingest_config | to_nice_yaml(indent=2) }}"
+    dest: "{{ teacher_stack_dir }}/config/ingestion/ingestion.yml"
+    mode: "0644"
+  register: teacher_ingest_config_written
+  when: teacher_ingest_config | length > 0
+
+- name: Check for an ingestion config on the host
+  ansible.builtin.stat:
+    path: "{{ teacher_stack_dir }}/config/ingestion/ingestion.yml"
+  register: teacher_ingest_config_file
+
+- name: Warn when no folders are watched
+  ansible.builtin.debug:
+    msg: >-
+      {{ teacher_stack_dir }}/config/ingestion/ingestion.yml does not exist, so the ingestion service
+      watches no folders and indexes nothing. Set teacher_ingest_config or create the file.
+  when: not teacher_ingest_config_file.stat.exists
+
 - name: Remove __pycache__ from source services
   ansible.builtin.command:
     cmd: find "{{ teacher_repo_local_path }}/services" -type d -name __pycache__ -exec rm -rf {} +
@@ -86,3 +106,12 @@
     'Built' in teacher_stack_up.stdout or
     'Creating' in teacher_stack_up.stdout
 
+
+- name: Restart ingestion so it reads the new ingestion config
+  ansible.builtin.command:
+    cmd: >-
+      docker compose --env-file .env
+      {% for item in teacher_effective_compose_files %}-f {{ item }} {% endfor %}
+      restart ingestion
+    chdir: "{{ teacher_stack_dir }}"
+  when: teacher_ingest_config_written is changed
