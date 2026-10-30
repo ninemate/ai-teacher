@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import secrets
@@ -460,9 +461,11 @@ def index_one_document(
         raise ValueError("No extractable text found")
 
     vectors = embed_passages(chunk.text for chunk in chunks)
+    # The path digest keeps two copies of one file (same hash) from sharing, and overwriting, each other's points.
+    path_key = hashlib.sha256(str(file_path).encode("utf-8")).hexdigest()[:12]
     chunk_rows = []
     for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=False), start=1):
-        chunk_id = f"{file_hash}:{index}"
+        chunk_id = f"{file_hash}:{path_key}:{index}"
         point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, chunk_id))
         chunk_rows.append(
             {
@@ -584,6 +587,13 @@ def store_error_record(file_path: Path, error_message: str) -> None:
             )
             session.add(existing)
         else:
+            if (existing.size_bytes, existing.modified_timestamp) != (stat.st_size, int(stat.st_mtime)):
+                # The file changed and its new content could not be indexed: the old chunks no longer match it,
+                # so drop them rather than cite text the file does not hold any more. Size/mtime stay old, so
+                # the next run tries again.
+                delete_points_for_source(str(file_path))
+                session.query(ChunkRecord).filter(ChunkRecord.document_id == existing.id).delete()
+                existing.chunk_count = 0
             existing.status = "failed"
             existing.error_message = error_message
             existing.deleted = False
