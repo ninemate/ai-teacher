@@ -25,7 +25,8 @@ APP_DIR = Path(__file__).resolve().parent
 PUBLIC_PATHS = {"/health", "/login"}
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 CONTENT_SECURITY_POLICY = (
-    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; "
+    "connect-src 'self'; "
     "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 )
 
@@ -46,6 +47,11 @@ class ChatRequest(BaseModel):
 class TaskRequest(BaseModel):
     topic: str = Field(min_length=3)
     level: Literal["beginner", "intermediate", "advanced"] = "beginner"
+
+
+class SpeakRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=20000)
+    voice: str | None = Field(default=None, max_length=100)
 
 
 class ReindexRequest(BaseModel):
@@ -338,28 +344,81 @@ def flashcards(payload: TaskRequest):
     )
 
 
+VOICE_UNAVAILABLE = "A hangszolgáltatás nem érhető el."
+
+
+def _voice_request(method: str, path: str, timeout: float, quiet: bool = False, **kwargs) -> httpx.Response:
+    """Call the internal voice service; connection problems become 503, its errors keep status and detail."""
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.request(method, f"{settings.voice_base_url}{path}", **kwargs)
+    except httpx.HTTPError as exc:
+        if not quiet:
+            logging.getLogger("uvicorn").warning("Voice service call %s failed: %s", path, exc)
+        raise HTTPException(status_code=503, detail=VOICE_UNAVAILABLE) from exc
+    if response.status_code >= 400:
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            detail = None
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=detail if isinstance(detail, str) else "A hangszolgáltatás hibát jelzett.",
+        )
+    return response
+
+
+@app.get("/voice/status")
+def voice_status():
+    """What the UI may offer: the voice overlay is optional, so its absence is a normal answer, not an error."""
+    unavailable = {"available": False, "stt": False, "tts": False, "voices": [], "default_voice": None}
+    if not settings.voice_base_url:
+        return unavailable
+    try:
+        # Quiet: without the voice overlay this fails on every page load, which is expected.
+        health = _voice_request("GET", "/health", timeout=3.0, quiet=True).json()
+    except HTTPException:
+        return unavailable
+    stt, tts = health.get("stt") or {}, health.get("tts") or {}
+    return {
+        "available": True,
+        "stt": bool(stt.get("enabled")),
+        "tts": bool(tts.get("enabled")),
+        "voices": tts.get("voices") or [],
+        "default_voice": tts.get("default_voice"),
+        "max_seconds": stt.get("max_seconds"),
+        "max_chars": tts.get("max_chars"),
+    }
+
+
 @app.post("/voice/transcribe")
 def voice_transcribe(audio: UploadFile = File(...)):
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(
-            f"{settings.voice_base_url}/voice/transcribe",
-            files={"audio": (audio.filename or "audio.wav", audio.file, audio.content_type or "application/octet-stream")},
-        )
-    if response.status_code >= 400:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
+    limit = int(settings.voice_max_upload_mb * 1024 * 1024)
+    content = audio.file.read(limit + 1)
+    if len(content) > limit:
+        raise HTTPException(status_code=413, detail="A hangfelvétel túl nagy.")
+    if not content:
+        raise HTTPException(status_code=422, detail="Üres hangfelvétel.")
+    # Only the extension is passed on, as a hint for the decoder.
+    suffix = Path(audio.filename or "").suffix[:8]
+    response = _voice_request(
+        "POST",
+        "/voice/transcribe",
+        timeout=settings.voice_timeout_seconds,
+        files={"audio": (f"audio{suffix}", content, audio.content_type or "application/octet-stream")},
+    )
     return response.json()
 
 
 @app.post("/voice/speak")
-def voice_speak(payload: TaskRequest):
-    with httpx.Client(timeout=60.0) as client:
-        response = client.post(
-            f"{settings.voice_base_url}/voice/speak",
-            json={"text": payload.topic},
-        )
-    if response.status_code >= 400:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
-    return response.json()
+def voice_speak(payload: SpeakRequest):
+    response = _voice_request(
+        "POST",
+        "/voice/speak",
+        timeout=settings.voice_timeout_seconds,
+        json={"text": payload.text, "voice": payload.voice, "format": "mp3"},
+    )
+    return Response(response.content, media_type=response.headers.get("content-type", "audio/mpeg"))
 
 
 def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: int):

@@ -35,6 +35,15 @@
         <label for="question">Kérdés</label>
         <textarea id="question" rows="5" placeholder="Például: Magyarázd el egyszerűen, mi a fotoszintézis."></textarea>
 
+        <div class="voice-row" id="dictation" hidden>
+          <button id="mic-button" type="button" class="secondary" hidden>🎙 Diktálás</button>
+          <label id="audio-file-label" class="button-like secondary" hidden>
+            🎙 Hangfelvétel feltöltése
+            <input id="audio-file" type="file" accept="audio/*" capture />
+          </label>
+          <p id="dictation-status" class="voice-status" role="status"></p>
+        </div>
+
         <div class="actions">
           <button id="ask-button" type="button">Kérdezés</button>
           <button id="summary-button" type="button" class="secondary">Összefoglaló</button>
@@ -46,6 +55,12 @@
       <section class="panel output">
         <h2>Válasz</h2>
         <div id="answer">Még nincs válasz.</div>
+        <div class="voice-row" id="read-aloud" hidden>
+          <button id="speak-button" type="button" class="secondary" disabled>🔊 Felolvasás</button>
+          <select id="voice-select" aria-label="Felolvasó hang"></select>
+          <p id="speak-status" class="voice-status" role="status"></p>
+          <audio id="answer-audio" controls hidden></audio>
+        </div>
         <h3>Források</h3>
         <ul id="sources"></ul>
       </section>
@@ -82,6 +97,7 @@
 
     <script src="/static/app.js" defer></script>
     <script src="/static/study.js" defer></script>
+    <script src="/static/voice.js" defer></script>
   </body>
 </html>
 

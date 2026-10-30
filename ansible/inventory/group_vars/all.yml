@@ -51,10 +51,17 @@ teacher_login_window_seconds: 900
 # Left empty, deploy keeps the token already on the host or generates a new one.
 teacher_ingest_token: ""
 
+# Voice runs on the CPU by default; teacher_voice_gpu_enabled moves Whisper to the GPU (docs/voice-hungarian.md).
+teacher_voice_gpu_enabled: false
 teacher_voice_stt_backend: faster-whisper
-teacher_voice_stt_model: base
-teacher_voice_stt_device: auto
-teacher_voice_tts_backend: disabled
+teacher_voice_stt_model: large-v3-turbo
+teacher_voice_stt_device: cpu
+teacher_voice_stt_cpu_threads: 0
+teacher_voice_stt_max_seconds: 120
+teacher_voice_stt_gpu_idle_unload_seconds: 300
+teacher_voice_tts_backend: piper
+teacher_voice_tts_voices: hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium
+teacher_voice_tts_length_scale: 1.0
 
 teacher_ocr_enabled: true
 teacher_ocr_dpi: 300

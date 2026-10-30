@@ -1,13 +1,18 @@
 COMPOSE_BASE=docker compose --env-file .env -f compose/docker-compose.yml
 COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml -f compose/docker-compose.proxy.yml
+COMPOSE_VOICE=$(COMPOSE_DEV) -f compose/docker-compose.voice.example.yml
 
-.PHONY: dev-up dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test test-chat test-ingest hash-password
+.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test test-chat test-ingest hash-password
 
 dev-up:
 	$(COMPOSE_DEV) up -d --build
 
+# Dev stack plus the offline Hungarian voice service (Piper TTS, Whisper STT on the CPU).
+dev-up-voice:
+	$(COMPOSE_VOICE) up -d --build
+
 dev-down:
-	$(COMPOSE_DEV) down
+	$(COMPOSE_VOICE) down
 
 dev-logs:
 	$(COMPOSE_DEV) logs -f --tail=200

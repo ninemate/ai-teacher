@@ -1,4 +1,7 @@
-faster-whisper==1.1.1
+# faster-whisper does not pin PyAV; av 19 rejects the `metadata_errors` argument it passes when decoding audio.
+av==17.0.1
+faster-whisper==1.2.1
 fastapi==0.115.12
+piper-tts==1.8.0
 python-multipart==0.0.20
 uvicorn[standard]==0.34.2
