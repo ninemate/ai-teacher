@@ -57,7 +57,7 @@ make dev-up
 docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-compose.dev.yml exec ollama ollama pull qwen2.5:7b-instruct-q4_K_M
 ```
 
-5. If you need LAN access during testing, set `TEACHER_HTTP_BIND=0.0.0.0` in `.env`.
+5. If you need LAN or phone access during testing, set `TEACHER_PROXY_HOST` and `TEACHER_PROXY_BIND=0.0.0.0` in `.env`; the HTTPS proxy and certificate trust are described in [docs/https.md](docs/https.md).
 
 6. Trigger indexing:
 
@@ -71,8 +71,10 @@ curl -X POST http://127.0.0.1:8081/ingest/reindex \
 7. Open the UI:
 
 ```text
-http://127.0.0.1:8080
+https://localhost:8443
 ```
+
+The certificate is from Caddy's local CA; see [docs/https.md](docs/https.md) to trust it. The API is also on `http://127.0.0.1:8080` on this machine.
 
 ## Tests
 
@@ -150,5 +152,6 @@ Not fully implemented yet:
 - [Mobile Access](docs/mobile-access.md)
 - [Voice Hungarian](docs/voice-hungarian.md)
 - [Security](docs/security.md)
+- [HTTPS Reverse Proxy](docs/https.md)
 - [Operations](docs/operations.md)
 - [Open Questions](docs/open-questions.md)

@@ -32,7 +32,7 @@ make dev-up
 docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-compose.dev.yml exec ollama ollama pull qwen2.5:7b-instruct-q4_K_M
 ```
 
-6. If you want LAN access during testing, set `TEACHER_HTTP_BIND=0.0.0.0` in `.env`.
+6. If you want LAN or phone access during testing, set `TEACHER_PROXY_HOST` to the host's address and `TEACHER_PROXY_BIND=0.0.0.0` in `.env` (HTTPS proxy, see [https.md](https.md)). Leave `TEACHER_HTTP_BIND` on `127.0.0.1`.
 
 7. Trigger indexing:
 
@@ -44,7 +44,7 @@ curl -X POST http://127.0.0.1:8081/ingest/reindex \
   -d '{"full_reindex": false, "remove_missing": true}'
 ```
 
-8. Open `http://127.0.0.1:8080` and log in.
+8. Open `https://localhost:8443` and log in. The certificate comes from Caddy's local CA: either accept the browser warning or trust the root (`curl -o teacher-ca.crt http://localhost:8088/ca.crt`, see [https.md](https.md)). `http://127.0.0.1:8080` still reaches the API directly on this machine, without TLS.
 
 ## Dev Notes
 
@@ -52,4 +52,5 @@ curl -X POST http://127.0.0.1:8081/ingest/reindex \
 - The login is on in dev too. `TEACHER_AUTH_DISABLED=true` turns it off for a purely local experiment; never on a reachable host.
 - `make test` runs the unit tests (`pip install pytest` plus the api requirements first).
 - `make test-chat` logs in and asks one question; it needs `TEACHER_USER` and `TEACHER_PASSWORD` in the environment.
+- `make dev-up` includes `compose/docker-compose.proxy.yml` (Caddy). Plain HTTP on port 8088 redirects to HTTPS.
 - For actual remote access, use VPN plus HTTPS; the app login stays on.
