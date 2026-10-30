@@ -7,11 +7,13 @@ This repository is intentionally separate from any GPU image-generation stack. I
 ## What This Repo Implements
 
 - Mounted network-share based document library access
-- Incremental document ingestion for PDF, EPUB, TXT, Markdown, DOCX, and DRM-free MOBI/AZW/AZW3
+- Incremental document ingestion for PDF, EPUB, TXT, Markdown, DOCX, and DRM-free MOBI/AZW/AZW3, limited to configured watched folders
+- Scheduled indexing (interval or cron) inside the ingestion service, plus manual reindex
+- OCR (Tesseract, `hun+eng`) for scanned PDF pages, cached locally and resumed across runs
 - Local metadata state in SQLite
 - Local vector search in Qdrant
 - Local LLM runtime via Ollama
-- Hungarian-first RAG chat API and mobile-friendly web UI
+- Hungarian-first RAG chat API and mobile-friendly web UI behind a built-in login (argon2 users, sessions, CSRF)
 - Stored quizzes and flashcard decks generated from the library, with source references, spaced-repetition review for cards and quiz attempt history (`/study/...`)
 - Ansible-driven deployment to a separate VM
 - Optional NVIDIA and optional voice scaffolding
@@ -45,21 +47,22 @@ Why this stack:
 
 1. Copy `.env.example` to `.env` and adjust paths and credentials. Set `TEACHER_AUTH_USERS` (`make hash-password`) and `TEACHER_INGEST_TOKEN` (`openssl rand -hex 32`).
 2. Ensure your network share is mounted at `TEACHER_MOUNT_POINT`.
-3. Start the local dev stack:
+3. Copy `config/ingestion/ingestion.example.yml` to `config/ingestion/ingestion.yml` and list the folders to index under `watch.folders` (paths relative to the share; `.` is the whole share). Without it nothing is indexed. The same file turns on scheduled indexing.
+4. Start the local dev stack:
 
 ```bash
 make dev-up
 ```
 
-4. Pull a chat model into Ollama from inside the running container:
+5. Pull a chat model into Ollama from inside the running container:
 
 ```bash
 docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-compose.dev.yml exec ollama ollama pull qwen2.5:7b-instruct-q4_K_M
 ```
 
-5. If you need LAN or phone access during testing, set `TEACHER_PROXY_HOST` and `TEACHER_PROXY_BIND=0.0.0.0` in `.env`; the HTTPS proxy and certificate trust are described in [docs/https.md](docs/https.md).
+6. If you need LAN or phone access during testing, set `TEACHER_PROXY_HOST` and `TEACHER_PROXY_BIND=0.0.0.0` in `.env`; the HTTPS proxy and certificate trust are described in [docs/https.md](docs/https.md).
 
-6. Trigger indexing:
+7. Trigger indexing (or wait for the schedule):
 
 ```bash
 curl -X POST http://127.0.0.1:8081/ingest/reindex \
@@ -68,7 +71,7 @@ curl -X POST http://127.0.0.1:8081/ingest/reindex \
   -d '{"full_reindex": false, "remove_missing": true}'
 ```
 
-7. Open the UI:
+8. Open the UI and log in:
 
 ```text
 https://localhost:8443
@@ -80,15 +83,18 @@ The certificate is from Caddy's local CA; see [docs/https.md](docs/https.md) to 
 
 ```bash
 pip install pytest sqlalchemy pydantic-settings fastapi httpx \
-  argon2-cffi python-multipart jinja2 pyyaml croniter \
+  argon2-cffi python-multipart jinja2 pyyaml croniter tzdata \
   PyMuPDF Pillow pytesseract beautifulsoup4 ebooklib mobi lingua-language-detector python-docx
 python -m pytest
 ```
 
+CI (`.github/workflows/ci.yml`) installs both services' requirements and runs `ruff check services/`,
+`mypy --ignore-missing-imports services/` and `pytest`, then builds the images and deploys `main` to the self-hosted VM.
+
 The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed. The OCR tests mock Tesseract;
 a smoke test with the real engine runs only when `tesseract` with the `hun` and `eng` language packs is installed.
-The `index_one_document` tests also need `qdrant-client` and `sentence-transformers` (or the full
-`services/ingestion/requirements.txt`) and are skipped without them.
+The OCR-through-ingestion tests also need `qdrant-client` (or the full `services/ingestion/requirements.txt`)
+and are skipped without it; the embedding model is stubbed.
 
 ## Architecture
 
@@ -99,14 +105,15 @@ flowchart TD
   API --> OLLAMA[Ollama Runtime]
   API --> QDRANT[(Qdrant)]
   API --> SQLITE[(SQLite Metadata)]
-  Share[Mounted Network Share] --> INGEST[Ingestion Service]
+  API -->|reindex, schedule status| INGEST
+  Share[Mounted Network Share] -->|watched folders| INGEST[Ingestion Service + scheduler + OCR]
   INGEST --> QDRANT
   INGEST --> SQLITE
 ```
 
 ## Security Warnings
 
-- Do not expose the UI publicly without VPN or HTTPS plus authentication.
+- Do not expose the UI publicly. Use a VPN, with HTTPS in front; the app login is a further layer, not a replacement.
 - Do not commit network-share credentials or `.env`.
 - Prefer `WireGuard` or `Tailscale` for phone access.
 - The UI and API require a login (`TEACHER_AUTH_USERS`, argon2 hashes); see `docs/security.md`.
@@ -127,20 +134,23 @@ The repo is structured for deployment first:
 
 Implemented now:
 
-- Separate deployable stack scaffold
-- Text-first RAG flow
-- Share-aware ingestion service
-- Incremental indexing behavior
+- Separate deployable stack (Compose, Ansible, CI deploy to a self-hosted VM)
+- Text-first RAG chat with sources, Hungarian prompts
+- Ingestion of watched folders only, incremental (size + mtime, then hash), with safe handling of an unmounted share
+- Scheduled indexing (interval or cron, `run_on_startup`), sharing one lock with manual reindex; status at `GET /ingest/schedule`
+- OCR for scanned PDF pages: per-page cache, per-file time and page limits, time-limited files resumed by later runs, interrupted runs recorded and picked up again
+- App login for the UI and every API route (argon2 users from config, server-side sessions, CSRF, login rate limits); ingestion endpoints behind a bearer token
+- Stored quizzes and flashcard decks with source references, SM-2 card review and quiz attempt history
 - Mobile-friendly web UI
-- Ansible structure and deployment roles
-- Optional voice placeholder service
-- OCR (Tesseract, `hun+eng`) for scanned PDF pages, cached locally
+- HTTPS in front of the UI via an optional Caddy overlay (`compose/docker-compose.proxy.yml`, see [docs/https.md](docs/https.md))
 - MOBI/AZW/AZW3 ingestion (pure-Python unpack to EPUB/HTML; DRM-protected books are skipped with a logged reason)
+- Voice service: Whisper STT scaffold behind an optional overlay; TTS answers 501
 
-Not fully implemented yet:
+Not implemented yet:
 
-- Production-grade SSO or identity provider integration
 - Real Hungarian offline STT/TTS backend wiring
+- OCR for image-only EPUB/DOCX
+- SSO or an identity provider (users are configured in `.env`)
 
 ## Next Docs
 

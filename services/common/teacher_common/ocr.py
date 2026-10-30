@@ -24,6 +24,15 @@ class OcrTimeoutError(RuntimeError):
     """A single page exceeded the time that was left for the file."""
 
 
+TIME_LIMIT_PREFIX = "OCR time limit"
+
+
+def resumable(status: str | None, message: str | None) -> bool:
+    """True when a later run would OCR more pages of the file: it stopped on the time budget, and cached
+    pages cost no budget. A page limit or a failing page would stop at the same place again."""
+    return status == "partial" and message is not None and message.startswith(TIME_LIMIT_PREFIX)
+
+
 @dataclass
 class OcrReport:
     pages_total: int = 0
@@ -125,14 +134,14 @@ class PdfOcr:
             return ""
         remaining = None if self._deadline is None else self._deadline - time.monotonic()
         if remaining is not None and remaining <= 0:
-            self._stop("partial", f"OCR time limit of {self.cfg.ocr_timeout_seconds}s reached")
+            self._stop("partial", f"{TIME_LIMIT_PREFIX} of {self.cfg.ocr_timeout_seconds}s reached")
             report.pages_pending += 1
             return ""
         self._attempted += 1
         try:
             text = self._recognise(page, remaining)
         except OcrTimeoutError:
-            self._stop("partial", f"OCR time limit of {self.cfg.ocr_timeout_seconds}s reached")
+            self._stop("partial", f"{TIME_LIMIT_PREFIX} of {self.cfg.ocr_timeout_seconds}s reached")
             report.pages_pending += 1
             return ""
         except OcrUnavailableError as exc:
@@ -146,6 +155,8 @@ class PdfOcr:
             report.message = f"OCR failed on page {page_number}: {exc}"
             return ""
         self.cache.put(page_number, text)
+        # Written after every page, so a run that is stopped mid-file (deploy, restart) keeps its work.
+        self._save_cache()
         if text:
             report.pages_ocr += 1
             report.page_numbers.append(page_number)
@@ -162,11 +173,14 @@ class PdfOcr:
         self.report.status = status
         self.report.message = message
 
-    def finish(self) -> OcrReport:
+    def _save_cache(self) -> None:
         try:
             self.cache.save()
         except OSError as exc:
             logger.warning("Could not write OCR cache %s: %s", self.cache.path, exc)
+
+    def finish(self) -> OcrReport:
+        self._save_cache()
         if self.report.pages_pending == 0 and self.report.status == "complete":
             self.report.message = None
         return self.report
@@ -179,6 +193,18 @@ def record_ocr(session, source_path: str, file_hash: str, report: OcrReport, cfg
     from teacher_common.models import OcrRecord
 
     row = session.execute(select(OcrRecord).where(OcrRecord.source_path == source_path)).scalars().first()
+    message = report.message
+    if (
+        row is not None
+        and row.source_hash == file_hash
+        and resumable(row.status, row.message)
+        and resumable(report.status, message)
+        and report.pages_pending >= row.pages_pending
+    ):
+        # Not one more page fitted into the budget (a single page slower than OCR_TIMEOUT_SECONDS):
+        # stop resuming instead of re-reading the file on every run.
+        message = f"{message}; no progress since the last run, raise OCR_TIMEOUT_SECONDS and run a full reindex"
+        message = message.replace(TIME_LIMIT_PREFIX, "Stalled: " + TIME_LIMIT_PREFIX.lower(), 1)
     if row is None:
         row = OcrRecord(source_path=source_path)
         session.add(row)
@@ -189,4 +215,4 @@ def record_ocr(session, source_path: str, file_hash: str, report: OcrReport, cfg
     row.pages_ocr = report.pages_ocr
     row.pages_pending = report.pages_pending
     row.status = report.status
-    row.message = report.message
+    row.message = message

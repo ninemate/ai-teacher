@@ -28,12 +28,26 @@ teacher_ingest_remove_missing: true
 teacher_ingest_scan_extensions: ".pdf,.epub,.txt,.md,.docx,.mobi,.azw,.azw3"
 teacher_ingest_chunk_size: 1200
 teacher_ingest_chunk_overlap: 200
+# Contents of config/ingestion/ingestion.yml on the host: `watch` (folders to index) and `schedule`,
+# same format as config/ingestion/ingestion.example.yml. Left empty, deploy keeps the file already
+# on the host (or one copied from your checkout); without any file nothing is indexed.
+# Example:
+#   teacher_ingest_config:
+#     schedule: {enabled: true, cron: "30 2 * * *", timezone: Europe/Budapest}
+#     watch:
+#       exclude: ["#recycle", "@eaDir"]
+#       folders: [{path: Books}, {path: Scans}]
+teacher_ingest_config: {}
+teacher_study_top_k: 10
+teacher_study_max_attempts: 2
 
 # `username:argon2-hash` entries separated by `;` (see docs/security.md). Keep real values in Vault.
 teacher_auth_users: ""
 teacher_auth_disabled: false
 teacher_session_ttl_hours: 720
 teacher_cookie_secure: auto
+teacher_login_max_attempts: 10
+teacher_login_window_seconds: 900
 # Left empty, deploy keeps the token already on the host or generates a new one.
 teacher_ingest_token: ""
 
@@ -45,6 +59,9 @@ teacher_voice_tts_backend: disabled
 teacher_ocr_enabled: true
 teacher_ocr_dpi: 300
 teacher_ocr_language: hun+eng
+teacher_ocr_min_chars: 50
+teacher_ocr_timeout_seconds: 900
+teacher_ocr_max_pages: 0
 
 teacher_share_enabled: true
 share_type: cifs

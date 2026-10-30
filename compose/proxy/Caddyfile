@@ -43,7 +43,13 @@ https://{$TEACHER_PROXY_HOST:localhost} {
 
 # Plain HTTP: send everyone to HTTPS, except the public root certificate for phone setup.
 http://{$TEACHER_PROXY_HOST:localhost} {
-	handle /ca.crt {
+	# Only while the internal CA is in use: caddy_data keeps the old root after a switch to
+	# real certificates, and nobody should install that one any more.
+	@internal_ca_root {
+		path /ca.crt
+		expression `"{$TEACHER_TLS:internal}" == "internal"`
+	}
+	handle @internal_ca_root {
 		root * /data/caddy/pki/authorities/local
 		rewrite * /root.crt
 		header Content-Type application/x-x509-ca-cert
