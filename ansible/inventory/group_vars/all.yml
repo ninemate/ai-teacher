@@ -25,7 +25,7 @@ teacher_retrieval_top_k: 6
 teacher_max_context_chars: 18000
 teacher_ingest_schedule_seconds: 0
 teacher_ingest_remove_missing: true
-teacher_ingest_scan_extensions: ".pdf,.epub,.txt,.md,.docx"
+teacher_ingest_scan_extensions: ".pdf,.epub,.txt,.md,.docx,.mobi,.azw,.azw3"
 teacher_ingest_chunk_size: 1200
 teacher_ingest_chunk_overlap: 200
 

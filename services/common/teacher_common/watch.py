@@ -13,9 +13,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 
-# Recognised but not parseable: still scanned so they show up as failed documents (see documents.py).
-UNSUPPORTED_BUT_KNOWN = {".mobi", ".azw", ".azw3"}
-
 
 class WatchFolder(BaseModel):
     """One folder (relative to the library mount point) to index."""
@@ -91,7 +88,6 @@ def _matches(patterns: Iterable[str], relative: str) -> bool:
 def file_selected(folder: WatchFolder, global_exclude: list[str], relative: str, extensions: Iterable[str]) -> bool:
     """Decide whether a file (path relative to the watch folder) belongs in the index."""
     allowed = {item.lower() for item in (folder.extensions if folder.extensions is not None else extensions)}
-    allowed |= UNSUPPORTED_BUT_KNOWN if folder.extensions is None else set()
     if posixpath.splitext(relative)[1].lower() not in allowed:
         return False
     if _matches([*global_exclude, *folder.exclude], relative):

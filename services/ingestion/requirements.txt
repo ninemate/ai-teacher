@@ -3,6 +3,7 @@ croniter==6.0.0
 ebooklib==0.20
 fastapi==0.115.12
 lingua-language-detector==2.2.0
+mobi==0.3.3
 Pillow>=10.0.0
 pydantic-settings==2.9.1
 PyMuPDF==1.25.5

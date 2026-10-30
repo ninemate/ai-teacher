@@ -7,7 +7,7 @@ This repository is intentionally separate from any GPU image-generation stack. I
 ## What This Repo Implements
 
 - Mounted network-share based document library access
-- Incremental document ingestion for PDF, EPUB, TXT, Markdown, and DOCX
+- Incremental document ingestion for PDF, EPUB, TXT, Markdown, DOCX, and DRM-free MOBI/AZW/AZW3
 - Local metadata state in SQLite
 - Local vector search in Qdrant
 - Local LLM runtime via Ollama
@@ -81,7 +81,7 @@ The certificate is from Caddy's local CA; see [docs/https.md](docs/https.md) to 
 ```bash
 pip install pytest sqlalchemy pydantic-settings fastapi httpx \
   argon2-cffi python-multipart jinja2 pyyaml croniter \
-  PyMuPDF Pillow pytesseract beautifulsoup4 ebooklib lingua-language-detector python-docx
+  PyMuPDF Pillow pytesseract beautifulsoup4 ebooklib mobi lingua-language-detector python-docx
 python -m pytest
 ```
 
@@ -135,10 +135,10 @@ Implemented now:
 - Ansible structure and deployment roles
 - Optional voice placeholder service
 - OCR (Tesseract, `hun+eng`) for scanned PDF pages, cached locally
+- MOBI/AZW/AZW3 ingestion (pure-Python unpack to EPUB/HTML; DRM-protected books are skipped with a logged reason)
 
 Not fully implemented yet:
 
-- MOBI/AZW conversion pipeline
 - Production-grade SSO or identity provider integration
 - Real Hungarian offline STT/TTS backend wiring
 

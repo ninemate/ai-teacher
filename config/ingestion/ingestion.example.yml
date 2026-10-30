@@ -4,6 +4,9 @@ scan_extensions:
   - .txt
   - .md
   - .docx
+  - .mobi
+  - .azw
+  - .azw3
 
 chunking:
   chunk_size: 1200
