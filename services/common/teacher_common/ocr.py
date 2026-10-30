@@ -53,18 +53,52 @@ def needs_ocr(text: str, min_chars: int) -> bool:
     return len(text.strip()) < min_chars
 
 
-def ocr_image(image, lang: str, timeout: float) -> str:
-    """Run Tesseract on a PIL image. Isolated so tests can replace the engine."""
+def confidence_from_data(data) -> tuple[str, float | None]:
+    """Rebuild the page text from a Tesseract TSV dict and score it.
+
+    The mean word confidence (0-100, unscored gaps excluded) tells how sure the engine was;
+    ``None`` when no word was scored, e.g. an empty page.
+    """
+    words: list[tuple[tuple[int, int, int, int], str, int]] = []
+    rows = zip(data["block_num"], data["par_num"], data["line_num"], data["word_num"], data["text"], data["conf"])
+    for block, par, line, word, text, conf in rows:
+        if isinstance(text, str) and text.strip():
+            words.append(((int(block), int(par), int(line), int(word)), text.strip(), int(conf)))
+    lines: list[str] = []
+    current: list[str] = []
+    key: tuple[int, int, int, int] | None = None
+    for word_key, text, _conf in words:
+        if key is not None and word_key[:3] != key[:3]:
+            lines.append(" ".join(current))
+            current = []
+        key = word_key
+        current.append(text)
+    if current:
+        lines.append(" ".join(current))
+    from teacher_common.documents import normalize_text
+
+    text = normalize_text("\n".join(lines))
+    scored = [conf for _, _, conf in words if conf >= 0]
+    confidence = round(sum(scored) / len(scored), 1) if scored else None
+    return text, confidence
+
+
+def recognise(image, lang: str, timeout: float) -> tuple[str, float | None]:
+    """Run Tesseract on a PIL image once and get both text and confidence from it.
+
+    Isolated so tests can replace the engine.
+    """
     import pytesseract
 
     try:
-        return pytesseract.image_to_string(image, lang=lang, timeout=timeout)
+        data = pytesseract.image_to_data(image, lang=lang, timeout=timeout, output_type=pytesseract.Output.DICT)
     except pytesseract.TesseractNotFoundError as exc:
         raise OcrUnavailableError("tesseract binary not found") from exc
     except RuntimeError as exc:
         if "timeout" in str(exc).lower():
             raise OcrTimeoutError(str(exc)) from exc
         raise
+    return confidence_from_data(data)
 
 
 def render_page(page: fitz.Page, dpi: int):
@@ -75,22 +109,27 @@ def render_page(page: fitz.Page, dpi: int):
 
 
 class OcrCache:
-    """Per-document JSON file of page number -> OCR text, stored outside the library share."""
+    """Per-document JSON file of page number -> {text, conf}, stored outside the library share.
+
+    Files written by an older format (a plain text string per page) load without the confidence.
+    """
 
     def __init__(self, cache_dir: Path, file_hash: str, lang: str, dpi: int):
         safe_lang = lang.replace("+", "-")
         self.path = cache_dir / file_hash[:2] / f"{file_hash}.{safe_lang}.{dpi}.json"
-        self.pages: dict[int, str] = {}
+        self.pages: dict[int, dict] = {}
         self._dirty = False
         if self.path.exists():
             try:
                 raw = json.loads(self.path.read_text(encoding="utf-8"))
-                self.pages = {int(k): v for k, v in raw.items()}
+                self.pages = {
+                    int(k): v if isinstance(v, dict) else {"text": v, "conf": None} for k, v in raw.items()
+                }
             except (OSError, ValueError):
                 logger.warning("Ignoring unreadable OCR cache %s", self.path)
 
-    def put(self, page_number: int, text: str) -> None:
-        self.pages[page_number] = text
+    def put(self, page_number: int, text: str, confidence: float | None) -> None:
+        self.pages[page_number] = {"text": text, "conf": confidence}
         self._dirty = True
 
     def save(self) -> None:
@@ -114,59 +153,59 @@ class PdfOcr:
         self._stopped = False
         self._attempted = 0
 
-    def read_page(self, page: fitz.Page, page_number: int) -> str:
-        """OCR text for a page, or "" when it is cached-empty, over budget or failed."""
+    def read_page(self, page: fitz.Page, page_number: int) -> tuple[str, float | None]:
+        """(OCR text for the page, mean word confidence), or ("", None) when it is cached-empty,
+        over budget or failed."""
         report = self.report
         if page_number in self.cache.pages:
             self._attempted += 1
-            text = self.cache.pages[page_number]
+            entry = self.cache.pages[page_number]
+            text = entry.get("text", "")
             if text:
                 report.pages_cached += 1
                 report.pages_ocr += 1
                 report.page_numbers.append(page_number)
-            return text
+            return text, entry.get("conf")
         if self._stopped:
             report.pages_pending += 1
-            return ""
+            return "", None
         if self.cfg.ocr_max_pages > 0 and self._attempted >= self.cfg.ocr_max_pages:
             self._stop("partial", f"OCR page limit of {self.cfg.ocr_max_pages} reached")
             report.pages_pending += 1
-            return ""
+            return "", None
         remaining = None if self._deadline is None else self._deadline - time.monotonic()
         if remaining is not None and remaining <= 0:
             self._stop("partial", f"{TIME_LIMIT_PREFIX} of {self.cfg.ocr_timeout_seconds}s reached")
             report.pages_pending += 1
-            return ""
+            return "", None
         self._attempted += 1
         try:
-            text = self._recognise(page, remaining)
+            text, confidence = self._recognise(page, remaining)
         except OcrTimeoutError:
             self._stop("partial", f"{TIME_LIMIT_PREFIX} of {self.cfg.ocr_timeout_seconds}s reached")
             report.pages_pending += 1
-            return ""
+            return "", None
         except OcrUnavailableError as exc:
             self._stop("unavailable", str(exc))
             report.pages_pending += 1
-            return ""
+            return "", None
         except Exception as exc:  # noqa: BLE001 - a bad page must not lose the rest of the document
             logger.warning("OCR failed on page %s: %s", page_number, exc)
             report.pages_pending += 1
             report.status = "partial"
             report.message = f"OCR failed on page {page_number}: {exc}"
-            return ""
-        self.cache.put(page_number, text)
+            return "", None
+        self.cache.put(page_number, text, confidence)
         # Written after every page, so a run that is stopped mid-file (deploy, restart) keeps its work.
         self._save_cache()
         if text:
             report.pages_ocr += 1
             report.page_numbers.append(page_number)
-        return text
+        return text, confidence
 
-    def _recognise(self, page: fitz.Page, remaining: float | None) -> str:
-        from teacher_common.documents import normalize_text
-
+    def _recognise(self, page: fitz.Page, remaining: float | None) -> tuple[str, float | None]:
         timeout = int(max(1, remaining)) if remaining is not None else 0
-        return normalize_text(ocr_image(render_page(page, self.cfg.ocr_dpi), self.cfg.ocr_language, timeout))
+        return recognise(render_page(page, self.cfg.ocr_dpi), self.cfg.ocr_language, timeout)
 
     def _stop(self, status: str, message: str) -> None:
         self._stopped = True

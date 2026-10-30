@@ -470,6 +470,10 @@ def index_one_document(
                 "point_id": point_id,
                 "position": index,
                 "locator": chunk.locator,
+                "page": chunk.page,
+                "chapter": chunk.chapter,
+                "ocr": chunk.ocr,
+                "ocr_confidence": chunk.ocr_confidence,
                 "text": chunk.text,
                 "preview": chunk.text[:240],
                 "vector": vector,
@@ -483,6 +487,7 @@ def index_one_document(
         author=parsed.author,
         language=parsed.language,
         chunk_rows=chunk_rows,
+        file_id=file_hash,
     )
     upsert_points(points)
 

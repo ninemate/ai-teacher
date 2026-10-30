@@ -21,6 +21,10 @@ SUPPORTED_EXTENSIONS = {".pdf", ".epub", ".txt", ".md", ".docx", *EBOOK_EXTENSIO
 class TextSegment:
     text: str
     locator: str
+    page: int | None = None
+    chapter: str | None = None
+    ocr: bool = False
+    ocr_confidence: float | None = None
 
 
 @dataclass
@@ -104,18 +108,27 @@ def parse_pdf(path: Path, file_hash: str | None = None, cfg=None) -> ParsedDocum
         for index, page in enumerate(pdf, start=1):
             text = normalize_text(page.get_text("text"))
             is_ocr = False
+            ocr_confidence = None
             if not cfg.ocr_enabled and needs_ocr(text, cfg.ocr_min_chars):
                 skipped_scanned += 1
             if cfg.ocr_enabled and needs_ocr(text, cfg.ocr_min_chars):
                 if ocr is None:
                     ocr = PdfOcr(cfg, file_hash or hash_file(path))
-                ocr_text = ocr.read_page(page, index)
+                ocr_text, ocr_confidence = ocr.read_page(page, index)
                 if ocr_text:
                     is_ocr = True
                     text = ocr_text
             if text:
                 locator = f"oldal {index} (OCR)" if is_ocr else f"oldal {index}"
-                segments.append(TextSegment(text=text, locator=locator))
+                segments.append(
+                    TextSegment(
+                        text=text,
+                        locator=locator,
+                        page=index,
+                        ocr=is_ocr,
+                        ocr_confidence=ocr_confidence if is_ocr else None,
+                    )
+                )
     report = None
     if ocr is not None:
         report = ocr.finish()
@@ -164,7 +177,7 @@ def _parse_html_book(path: Path) -> ParsedDocument:
     for index, part in enumerate(re.split(r"<mbp:pagebreak\s*/?>", str(soup), flags=re.I), start=1):
         text = normalize_text(BeautifulSoup(part, "html.parser").get_text("\n"))
         if text:
-            segments.append(TextSegment(text=text, locator=f"fejezet {index}"))
+            segments.append(TextSegment(text=text, locator=f"fejezet {index}", chapter=str(index)))
     combined = "\n\n".join(segment.text for segment in segments)
     return ParsedDocument(title=title or None, author=author, language=detect_language(combined), segments=segments)
 
@@ -188,7 +201,7 @@ def parse_epub(path: Path) -> ParsedDocument:
         text = normalize_text(soup.get_text("\n"))
         if text:
             label = item.get_name() or "szakasz"
-            segments.append(TextSegment(text=text, locator=f"fejezet {label}"))
+            segments.append(TextSegment(text=text, locator=f"fejezet {label}", chapter=label))
     combined = "\n\n".join(segment.text for segment in segments)
     return ParsedDocument(
         title=title,
@@ -233,9 +246,18 @@ def chunk_segments(segments: Iterable[TextSegment], chunk_size: int, chunk_overl
                 split = text.rfind(" ", start, end)
                 if split > start + 100:
                     end = split
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append(TextSegment(text=chunk, locator=segment.locator))
+            chunk_text = text[start:end].strip()
+            if chunk_text:
+                chunks.append(
+                    TextSegment(
+                        text=chunk_text,
+                        locator=segment.locator,
+                        page=segment.page,
+                        chapter=segment.chapter,
+                        ocr=segment.ocr,
+                        ocr_confidence=segment.ocr_confidence,
+                    )
+                )
             if end >= len(text):
                 break
             start = max(0, end - chunk_overlap)

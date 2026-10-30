@@ -74,9 +74,9 @@ def fake_engine(monkeypatch):
 
     def fake(image, lang, timeout):
         calls.append((lang, timeout))
-        return f"  Szkennelt oldal szövege {len(calls)}  \n"
+        return f"Szkennelt oldal szövege {len(calls)}", 90.0
 
-    monkeypatch.setattr(ocr, "ocr_image", fake)
+    monkeypatch.setattr(ocr, "recognise", fake)
     return calls
 
 
@@ -163,9 +163,9 @@ def test_timeout_stops_ocr_but_keeps_finished_pages(tmp_path, monkeypatch):
         calls.append(timeout)
         if len(calls) == 2:
             raise ocr.OcrTimeoutError("Tesseract process timeout")
-        return "első oldal szövege"
+        return "első oldal szövege", 90.0
 
-    monkeypatch.setattr(ocr, "ocr_image", slow)
+    monkeypatch.setattr(ocr, "recognise", slow)
     pdf = make_pdf(tmp_path / "scan.pdf", [None, None, None])
     cfg = make_cfg(tmp_path, ocr_timeout_seconds=60)
     parsed = documents.parse_pdf(pdf, file_hash="12" * 32, cfg=cfg)
@@ -178,7 +178,7 @@ def test_timeout_stops_ocr_but_keeps_finished_pages(tmp_path, monkeypatch):
 
 def test_max_pages_counts_blank_pages(tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(ocr, "ocr_image", lambda i, lang, t: calls.append(1) or "")
+    monkeypatch.setattr(ocr, "recognise", lambda i, lang, t: calls.append(1) or ("", None))
     pdf = make_pdf(tmp_path / "blank.pdf", [None] * 5)
     parsed = documents.parse_pdf(pdf, cfg=make_cfg(tmp_path, ocr_max_pages=2))
     assert len(calls) == 2
@@ -192,9 +192,9 @@ def test_page_failure_does_not_lose_other_pages(tmp_path, monkeypatch):
         calls.append(1)
         if len(calls) == 1:
             raise ValueError("bad image")
-        return "jó oldal szövege"
+        return "jó oldal szövege", 90.0
 
-    monkeypatch.setattr(ocr, "ocr_image", flaky)
+    monkeypatch.setattr(ocr, "recognise", flaky)
     pdf = make_pdf(tmp_path / "scan.pdf", [None, None])
     parsed = documents.parse_pdf(pdf, cfg=make_cfg(tmp_path))
     assert [s.locator for s in parsed.segments] == ["oldal 2 (OCR)"]
@@ -206,7 +206,7 @@ def test_missing_engine_is_reported_not_raised(tmp_path, monkeypatch):
     def missing(image, lang, timeout):
         raise ocr.OcrUnavailableError("tesseract binary not found")
 
-    monkeypatch.setattr(ocr, "ocr_image", missing)
+    monkeypatch.setattr(ocr, "recognise", missing)
     pdf = make_pdf(tmp_path / "mixed.pdf", [TEXT, None])
     parsed = documents.parse_pdf(pdf, cfg=make_cfg(tmp_path))
     assert [s.locator for s in parsed.segments] == ["oldal 1"]
@@ -233,9 +233,9 @@ def test_pytesseract_timeout_is_translated(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("Tesseract process timeout")
 
-    monkeypatch.setattr(pytesseract, "image_to_string", boom)
+    monkeypatch.setattr(pytesseract, "image_to_data", boom)
     with pytest.raises(ocr.OcrTimeoutError):
-        ocr.ocr_image(object(), "eng", 5)
+        ocr.recognise(object(), "eng", 5)
 
 
 def _tesseract_has(lang: str) -> bool:
@@ -283,7 +283,7 @@ def ingestion(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "delete_points_for_source", lambda p: None)
     monkeypatch.setattr(main, "build_points", lambda **kw: [])
     monkeypatch.setattr(main, "upsert_points", lambda pts: None)
-    monkeypatch.setattr(ocr, "ocr_image", lambda i, lang, t: "Szkennelt oldal szövege, elég hosszú ahhoz, hogy darab legyen.")
+    monkeypatch.setattr(ocr, "recognise", lambda i, lang, t: ("Szkennelt oldal szövege, elég hosszú ahhoz, hogy darab legyen.", 90.0))
     return SimpleNamespace(main=main, engine=engine, cfg=main.settings)
 
 
@@ -310,7 +310,7 @@ def test_ingestion_retries_disabled_pdf_once_ocr_enabled(tmp_path, ingestion):
 
 
 def test_ingestion_records_ocr_when_result_is_empty(tmp_path, ingestion, monkeypatch):
-    monkeypatch.setattr(ocr, "ocr_image", lambda i, lang, t: "")
+    monkeypatch.setattr(ocr, "recognise", lambda i, lang, t: ("", None))
     pdf = make_pdf(tmp_path / "blank.pdf", [None, None])
     with pytest.raises(ValueError, match="No extractable text"):
         ingestion.main.index_one_document(pdf, False)
@@ -330,15 +330,15 @@ def test_finished_pages_survive_a_stop_mid_file(tmp_path, monkeypatch):
         calls.append(1)
         if len(calls) == 3:
             raise _Killed
-        return f"oldal szövege {len(calls)}"
+        return f"oldal szövege {len(calls)}", 90.0
 
-    monkeypatch.setattr(ocr, "ocr_image", engine)
+    monkeypatch.setattr(ocr, "recognise", engine)
     pdf = make_pdf(tmp_path / "scan.pdf", [None, None, None])
     cfg = make_cfg(tmp_path)
     with pytest.raises(_Killed):
         documents.parse_pdf(pdf, file_hash="34" * 32, cfg=cfg)
     calls.clear()
-    monkeypatch.setattr(ocr, "ocr_image", lambda image, lang, timeout: calls.append(1) or "harmadik oldal")
+    monkeypatch.setattr(ocr, "recognise", lambda image, lang, timeout: calls.append(1) or ("harmadik oldal", 90.0))
     parsed = documents.parse_pdf(pdf, file_hash="34" * 32, cfg=cfg)
     assert len(calls) == 1  # only the page that was in progress is OCR'd again
     assert parsed.ocr.pages_cached == 2
@@ -353,9 +353,9 @@ def _budgeted_engine(monkeypatch):
         if budget["pages"] <= 0:
             raise ocr.OcrTimeoutError("Tesseract process timeout")
         budget["pages"] -= 1
-        return "Szkennelt oldal szövege, elég hosszú ahhoz, hogy darab legyen."
+        return "Szkennelt oldal szövege, elég hosszú ahhoz, hogy darab legyen.", 90.0
 
-    monkeypatch.setattr(ocr, "ocr_image", engine)
+    monkeypatch.setattr(ocr, "recognise", engine)
     return budget
 
 

@@ -17,7 +17,12 @@ from teacher_common.watch import WatchConfig, WatchFolder
 def svc(tmp_path, monkeypatch):
     hashed: list[str] = []
     documents = types.ModuleType("teacher_common.documents")
-    documents.chunk_segments = lambda segments, chunk_size, chunk_overlap: [types.SimpleNamespace(text="t", locator="p1")]
+    def chunk(segments, chunk_size, chunk_overlap):
+        return [
+            types.SimpleNamespace(text="t", locator="p1", page=1, chapter=None, ocr=False, ocr_confidence=None)
+        ]
+
+    documents.chunk_segments = chunk
     documents.parse_document = lambda path, file_hash=None: types.SimpleNamespace(
         segments=[], title=None, author=None, language="en", ocr=None
     )
