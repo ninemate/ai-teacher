@@ -33,7 +33,16 @@ def test_parse_quiz_maps_source_numbers_to_chunks():
     assert result.rejected == []
     refs = result.items[0]["sources"]
     assert [r["chunk_id"] for r in refs] == ["c2", "c1"]
-    assert refs[0] == {"chunk_id": "c2", "source_path": "/library/b.txt", "title": None, "locator": "1. szakasz"}
+    assert refs[0] == {
+        "chunk_id": "c2",
+        "file_id": None,
+        "file_name": None,
+        "source_path": "/library/b.txt",
+        "title": None,
+        "locator": "1. szakasz",
+        "page": None,
+        "chapter": None,
+    }
 
 
 def test_parse_quiz_drops_invented_source_numbers_but_keeps_valid_ones():

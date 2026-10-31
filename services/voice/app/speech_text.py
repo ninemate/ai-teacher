@@ -19,6 +19,8 @@ ABBREVIATIONS: list[tuple[re.Pattern[str], str]] = [
 _CODE_FENCE = re.compile(r"^\s*(```|~~~).*$", re.MULTILINE)
 _LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 _URL = re.compile(r"https?://\S+")
+# Source markers the RAG answer carries ("[1]", "[1, 3]", "[forrás nélkül]"); the UI shows them, speech skips them.
+_CITATION = re.compile(r"\s*\[(?:\d+(?:\s*[,;]\s*\d+)*|\s*forrás\s+nélkül\s*)\]", re.IGNORECASE)
 _LINE_MARKERS = re.compile(r"^\s*(?:#{1,6}\s+|>\s?|[-*+•]\s+)", re.MULTILINE)
 _TABLE_RULE = re.compile(r"^\s*\|?\s*:?-{3,}.*$", re.MULTILINE)
 _EMPHASIS = re.compile(r"\*+|_{2,}|`+|~~")
@@ -34,6 +36,7 @@ def prepare_for_speech(text: str) -> str:
     text = _CODE_FENCE.sub("", text)
     text = _LINK.sub(r"\1", text)
     text = _URL.sub("", text)
+    text = _CITATION.sub("", text)
     text = _TABLE_RULE.sub("", text)
     text = _LINE_MARKERS.sub("", text)
     text = _EMPHASIS.sub("", text)

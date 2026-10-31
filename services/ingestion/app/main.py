@@ -510,6 +510,10 @@ def index_one_document(
                 "point_id": point_id,
                 "position": index,
                 "locator": chunk.locator,
+                "page": chunk.page,
+                "chapter": chunk.chapter,
+                "ocr": chunk.ocr,
+                "ocr_confidence": chunk.ocr_confidence,
                 "text": chunk.text,
                 "preview": chunk.text[:240],
                 "vector": vector,
@@ -534,6 +538,7 @@ def index_one_document(
         author=parsed.author,
         language=parsed.language,
         chunk_rows=chunk_rows,
+        file_id=file_hash,
     )
     upsert_points(points)
 
@@ -644,6 +649,13 @@ def store_error_record(file_path: Path, error_message: str, workspace_id: str = 
             )
             session.add(existing)
         else:
+            if (existing.size_bytes, existing.modified_timestamp) != (stat.st_size, int(stat.st_mtime)):
+                # The file changed and its new content could not be indexed: the old chunks no longer match it,
+                # so drop them rather than cite text the file does not hold any more. Size/mtime stay old, so
+                # the next run tries again.
+                delete_points_for_source(str(file_path))
+                session.query(ChunkRecord).filter(ChunkRecord.document_id == existing.id).delete()
+                existing.chunk_count = 0
             existing.status = "failed"
             existing.error_message = error_message
             existing.deleted = False

@@ -54,6 +54,7 @@
 
       <section class="panel output">
         <h2>Válasz</h2>
+        <p id="grounding-notice" class="notice" role="status" hidden></p>
         <div id="answer">Még nincs válasz.</div>
         <div class="voice-row" id="read-aloud" hidden>
           <button id="speak-button" type="button" class="secondary" disabled>🔊 Felolvasás</button>
@@ -62,7 +63,7 @@
           <audio id="answer-audio" controls hidden></audio>
         </div>
         <h3>Források</h3>
-        <ul id="sources"></ul>
+        <ol id="sources" class="citations"></ol>
       </section>
 
       <section class="panel study" id="study">

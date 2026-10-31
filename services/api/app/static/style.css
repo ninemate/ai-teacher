@@ -169,8 +169,63 @@ button:active {
 }
 
 #sources {
-  padding-left: 18px;
+  padding-left: 28px;
+  color: var(--ink);
+}
+
+#sources li {
+  margin-bottom: 6px;
+}
+
+#sources li::marker {
+  content: "[" counter(list-item) "] ";
+  color: var(--accent-strong);
+}
+
+#sources li.uncited {
   color: var(--muted);
+}
+
+.cite {
+  color: var(--accent-strong);
+  font-size: 0.85em;
+  font-weight: 600;
+  cursor: help;
+}
+
+.cite.unsourced {
+  color: #9a3412;
+  font-style: italic;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.badge.warning {
+  border-color: #f59e0b;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.notice {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.notice.warning {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
 }
 
 /* Voice: dictation under the question, read-aloud under the answer. */

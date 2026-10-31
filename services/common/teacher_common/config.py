@@ -39,6 +39,10 @@ class Settings(BaseSettings):
         alias="TEACHER_PROMPT_PATH",
     )
     retrieval_top_k: int = Field(default=6, alias="RETRIEVAL_TOP_K")
+    # Below this cosine score a retrieved chunk is flagged as a weak match (tuned for multilingual-e5).
+    retrieval_weak_score: float = Field(default=0.8, alias="RETRIEVAL_WEAK_SCORE")
+    # Below this mean Tesseract word confidence (0-100) OCR'd text is flagged as uncertain.
+    ocr_low_confidence: float = Field(default=70.0, alias="OCR_LOW_CONFIDENCE")
     max_context_chars: int = Field(default=18000, alias="MAX_CONTEXT_CHARS")
     study_top_k: int = Field(default=10, alias="STUDY_TOP_K")
     study_max_attempts: int = Field(default=2, alias="STUDY_MAX_ATTEMPTS")

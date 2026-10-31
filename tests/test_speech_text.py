@@ -15,6 +15,8 @@ from speech_text import prepare_for_speech  # noqa: E402
         ("Lépések:\n1. fény elnyelése\n2. víz bontása", "Lépések: 1. fény elnyelése. 2. víz bontása."),
         ("- első pont\n* második pont\n• harmadik", "első pont. második pont. harmadik."),
         ("Lásd [a tankönyvet](https://example.org/konyv) és https://example.org/x oldalt.", "Lásd a tankönyvet és oldalt."),
+        ("A magyar ragozó nyelv [1]. A sorrend kötött [1, 3]. Gyakorolj naponta [forrás nélkül].",
+         "A magyar ragozó nyelv. A sorrend kötött. Gyakorolj naponta."),
         ("Kb. 5 db alma, kb. 3 kg.", "Körülbelül 5 darab alma, körülbelül 3 kg."),
         ("Caesar i. e. 44-ben halt meg, Szent István i. sz. 1000-ben.",
          "Caesar időszámításunk előtt 44-ben halt meg, Szent István időszámításunk szerint 1000-ben."),

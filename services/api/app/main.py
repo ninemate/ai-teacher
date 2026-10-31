@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
-from teacher_common import study_store
+from teacher_common import citations, study_store
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.embeddings import embed_query, warmup_embeddings
@@ -593,17 +593,12 @@ def voice_speak(payload: SpeakRequest):
 def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: int, workspace_ids: set[str]):
     hits = retrieve_sources(prompt_input, top_k=top_k, workspace_ids=workspace_ids)
     if not hits:
-        return {
-            "answer": "A megadott könyvtárban nem találtam elég releváns információt a kérdés megbízható megválaszolásához.",
-            "sources": [],
-        }
+        answer = "A megadott könyvtárban nem találtam elég releváns információt a kérdés megbízható megválaszolásához."
+        return {"answer": answer, "sources": [], "citations": [], "grounding": citations.assess(answer, [])}
 
-    source_lines = []
-    for item in hits:
-        title = item["title"] or Path(item["source_path"]).name
-        locator = item["locator"] or "ismeretlen hely"
-        source_lines.append(f"- {title} | {locator} | {item['text']}")
-    context = "\n".join(source_lines)[: settings.max_context_chars]
+    limits = citations.Limits(weak_score=settings.retrieval_weak_score, ocr_min_confidence=settings.ocr_low_confidence)
+    built = citations.build_citations(hits, limits)
+    context, used = citations.build_context(built, hits, settings.max_context_chars)
     base_prompt = Path(settings.teacher_prompt_path).read_text(encoding="utf-8").strip()
     task_instruction = {
         "answer": "Válaszold meg a kérdést tanári stílusban.",
@@ -615,12 +610,14 @@ def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: 
         f"{base_prompt}\n\n"
         f"Feladat: {task_instruction}\n"
         f"Nehézségi szint: {level}\n\n"
+        f"{citations.CITATION_RULES}\n\n"
         f"Forrásrészletek:\n{context}\n\n"
         f"Felhasználói kérés: {prompt_input}\n\n"
         "Válasz:"
     )
     answer = call_ollama(prompt)
-    return {"answer": answer, "sources": hits}
+    grounding = citations.assess(answer, used)
+    return {"answer": answer, "sources": hits[: len(used)], "citations": used, "grounding": grounding}
 
 
 def retrieve_sources(
@@ -636,11 +633,17 @@ def retrieve_sources(
     return [
         {
             "chunk_id": item.payload.get("chunk_id"),
+            "file_id": item.payload.get("file_id"),
+            "file_name": item.payload.get("file_name"),
             "source_path": item.payload.get("source_path"),
             "title": item.payload.get("title"),
             "author": item.payload.get("author"),
             "language": item.payload.get("language"),
             "locator": item.payload.get("locator"),
+            "page": item.payload.get("page"),
+            "chapter": item.payload.get("chapter"),
+            "ocr": item.payload.get("ocr", False),
+            "ocr_confidence": item.payload.get("ocr_confidence"),
             "preview": item.payload.get("preview"),
             "text": item.payload.get("text"),
             "score": item.score,
