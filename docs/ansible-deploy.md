@@ -1,6 +1,6 @@
 # Ansible Deploy
 
-The deployment path assumes this repository is the source of truth and copies the stack onto a separate VM under `/opt/teacher-agent`.
+The deployment path assumes this repository is the source of truth and copies the stack onto a dedicated host or VM under `/opt/teacher-agent`.
 
 ## Ansible Collection Requirement
 
@@ -34,7 +34,7 @@ ansible-playbook -i ansible/inventory/dev.ini ansible/playbooks/deploy.yml
 ## Inventory Strategy
 
 - `dev.ini` is local-machine friendly
-- `selfhosted.ini` targets the self-hosted GitHub Actions runner VM (Ansible runs on the same host it deploys to); the CI deploy job uses this
+- `selfhosted.ini` targets the self-hosted GitHub Actions runner host (Ansible runs on the same host it deploys to); the CI deploy job uses this
 - `prod.example.ini` is a template only
 - real production inventory and vault files stay out of git
 

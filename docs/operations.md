@@ -54,4 +54,4 @@ Monitor:
 - the OCR cache (`metadata/ocr_cache`): entries of changed or deleted files are never removed
 - logs
 
-The local SSD is only `240 GB`, so keep the stack lean.
+Local disk is finite and the index grows with the library, so size it for the model cache, vectors and OCR cache and keep the stack lean.

@@ -1,6 +1,6 @@
 # Network Share
 
-The teacher-agent VM reads documents from a mounted library share. Source files stay on the share and are mounted read-only by default.
+The teacher-agent host reads documents from a mounted library share. Source files stay on the share and are mounted read-only by default.
 
 ## Supported Share Types
 
@@ -21,7 +21,7 @@ The teacher-agent VM reads documents from a mounted library share. Source files 
 
 ```yaml
 share_type: cifs
-share_server: 192.168.1.10
+share_server: nas.example.lan
 share_path: /ebooks
 teacher_mount_point: /mnt/library
 read_only: true
@@ -32,7 +32,7 @@ teacher_share_credentials_file: /root/.smb-teacher-agent
 
 ```yaml
 share_type: nfs
-share_server: 192.168.1.20
+share_server: 192.0.2.20
 share_path: /srv/exports/library
 teacher_mount_point: /mnt/library
 read_only: true

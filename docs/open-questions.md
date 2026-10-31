@@ -6,10 +6,10 @@
 - What share of the library is scanned? OCR handles both, but a large scanned share means a long first pass (see `docs/operations.md`, "Long OCR Runs").
 - Is SMB/CIFS or NFS the preferred share protocol?
 - What is the approximate library size and document count?
-- Is the RTX 3070 dedicated to this VM permanently?
+- Is the GPU dedicated to this host permanently, or shared with other workloads (and if shared, how much VRAM is left for the chat model)?
 - Which Hungarian-capable chat model performs best on the actual materials?
-- Is offline Hungarian TTS quality good enough to justify the extra service? Piper's Hungarian voices are intelligible and need no GPU, so the service is built as an optional overlay (see `docs/voice-hungarian.md`). Whether the listener likes Imre, Anna or Berta is still to be tried on the phone.
-- Is CPU dictation fast enough on the VM, or should Whisper move to the GPU?
+- Is offline Hungarian TTS quality good enough to justify the extra service? Piper's Hungarian voices are intelligible and need no GPU, so the service is built as an optional overlay (see `docs/voice-hungarian.md`). Whether users like Imre, Anna or Berta is still to be tried on the phone.
+- Is CPU dictation fast enough on the host, or should Whisper move to the GPU?
 - Should the Ansible deploy use the Compose HTTPS overlay instead of the host Caddy role? (Today local dev uses the overlay and deploys use the role; see `docs/https.md`.)
 
 ## Answered
