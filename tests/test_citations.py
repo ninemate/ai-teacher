@@ -189,6 +189,7 @@ def chunk_row(text: str, **fields):
 def test_build_points_payload_keeps_citation_fields():
     points = qdrant_store.build_points(
         source_path="/library/segédlet.pdf",
+        workspace_id="ws1",
         title="Segédlet",
         author=None,
         language="hu",
@@ -218,6 +219,7 @@ def test_build_points_payload_keeps_citation_fields():
 def test_build_points_names_the_file_when_the_row_has_no_name():
     points = qdrant_store.build_points(
         source_path="/library/konyv.pdf",
+        workspace_id="ws1",
         title=None,
         author=None,
         language=None,
@@ -398,16 +400,16 @@ def scored(payload: dict, score: float):
 
 def test_retrieval_returns_citation_fields(api, monkeypatch):
     payload = {k: v for k, v in hit(1, ocr=True, ocr_confidence=55.0, chapter="2").items() if k != "score"}
-    monkeypatch.setattr(api, "search", lambda vector, limit, source_paths=None: [scored(payload, 0.83)])
-    [found] = api.retrieve_sources("kérdés", top_k=3)
+    monkeypatch.setattr(api, "search", lambda vector, limit, workspace_ids, source_paths=None: [scored(payload, 0.83)])
+    [found] = api.retrieve_sources("kérdés", top_k=3, workspace_ids={"ws1"})
     assert (found["file_id"], found["file_name"], found["page"], found["chapter"]) == ("h1", "konyv1.pdf", 1, "2")
     assert (found["ocr"], found["ocr_confidence"], found["score"]) == (True, 55.0, 0.83)
 
 
 def test_answer_carries_structured_citations(api, monkeypatch):
-    monkeypatch.setattr(api, "retrieve_sources", lambda q, top_k, source_paths=None: [hit(1), hit(2)])
+    monkeypatch.setattr(api, "retrieve_sources", lambda q, top_k, source_paths=None, workspace_ids=None: [hit(1), hit(2)])
     api.calls["reply"] = "A magyar ragozó nyelv [1]."
-    result = api.generate_teaching_response("answer", "Milyen nyelv a magyar?", "beginner", 6)
+    result = api.generate_teaching_response("answer", "Milyen nyelv a magyar?", "beginner", 6, {"ws1"})
     assert result["answer"] == "A magyar ragozó nyelv [1]."
     assert [c["id"] for c in result["citations"]] == [1, 2]
     assert result["citations"][0]["cited"] is True and result["citations"][1]["cited"] is False
@@ -420,8 +422,8 @@ def test_answer_carries_structured_citations(api, monkeypatch):
 
 
 def test_no_hits_answer_is_marked_without_source(api, monkeypatch):
-    monkeypatch.setattr(api, "retrieve_sources", lambda q, top_k, source_paths=None: [])
-    result = api.generate_teaching_response("answer", "Mi a kvantumgravitáció?", "beginner", 6)
+    monkeypatch.setattr(api, "retrieve_sources", lambda q, top_k, source_paths=None, workspace_ids=None: [])
+    result = api.generate_teaching_response("answer", "Mi a kvantumgravitáció?", "beginner", 6, {"ws1"})
     assert result["citations"] == []
     assert result["grounding"]["status"] == "no_source"
     assert result["grounding"]["notice"]
@@ -430,10 +432,10 @@ def test_no_hits_answer_is_marked_without_source(api, monkeypatch):
 
 def test_low_confidence_ocr_source_is_flagged_in_answer(api, monkeypatch):
     monkeypatch.setattr(
-        api, "retrieve_sources", lambda q, top_k, source_paths=None: [hit(1, ocr=True, ocr_confidence=35.0)]
+        api, "retrieve_sources", lambda q, top_k, source_paths=None, workspace_ids=None: [hit(1, ocr=True, ocr_confidence=35.0)]
     )
     api.calls["reply"] = "A szkennelt lap szerint így van [1]."
-    result = api.generate_teaching_response("answer", "Mit ír a lap?", "beginner", 6)
+    result = api.generate_teaching_response("answer", "Mit ír a lap?", "beginner", 6, {"ws1"})
     assert result["citations"][0]["uncertain_reasons"] == ["ocr_low_confidence"]
     assert result["grounding"]["low_confidence"] is True
     assert "BIZONYTALAN" in api.calls["prompts"][0]
