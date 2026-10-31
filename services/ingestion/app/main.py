@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import secrets
@@ -497,9 +498,11 @@ def index_one_document(
         raise ValueError("No extractable text found")
 
     vectors = embed_passages(chunk.text for chunk in chunks)
+    # Identical files can live at several paths (and in several workspaces): the path keeps their ids apart.
+    source_key = hashlib.sha256(str(file_path).encode()).hexdigest()[:16]
     chunk_rows = []
     for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=False), start=1):
-        chunk_id = f"{file_hash}:{index}"
+        chunk_id = f"{source_key}:{file_hash}:{index}"
         point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, chunk_id))
         chunk_rows.append(
             {

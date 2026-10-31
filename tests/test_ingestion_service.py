@@ -136,6 +136,36 @@ def test_watched_folder_assigns_workspace_and_full_reindex_preserves_other_works
     assert svc.store.deleted_workspaces == ["user:anya"]
 
 
+def test_identical_files_in_two_workspaces_get_separate_chunks_and_points(svc):
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+    from teacher_common.models import ChunkRecord, Workspace
+
+    built = []
+    svc.build_points = lambda **kw: built.append(kw) or []
+    (svc.library / "other" / "b.txt").unlink()
+    (svc.library / "other" / "a.txt").write_text("a")  # same content hash as watched/a.txt
+    with session_scope() as session:
+        session.add(Workspace(id="user:anya", name="Anya", owner_username="anya"))
+        session.add(Workspace(id="user:apa", name="Apa", owner_username="apa"))
+    svc.ingest_config.watch = WatchConfig(folders=[
+        WatchFolder(path="watched", workspace="user:anya"),
+        WatchFolder(path="other", workspace="user:apa"),
+    ])
+    assert svc.run_indexing(False, True)
+    assert svc.last_run["failed"] == 0
+
+    first, second = (
+        next(kw for kw in built if kw["source_path"] == str(svc.library / folder / "a.txt"))
+        for folder in ("watched", "other")
+    )
+    assert {r["chunk_id"] for r in first["chunk_rows"]}.isdisjoint(r["chunk_id"] for r in second["chunk_rows"])
+    assert {r["point_id"] for r in first["chunk_rows"]}.isdisjoint(r["point_id"] for r in second["chunk_rows"])
+    with session_scope() as session:
+        owners = session.execute(select(ChunkRecord.workspace_id)).scalars().all()
+    assert sorted(owners) == ["user:anya", "user:apa"]
+
+
 def test_unchanged_files_are_not_rehashed(svc):
     svc.run_indexing(False, True)
     assert svc.hashed == ["a.txt"]
