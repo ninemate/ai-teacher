@@ -32,6 +32,7 @@ async function runTask(path) {
   answerEl.textContent = "Válasz készül...";
   sourcesEl.innerHTML = "";
   renderNotice(null);
+  document.dispatchEvent(new CustomEvent("teacher:answer", { detail: { answer: "" } }));
 
   const payload =
     path === "/chat"
@@ -51,6 +52,7 @@ async function runTask(path) {
   }
 
   renderAnswer(data.answer, data.citations || []);
+  document.dispatchEvent(new CustomEvent("teacher:answer", { detail: { answer: data.answer } }));
   renderNotice(data.grounding);
   renderCitations(data.citations || []);
 }

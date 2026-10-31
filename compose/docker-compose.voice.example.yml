@@ -1,23 +1,30 @@
+# Offline Hungarian voice: Piper TTS and faster-whisper STT, both on the CPU (no VRAM used).
+# Add with: -f compose/docker-compose.voice.example.yml  (see docs/voice-hungarian.md)
 services:
   voice:
     build:
       context: ..
       dockerfile: services/voice/Dockerfile
+      args:
+        # Models are downloaded at build time; change these and rebuild to switch.
+        VOICE_STT_MODEL: ${VOICE_STT_MODEL:-large-v3-turbo}
+        VOICE_TTS_VOICES: ${VOICE_TTS_VOICES:-hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium}
     restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     environment:
-      VOICE_STT_BACKEND: ${VOICE_STT_BACKEND}
-      VOICE_TTS_BACKEND: ${VOICE_TTS_BACKEND}
-      VOICE_STT_MODEL: ${VOICE_STT_MODEL}
-      VOICE_STT_DEVICE: ${VOICE_STT_DEVICE}
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      VOICE_STT_BACKEND: ${VOICE_STT_BACKEND:-faster-whisper}
+      VOICE_STT_MODEL: ${VOICE_STT_MODEL:-large-v3-turbo}
+      VOICE_STT_DEVICE: ${VOICE_STT_DEVICE:-cpu}
+      VOICE_STT_COMPUTE_TYPE: ${VOICE_STT_COMPUTE_TYPE:-auto}
+      VOICE_STT_CPU_THREADS: ${VOICE_STT_CPU_THREADS:-0}
+      VOICE_STT_BEAM_SIZE: ${VOICE_STT_BEAM_SIZE:-5}
+      VOICE_STT_MAX_SECONDS: ${VOICE_STT_MAX_SECONDS:-120}
+      VOICE_STT_IDLE_UNLOAD_SECONDS: ${VOICE_STT_IDLE_UNLOAD_SECONDS:-0}
+      VOICE_TTS_BACKEND: ${VOICE_TTS_BACKEND:-piper}
+      VOICE_TTS_VOICES: ${VOICE_TTS_VOICES:-hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium}
+      VOICE_TTS_LENGTH_SCALE: ${VOICE_TTS_LENGTH_SCALE:-1.0}
+      VOICE_TTS_MAX_CHARS: ${VOICE_TTS_MAX_CHARS:-6000}
+      VOICE_MAX_UPLOAD_MB: ${VOICE_MAX_UPLOAD_MB:-15}
+    # Internal network only: the API proxies /voice/* behind its login.
     expose:
       - "8090"
     healthcheck:
@@ -29,4 +36,3 @@ services:
   api:
     environment:
       VOICE_BASE_URL: http://voice:8090
-
