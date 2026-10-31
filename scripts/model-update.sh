@@ -10,8 +10,9 @@
 # The stack must be running (make dev-up) and the edge network is private to this
 # command only for its duration. Also stocks the egress probe's image (busybox:1.36,
 # pinned to pull_policy: never) so `make test-egress` needs no registry. Note: during
-# the pull the ollama container *can* reach the internet; the block resumes when the
-# command finishes. Run `make test-egress` afterwards to re-prove the egress rule.
+# the pull the ollama container *can* reach the internet; the run is only successful
+# once the disconnect has succeeded (it is part of the update, not its cleanup after
+# the fact). Run `make test-egress` afterwards to re-prove the egress rule.
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -42,11 +43,23 @@ fi
 
 echo "Connecting $cid to the edge network $edge_net for the update..."
 docker network connect "$edge_net" "$cid"
-finish() {
-    docker network disconnect "$edge_net" "$cid" >/dev/null 2>&1 || \
-        echo "warning: could not disconnect from $edge_net; check: docker inspect $cid" >&2
+
+# Backstop for failures during the update: restore the block before returning, and
+# propagate the original error. A failed disconnect leaves the egress exception
+# active, so it fails the run visibly with a recovery path rather than being a
+# warning the update could still survive.
+finish_update() {
+    status=$?
+    if docker network disconnect "$edge_net" "$cid"; then
+        exit "$status"
+    fi
+    echo "FAIL: the ollama container ($cid) is still attached to the routable edge network $edge_net; the egress exception is still active." >&2
+    echo "      recover:   docker network disconnect $edge_net $cid" >&2
+    echo "      check:     docker inspect --format '{{json .NetworkSettings.Networks}}' $cid" >&2
+    echo "      re-prove:  make test-egress" >&2
+    exit 1
 }
-trap finish EXIT
+trap finish_update EXIT
 
 for model in $models; do
     echo "Pulling $model..."
@@ -58,6 +71,14 @@ done
 # moment to fetch it. Cheap once present.
 echo "Ensuring the egress probe image is on this host..."
 docker pull busybox:1.36 >/dev/null
+
+# Disconnecting is part of the update: the run only succeeds once the block is
+# restored. On failure the EXIT trap retries and, if that fails too, exits 1 with
+# the recovery path above. Once disconnected, drop the trap, so its retry cannot
+# undo a successful cleanup.
+echo "Disconnecting $cid from $edge_net..."
+docker network disconnect "$edge_net" "$cid" >/dev/null
+trap - EXIT
 
 echo "Update finished; the container is disconnected again."
 echo "Re-prove the egress rule: make test-egress"

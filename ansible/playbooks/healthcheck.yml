@@ -36,10 +36,10 @@
              + (['compose/docker-compose.nvidia.example.yml'] if teacher_gpu_enabled | bool else [])
              + (['compose/docker-compose.voice.example.yml'] if teacher_enable_voice | bool else []) }}
 
-    - name: Look up the private compose network
+    - name: Look up the private compose network (with the probe's profile, for the audit)
       ansible.builtin.command:
         cmd: >-
-          docker compose --env-file .env
+          docker compose --env-file .env --profile egress-test
           {{ teacher_compose_files | map('regex_replace', '^', '-f ') | join(' ') }}
           config --format json
         chdir: "{{ teacher_stack_dir }}"
@@ -50,6 +50,32 @@
       ansible.builtin.set_fact:
         teacher_private_network: >-
           {{ (teacher_compose_config.stdout | from_json)['networks']['private']['name'] }}
+
+    - name: Stage the resolved compose config for the egress audit
+      ansible.builtin.copy:
+        content: "{{ teacher_compose_config.stdout }}"
+        dest: /tmp/{{ teacher_project_name }}-compose-audit.json
+        mode: "0600"
+      changed_when: false
+
+    - name: Audit the deployment's full compose config (covers services from overlays too)
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ teacher_stack_dir }}/scripts/egress_check.py"
+          - config
+          - /tmp/{{ teacher_project_name }}-compose-audit.json
+      register: teacher_config_audit
+      changed_when: false
+
+    - name: Show the config audit result
+      ansible.builtin.debug:
+        msg: "{{ teacher_config_audit.stdout }}"
+
+    - name: Remove the staged compose config
+      ansible.builtin.file:
+        path: /tmp/{{ teacher_project_name }}-compose-audit.json
+        state: absent
 
     - name: Check the private network is internal (no route to the internet)
       ansible.builtin.command:
