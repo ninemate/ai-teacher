@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi import Depends, FastAPI, HTTPException
@@ -21,8 +22,8 @@ class Fakes:
         self.prompts = []
         self.retrievals = []
 
-    def retrieve(self, query, top_k, source_paths):
-        self.retrievals.append((query, top_k, source_paths))
+    def retrieve(self, query, top_k, source_paths, workspace_ids):
+        self.retrievals.append((query, top_k, source_paths, workspace_ids))
         return self.hits
 
     def llm(self, prompt, json_mode):
@@ -38,11 +39,36 @@ def fakes():
 
 @pytest.fixture
 def client(fakes):
+    from sqlalchemy import select
     from study_routes import build_router
-    from teacher_common.db import init_db
+    from teacher_common.db import init_db, session_scope
+    from teacher_common.models import DocumentRecord
+    from teacher_common.workspaces import ensure_personal_workspace
 
     init_db()
+    with session_scope() as session:
+        workspace = ensure_personal_workspace(session, "study-user")
+        if session.execute(
+            select(DocumentRecord).where(DocumentRecord.source_path == "/library/a.pdf")
+        ).scalar_one_or_none() is None:
+            session.add(DocumentRecord(
+                workspace_id=workspace.id,
+                source_path="/library/a.pdf",
+                source_hash="study-fixture",
+                file_type="pdf",
+                size_bytes=1,
+                modified_timestamp=1,
+                title="A",
+                status="indexed",
+                chunk_count=2,
+                deleted=False,
+            ))
     app = FastAPI()
+
+    @app.middleware("http")
+    async def set_test_user(request, call_next):
+        request.state.session = SimpleNamespace(username="study-user", role="user")
+        return await call_next(request)
 
     def deny():
         raise HTTPException(401)
@@ -68,7 +94,7 @@ def test_generate_fetch_attempt_delete_quiz(client, fakes):
     assert quiz["level"] == "intermediate" and quiz["title"] == "alfa"
     question = quiz["questions"][0]
     assert set(question) == {"id", "position", "question", "options"}  # no answer key before submitting
-    assert fakes.retrievals == [("alfa", 10, None)]
+    assert fakes.retrievals == [("alfa", 10, None, {"user:study-user"})]
     assert "Pontosan 3 kérdést" in fakes.prompts[0] and "[1] A | 3. oldal | alfa" in fakes.prompts[0]
 
     assert any(q["id"] == quiz["id"] for q in client.get("/study/quizzes").json())
