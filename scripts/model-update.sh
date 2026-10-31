@@ -8,9 +8,10 @@
 #
 # Usage: scripts/model-update.sh [model ...]  (default: OLLAMA_MODEL from .env)
 # The stack must be running (make dev-up) and the edge network is private to this
-# command only for its duration. Note: during the pull the ollama container *can*
-# reach the internet; the block resumes when the command finishes. Run `make
-# test-egress` afterwards to re-prove the egress rule.
+# command only for its duration. Also stocks the egress probe's image (busybox:1.36,
+# pinned to pull_policy: never) so `make test-egress` needs no registry. Note: during
+# the pull the ollama container *can* reach the internet; the block resumes when the
+# command finishes. Run `make test-egress` afterwards to re-prove the egress rule.
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -51,6 +52,12 @@ for model in $models; do
     echo "Pulling $model..."
     docker exec "$cid" ollama pull "$model"
 done
+
+# Stock the egress probe's image too: it is pinned to pull_policy: never so the
+# acceptance test runs network-free, and this offline-update step is the deliberate
+# moment to fetch it. Cheap once present.
+echo "Ensuring the egress probe image is on this host..."
+docker pull busybox:1.36 >/dev/null
 
 echo "Update finished; the container is disconnected again."
 echo "Re-prove the egress rule: make test-egress"

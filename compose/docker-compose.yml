@@ -127,7 +127,10 @@ services:
   egress_probe:
     # Disposable container used by scripts/test-egress-block.sh (make test-egress, "Private AI"
     # acceptance test 11): it joins the private network and must fail to reach the internet.
+    # pull_policy: never keeps the test network-free; stock busybox:1.36 on the host while
+    # online once (make model-update does it, or docker pull busybox:1.36).
     image: busybox:1.36
+    pull_policy: never
     profiles: ["egress-test"]
     networks: [private]
     restart: "no"

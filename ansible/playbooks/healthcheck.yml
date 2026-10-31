@@ -28,18 +28,20 @@
                   | zip(teacher_health_results.results | map(attribute="stdout") | list))
           }}
 
+    - name: Compose file list (mirrors teacher_effective_compose_files in the stack role)
+      ansible.builtin.set_fact:
+        teacher_compose_files: >-
+          {{ ['compose/docker-compose.yml', 'compose/docker-compose.proxy.yml']
+             + teacher_compose_overlays
+             + (['compose/docker-compose.nvidia.example.yml'] if teacher_gpu_enabled | bool else [])
+             + (['compose/docker-compose.voice.example.yml'] if teacher_enable_voice | bool else []) }}
+
     - name: Look up the private compose network
       ansible.builtin.command:
-        argv:
-          - docker
-          - compose
-          - --env-file
-          - .env
-          - -f
-          - compose/docker-compose.yml
-          - config
-          - --format
-          - json
+        cmd: >-
+          docker compose --env-file .env
+          {{ teacher_compose_files | map('regex_replace', '^', '-f ') | join(' ') }}
+          config --format json
         chdir: "{{ teacher_stack_dir }}"
       register: teacher_compose_config
       changed_when: false
@@ -64,16 +66,10 @@
 
     - name: Resolve the containers of the private services
       ansible.builtin.command:
-        argv:
-          - docker
-          - compose
-          - --env-file
-          - .env
-          - -f
-          - compose/docker-compose.yml
-          - ps
-          - -q
-          - "{{ item }}"
+        cmd: >-
+          docker compose --env-file .env
+          {{ teacher_compose_files | map('regex_replace', '^', '-f ') | join(' ') }}
+          ps -q {{ item }}
         chdir: "{{ teacher_stack_dir }}"
       loop: "{{ ['qdrant', 'ollama', 'api', 'ingestion'] + (['voice'] if teacher_enable_voice | bool else []) }}"
       register: teacher_service_cids

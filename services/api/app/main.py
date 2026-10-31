@@ -106,21 +106,33 @@ def startup_event() -> None:
     init_db()
     ensure_collection()
     warmup_embeddings()
-    _pull_ollama_model()
+    _check_ollama_model()
 
 
-def _pull_ollama_model() -> None:
-    import httpx
+def _check_ollama_model() -> None:
+    """Warn when the configured chat model is not installed.
+
+    Installing models is the explicit offline-update step (`make model-update`,
+    scripts/model-update.sh), not a runtime download: the private services have no
+    egress to the internet (docs/security.md), so a missing model could never be
+    fetched here and a pull request would only stall startup.
+    """
     try:
-        with httpx.Client(timeout=600.0) as client:
-            resp = client.post(
-                f"{settings.ollama_base_url}/api/pull",
-                json={"name": settings.ollama_model},
-            )
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(f"{settings.ollama_base_url}/api/tags")
             resp.raise_for_status()
-    except httpx.HTTPError as exc:
-        import logging
-        logging.getLogger("uvicorn").warning("Ollama model pull failed (will retry on first request): %s", exc)
+        installed = {model["name"] for model in resp.json().get("models", [])}
+    except (httpx.HTTPError, ValueError) as exc:
+        logging.getLogger("uvicorn").warning("Could not check the installed Ollama models: %s", exc)
+        return
+    model = settings.ollama_model
+    short_name = model.split(":", 1)[0]
+    if model not in installed and short_name not in installed:
+        logging.getLogger("uvicorn").warning(
+            "Ollama model %r is not installed; requests to it will fail. "
+            "Install it with the offline-update step: make model-update.",
+            model,
+        )
 
 
 @app.get("/", response_class=HTMLResponse)

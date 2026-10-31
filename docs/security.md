@@ -118,13 +118,13 @@ Requirement "Private AI v1.1" (acceptance test 11): private AI services must not
 Downloads are not a runtime activity on the private network:
 
 - The embedding model is baked into the `api` and `ingestion` images at build time (`services/*/Dockerfile`); switching it means a rebuild with the new `EMBEDDING_MODEL`, which is an explicit build step on a machine with internet.
-- Ollama models are pulled with `make model-update` (`scripts/model-update.sh`): it attaches the running `ollama` container to the edge network, pulls the asked models, then disconnects it again. Since the Dockerfiles haven't changed, the pull is the only channel that touches the internet; everything else — queries, OCR, embedding, HTTPS — runs entirely locally.
+- Ollama models are pulled with `make model-update` (`scripts/model-update.sh`): it attaches the running `ollama` container to the edge network, pulls the asked models, then disconnects it again. It also stocks the egress probe's image (`busybox:1.36`), which never pulls on its own. Since the Dockerfiles haven't changed, the pull is the only channel that touches the internet; everything else — queries, OCR, embedding, HTTPS — runs entirely locally. The API startup only *checks* that the configured chat model is installed and warns otherwise (pointing at `make model-update`); it never asks Ollama to download anything.
 
 The egress rule is re-provable at any time with `make test-egress` (`scripts/test-egress-block.sh`), which runs in three layers:
 
 1. **config** — audits the merged compose config (networks, exclusivity and ports of every service, `internal: true` on the private one) without touching the stack;
 2. **containers** — audited against the same rule with `docker inspect` (`egress_check.py`), catching accidental host-port publishing or stray network attachment;
-3. **probe** — a disposable container joins the private network and must fail to reach public IPs (TCP 53/443 to assorted resolvers) plus a DNS answer; the audit also checks the containers in part 2 above, and a DNS query attempt is included, so a quiet DNS leak (used by several telemetry paths) trips it too.
+3. **probe** — a disposable container joins the private network and must fail to reach public IPs (TCP 53/443 to assorted resolvers) plus a DNS answer; the audit also checks the containers in part 2 above, and a DNS query attempt is included, so a quiet DNS leak (used by several telemetry paths) trips it too. The probe image never pulls from a registry (`pull_policy: never`), so the test runs network-free; stock `busybox:1.36` on the host once while online (`docker pull busybox:1.36`, or `make model-update` does it).
 
 Run `make test-egress` after any change to the compose network configuration. CI runs the config audit on every build and the full three-part audit on the deployed host.
 

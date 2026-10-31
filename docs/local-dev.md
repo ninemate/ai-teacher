@@ -34,7 +34,7 @@ The private services (api, ingestion, voice, qdrant, ollama) sit on an internal 
 make model-update   # pulls OLLAMA_MODEL from .env (add names as arguments for several)
 ```
 
-The embedding model is baked into the api/ingestion images at build time; a new `EMBEDDING_MODEL` means a rebuild.
+The embedding model is baked into the api/ingestion images at build time; a new `EMBEDDING_MODEL` means a rebuild. This step also stocks the `make test-egress` probe image (it never pulls by itself).
 
 6. If you want LAN or phone access during testing, set `TEACHER_PROXY_HOST` to the host's address and `TEACHER_PROXY_BIND=0.0.0.0` in `.env` (HTTPS proxy, see [https.md](https.md)). For anything beyond VPN testing, prefer the VPN: the stack has no other open port.
 

@@ -6,7 +6,9 @@ decides what is allowed. Two subcommands:
   config <merged-config.json>
       The merged compose config must have an `internal: true` `private` network; the
       private services must sit on it and on nothing else and publish no host ports;
-      only the proxy pins ports, on the edge + private networks.
+      only the proxy pins ports, on the edge + private networks. Any other service
+      must stay off routable networks: no host/bridge mode, no network without
+      `internal: true`, no sharing a network namespace with a non-private service.
 
   container <service> <private-net> <container-id>
       One running container: reads docker inspect itself; the networks attached must be
@@ -97,11 +99,32 @@ def check_config(path):
     for other in services:
         if other in known:
             continue
-        nets = set(services[other].get("networks") or {})
-        if "default" in nets:
+        svc = services[other]
+        mode = svc.get("network_mode") or ""
+        if mode and mode != "none" and not mode.startswith("service:"):
             errors.append(
-                f"`{other}` is not in the private-service list "
-                f"but sits on the routable edge network: {sorted(nets)}"
+                f"`{other}` uses network_mode {mode!r}; unlisted services may not leave "
+                "the internal network (host and bridge modes have egress)"
+            )
+        nets = set(svc.get("networks") or {}) or {"default"}
+        if mode.startswith("service:"):
+            shared = mode.split(":", 1)[1]
+            if shared not in present:
+                errors.append(
+                    f"`{other}` shares `{shared}`'s network namespace, which is not a "
+                    "private service: it inherits whatever that service can reach"
+                )
+            continue
+        for net in nets:
+            if net == PRIVATE_NETWORK_KEY:
+                continue
+            definition = networks.get(net) or {}
+            if definition.get("internal"):
+                continue
+            errors.append(
+                f"`{other}` sits on network `{net}`, which is not `internal: true` "
+                "(services an egress rule does not name may only use the internal "
+                "`private` network or an internal one)"
             )
 
     if errors:
