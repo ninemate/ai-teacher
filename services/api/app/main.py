@@ -1,6 +1,7 @@
 import logging
 import math
 import secrets
+import uuid
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -15,12 +16,13 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
-from teacher_common import citations
+from teacher_common import citations, study_store
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.embeddings import embed_query, warmup_embeddings
-from teacher_common.models import DocumentRecord, IngestRun
+from teacher_common.models import DocumentRecord, IngestRun, OcrRecord, Workspace, WorkspaceShare
 from teacher_common.qdrant_store import ensure_collection, search
+from teacher_common.workspaces import accessible_workspace_ids, ensure_personal_workspace
 
 APP_DIR = Path(__file__).resolve().parent
 PUBLIC_PATHS = {"/health", "/login"}
@@ -33,6 +35,7 @@ CONTENT_SECURITY_POLICY = (
 
 settings = get_settings()
 auth_users = settings.auth_users()
+auth_admins = settings.auth_admins()
 login_limiter = auth.LoginRateLimiter(settings.teacher_login_max_attempts, settings.teacher_login_window_seconds)
 app = FastAPI(title="teacher-agent-api", version="0.1.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
@@ -60,6 +63,15 @@ class ReindexRequest(BaseModel):
     remove_missing: bool = True
 
 
+class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class WorkspaceShareRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    permission: Literal["read", "write"] = "read"
+
+
 def _route_path(request: Request) -> str:
     # The path the router matches on. `request.url.path` is rebuilt from the Host header and can be spoofed.
     return request.scope["path"]
@@ -67,6 +79,21 @@ def _route_path(request: Request) -> str:
 
 def _is_public(path: str) -> bool:
     return path in PUBLIC_PATHS or path.startswith("/static/")
+
+
+def _identity(request: Request) -> tuple[str, str]:
+    session = request.state.session
+    return (session.username, session.role) if session else ("local", "user")
+
+
+def _workspace_ids(request: Request, db, *, write: bool = False) -> set[str]:
+    username, role = _identity(request)
+    return accessible_workspace_ids(db, username, admin=role == "admin", write=write)
+
+
+def _require_admin(request: Request) -> None:
+    if _identity(request)[1] != "admin":
+        raise HTTPException(status_code=403, detail="Rendszergazdai jogosultság szükséges.")
 
 
 @app.middleware("http")
@@ -77,7 +104,7 @@ async def require_session(request: Request, call_next):
         return JSONResponse({"detail": "A kérés másik oldalról érkezett."}, status_code=403)
     if settings.auth_enabled and not _is_public(_route_path(request)):
         token = request.cookies.get(auth.SESSION_COOKIE)
-        session = await run_in_threadpool(auth.load_session, token, auth_users)
+        session = await run_in_threadpool(auth.load_session, token, auth_users, auth_admins)
         if session is None:
             if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
                 target = _route_path(request) + (f"?{request.url.query}" if request.url.query else "")
@@ -111,9 +138,22 @@ def startup_event() -> None:
         logging.getLogger("uvicorn").warning("TEACHER_AUTH_USERS is empty: nobody can log in.")
     Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
+    _claim_legacy_workspace()
     ensure_collection()
     warmup_embeddings()
     _pull_ollama_model()
+
+
+def _claim_legacy_workspace() -> None:
+    """Keep a single-account installation working while multi-account legacy data stays admin-only."""
+    admins = auth_admins
+    owner = next(iter(admins)) if len(admins) == 1 else (next(iter(auth_users)) if len(auth_users) == 1 else None)
+    if owner is None:
+        return
+    with session_scope() as session:
+        workspace = session.get(Workspace, "legacy")
+        if workspace is not None and workspace.owner_username == "legacy":
+            workspace.owner_username = owner
 
 
 def _pull_ollama_model() -> None:
@@ -160,7 +200,7 @@ def _render_login(request: Request, next_path: str, error: str | None = None, st
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/"):
     next_path = auth.safe_next(next)
-    if not settings.auth_enabled or auth.load_session(request.cookies.get(auth.SESSION_COOKIE), auth_users):
+    if not settings.auth_enabled or auth.load_session(request.cookies.get(auth.SESSION_COOKIE), auth_users, auth_admins):
         return RedirectResponse(next_path, status_code=303)
     return _render_login(request, next_path)
 
@@ -202,7 +242,8 @@ def login(
     login_limiter.release(limit_keys)
     login_limiter.reset(f"user:{username}")
     ttl_seconds = settings.teacher_session_ttl_hours * 3600
-    token, _ = auth.create_session(username, auth_users[username], ttl_seconds)
+    role = "admin" if username in auth_admins else "user"
+    token, _ = auth.create_session(username, auth_users[username], ttl_seconds, role=role)
     response = RedirectResponse(next_path, status_code=303)
     auth.set_cookie(response, request, settings, auth.SESSION_COOKIE, token, max_age=ttl_seconds)
     response.delete_cookie(auth.LOGIN_CSRF_COOKIE, path="/")
@@ -223,25 +264,31 @@ def current_session(request: Request):
     return {
         "auth_enabled": settings.auth_enabled,
         "username": session.username if session else None,
+        "role": session.role if session else None,
         "csrf_token": session.csrf_token if session else None,
     }
 
 
 @app.get("/health")
 def health():
-    with session_scope() as session:
-        document_count = session.query(DocumentRecord).count()
-    return {"status": "ok", "documents": document_count}
+    return {"status": "ok"}
 
 
 @app.get("/sources")
-def list_sources():
+def list_sources(request: Request):
     with session_scope() as session:
+        workspace_ids = _workspace_ids(request, session)
+        if not workspace_ids:
+            return []
         rows = session.execute(
-            select(DocumentRecord).where(DocumentRecord.deleted.is_(False)).order_by(DocumentRecord.last_indexed_at.desc())
+            select(DocumentRecord)
+            .where(DocumentRecord.workspace_id.in_(workspace_ids), DocumentRecord.deleted.is_(False))
+            .order_by(DocumentRecord.last_indexed_at.desc())
         ).scalars()
         return [
             {
+                "id": row.id,
+                "workspace_id": row.workspace_id,
                 "source_path": row.source_path,
                 "title": row.title,
                 "author": row.author,
@@ -254,8 +301,115 @@ def list_sources():
         ]
 
 
+@app.delete("/sources/{document_id}", status_code=204)
+def delete_source(document_id: int, request: Request):
+    from teacher_common.qdrant_store import delete_points_for_source
+
+    with session_scope() as session:
+        workspace_ids = _workspace_ids(request, session, write=True)
+        row = session.execute(
+            select(DocumentRecord).where(
+                DocumentRecord.id == document_id,
+                DocumentRecord.workspace_id.in_(workspace_ids),
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="A dokumentum nem található.")
+        delete_points_for_source(row.source_path)
+        study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+        session.query(OcrRecord).filter(
+            OcrRecord.source_path == row.source_path,
+            OcrRecord.workspace_id == row.workspace_id,
+        ).delete()
+        session.delete(row)
+    return Response(status_code=204)
+
+
+@app.get("/workspaces")
+def list_workspaces(request: Request):
+    with session_scope() as session:
+        username, role = _identity(request)
+        workspace_ids = _workspace_ids(request, session)
+        if not workspace_ids:
+            return []
+        rows = session.execute(select(Workspace).where(Workspace.id.in_(workspace_ids)).order_by(Workspace.name)).scalars()
+        result = []
+        for row in rows:
+            share = session.execute(
+                select(WorkspaceShare).where(
+                    WorkspaceShare.workspace_id == row.id,
+                    WorkspaceShare.username == username,
+                )
+            ).scalar_one_or_none()
+            result.append({
+                "id": row.id,
+                "name": row.name,
+                "owner": row.owner_username,
+                "permission": "admin" if role == "admin" else ("owner" if row.owner_username == username else share.permission),
+            })
+        return result
+
+
+@app.post("/workspaces", status_code=201)
+def create_workspace(payload: WorkspaceCreate, request: Request):
+    username, _ = _identity(request)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="A tudástár neve nem lehet üres.")
+    with session_scope() as session:
+        ensure_personal_workspace(session, username)
+        workspace = Workspace(id=f"kb:{uuid.uuid4().hex}", name=name, owner_username=username)
+        session.add(workspace)
+        session.flush()
+        return {"id": workspace.id, "name": workspace.name, "owner": username, "permission": "owner"}
+
+
+@app.post("/workspaces/{workspace_id}/shares", status_code=201)
+def share_workspace(workspace_id: str, payload: WorkspaceShareRequest, request: Request):
+    username, role = _identity(request)
+    if payload.username not in auth_users:
+        raise HTTPException(status_code=422, detail="A megosztott felhasználó nem létezik.")
+    with session_scope() as session:
+        workspace = session.get(Workspace, workspace_id)
+        if workspace is None or (workspace.owner_username != username and role != "admin"):
+            raise HTTPException(status_code=404, detail="A tudástár nem található.")
+        if payload.username == workspace.owner_username:
+            raise HTTPException(status_code=422, detail="A tulajdonos már hozzáfér a tudástárhoz.")
+        share = session.execute(
+            select(WorkspaceShare).where(
+                WorkspaceShare.workspace_id == workspace_id,
+                WorkspaceShare.username == payload.username,
+            )
+        ).scalar_one_or_none()
+        if share is None:
+            share = WorkspaceShare(workspace_id=workspace_id, username=payload.username)
+            session.add(share)
+        share.permission = payload.permission
+        return {"workspace_id": workspace_id, "username": payload.username, "permission": share.permission}
+
+
+@app.delete("/workspaces/{workspace_id}/shares/{share_username}", status_code=204)
+def unshare_workspace(workspace_id: str, share_username: str, request: Request):
+    username, role = _identity(request)
+    with session_scope() as session:
+        workspace = session.get(Workspace, workspace_id)
+        if workspace is None or (workspace.owner_username != username and role != "admin"):
+            raise HTTPException(status_code=404, detail="A tudástár nem található.")
+        share = session.execute(
+            select(WorkspaceShare).where(
+                WorkspaceShare.workspace_id == workspace_id,
+                WorkspaceShare.username == share_username,
+            )
+        ).scalar_one_or_none()
+        if share is None:
+            raise HTTPException(status_code=404, detail="A megosztás nem található.")
+        session.delete(share)
+    return Response(status_code=204)
+
+
 @app.get("/ingest/status")
-def ingest_status():
+def ingest_status(request: Request):
+    _require_admin(request)
     with session_scope() as session:
         row = session.execute(select(IngestRun).order_by(IngestRun.started_at.desc())).scalars().first()
         if row is None:
@@ -296,52 +450,66 @@ def _ingestion_request(method: str, path: str, json: dict | None = None):
 
 
 @app.post("/ingest/reindex")
-def trigger_reindex(payload: ReindexRequest):
+def trigger_reindex(payload: ReindexRequest, request: Request):
+    _require_admin(request)
     return _ingestion_request("POST", "/ingest/reindex", json=payload.model_dump())
 
 
 @app.get("/ingest/schedule")
-def ingest_schedule():
+def ingest_schedule(request: Request):
+    _require_admin(request)
     return _ingestion_request("GET", "/ingest/schedule")
 
 
 @app.post("/chat")
-def chat(payload: ChatRequest):
+def chat(payload: ChatRequest, request: Request):
+    with session_scope() as session:
+        workspace_ids = _workspace_ids(request, session)
     return generate_teaching_response(
         task="answer",
         prompt_input=payload.question,
         level=payload.level,
         top_k=payload.top_k or settings.retrieval_top_k,
+        workspace_ids=workspace_ids,
     )
 
 
 @app.post("/quiz")
-def quiz(payload: TaskRequest):
+def quiz(payload: TaskRequest, request: Request):
+    with session_scope() as session:
+        workspace_ids = _workspace_ids(request, session)
     return generate_teaching_response(
         task="quiz",
         prompt_input=payload.topic,
         level=payload.level,
         top_k=settings.retrieval_top_k,
+        workspace_ids=workspace_ids,
     )
 
 
 @app.post("/summary")
-def summary(payload: TaskRequest):
+def summary(payload: TaskRequest, request: Request):
+    with session_scope() as session:
+        workspace_ids = _workspace_ids(request, session)
     return generate_teaching_response(
         task="summary",
         prompt_input=payload.topic,
         level=payload.level,
         top_k=settings.retrieval_top_k,
+        workspace_ids=workspace_ids,
     )
 
 
 @app.post("/flashcards")
-def flashcards(payload: TaskRequest):
+def flashcards(payload: TaskRequest, request: Request):
+    with session_scope() as session:
+        workspace_ids = _workspace_ids(request, session)
     return generate_teaching_response(
         task="flashcards",
         prompt_input=payload.topic,
         level=payload.level,
         top_k=settings.retrieval_top_k,
+        workspace_ids=workspace_ids,
     )
 
 
@@ -422,8 +590,8 @@ def voice_speak(payload: SpeakRequest):
     return Response(response.content, media_type=response.headers.get("content-type", "audio/mpeg"))
 
 
-def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: int):
-    hits = retrieve_sources(prompt_input, top_k=top_k)
+def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: int, workspace_ids: set[str]):
+    hits = retrieve_sources(prompt_input, top_k=top_k, workspace_ids=workspace_ids)
     if not hits:
         answer = "A megadott könyvtárban nem találtam elég releváns információt a kérdés megbízható megválaszolásához."
         return {"answer": answer, "sources": [], "citations": [], "grounding": citations.assess(answer, [])}
@@ -452,9 +620,16 @@ def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: 
     return {"answer": answer, "sources": hits[: len(used)], "citations": used, "grounding": grounding}
 
 
-def retrieve_sources(question: str, top_k: int, source_paths: list[str] | None = None):
+def retrieve_sources(
+    question: str,
+    top_k: int,
+    source_paths: list[str] | None = None,
+    workspace_ids: set[str] | None = None,
+):
+    if not workspace_ids:
+        return []
     query_vector = embed_query(question)
-    results = search(query_vector, limit=top_k, source_paths=source_paths)
+    results = search(query_vector, limit=top_k, workspace_ids=workspace_ids, source_paths=source_paths)
     return [
         {
             "chunk_id": item.payload.get("chunk_id"),
@@ -500,7 +675,9 @@ def call_ollama(prompt: str, json_mode: bool = False) -> str:
 # helpers above exist; the session and CSRF middleware protects them like every other route.
 app.include_router(
     build_study_router(
-        retrieve=lambda query, top_k, source_paths: retrieve_sources(query, top_k, source_paths),
+        retrieve=lambda query, top_k, source_paths, workspace_ids: retrieve_sources(
+            query, top_k, source_paths, workspace_ids
+        ),
         llm=lambda prompt, json_mode: call_ollama(prompt, json_mode=json_mode),
     ),
 )

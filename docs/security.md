@@ -36,12 +36,31 @@ Users come from configuration, not from a database. Each user is `username:argon
 
 ```bash
 # .env — single quotes, because the hash contains `$`
-TEACHER_AUTH_USERS='apa:$argon2id$v=19$m=65536,t=3,p=4$...;anya:$argon2id$v=19$...'
+TEACHER_AUTH_USERS='alice:$argon2id$v=19$m=65536,t=3,p=4$...;bob:$argon2id$v=19$...'
 ```
 
 Alternatively, point `TEACHER_AUTH_USERS_FILE` at a file inside the api container (for example a mounted Docker secret) with one `username:hash` per line; `#` starts a comment. Both sources are merged.
 
 Usernames may contain letters, digits, `.`, `_` and `-`. A malformed entry, or a plaintext password in place of a hash, stops the API from starting.
+
+### Roles and workspace isolation
+
+Every configured account has the `user` role unless its username is listed in `TEACHER_AUTH_ADMINS` (comma-separated); those accounts have the `admin` role. Unknown admin names stop the API from starting. Roles are configuration, not client-supplied fields. Administrators can access all workspaces and indexing status; regular users can access only workspaces they own or that have been shared with them.
+
+Each account gets a private workspace (`user:<username>`). Users may create additional knowledge bases with `POST /workspaces` and share one with another configured account using `POST /workspaces/{id}/shares` with `{"username":"anya","permission":"read"}` or `"write"`. The owner can revoke access with `DELETE /workspaces/{id}/shares/{username}`. Read shares permit retrieval and citations; write shares also permit modifying and deleting content. The API derives workspace access from the authenticated session and applies it to source listings, retrieval, study items, attempts, flashcard reviews and document deletion. Supplying another workspace ID or source path does not grant access. Unshared IDs are returned as not found.
+
+Documents and chunks store their workspace in SQLite and in each Qdrant payload. Every vector search requires a server-generated workspace filter. Stored quizzes and flashcard decks are scoped to their owner workspace; attempts and cards inherit access through their parent. Chat prompts and retrieved snippets are not persisted as chat history.
+
+Deleting a source with `DELETE /sources/{document_id}` removes its Qdrant points, SQLite chunks, OCR marker and quizzes or decks in that same workspace that cite or are scoped to the source. Derived items belonging to another workspace remain private, even if they cite a shared source. A user cannot delete an unshared source, even if they know its numeric ID. The ingestion status, schedule and reindex endpoints on the API are admin-only. Scheduled indexing uses the `workspace` configured on each watched folder; create the workspace first and put its ID in `config/ingestion/ingestion.yml`:
+
+```yaml
+watch:
+  folders:
+    - path: Books/Physics
+      workspace: user:apa
+```
+
+For compatibility, a watched folder without `workspace` is assigned to the restricted `legacy` workspace. On API startup, that workspace is claimed by the single configured admin, or by the only configured account when there is one. With multiple accounts and no single admin, the legacy workspace remains inaccessible to regular users until an administrator assigns or shares it. Existing vectors without a workspace payload are excluded from search; run a full reindex after upgrading so indexed points receive workspace payloads.
 
 Make a hash:
 
@@ -83,7 +102,7 @@ An attempt is counted before its password is checked, in the same step as the li
 Notes:
 
 - The counter lives in the API process's memory. The API runs as a single process; a restart clears the counters.
-- Behind Caddy all requests arrive from the proxy's address, so the per-address limit is shared by everyone using that proxy. With a family-sized user list that is acceptable; the per-user limit still applies.
+- Behind Caddy all requests arrive from the proxy's address, so the per-address limit is shared by everyone using that proxy. With a small user list that is acceptable; the per-user limit still applies.
 - An attacker who can reach the login page can lock a user out for a window. The VPN keeps that population small.
 - Unknown usernames cost the same password-hash check as wrong passwords, so response time does not reveal which usernames exist.
 
@@ -95,7 +114,7 @@ Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY
 
 The ingestion service is published on the host only on `127.0.0.1:${TEACHER_INGEST_PORT}` and inside the compose network. Its `/ingest/status`, `/ingest/schedule` and `/ingest/reindex` endpoints require `Authorization: Bearer ${TEACHER_INGEST_TOKEN}`; `/health` stays open for health checks.
 
-- Logged-in users reach `GET /ingest/schedule` and `POST /ingest/reindex` through the API, which adds the token, so users never handle it. The API's `GET /ingest/status` reads the last run from the shared SQLite file. A reindex during a running (for example scheduled) run answers `409`; an unreachable ingestion service answers `502`.
+- Administrators reach `GET /ingest/schedule`, `GET /ingest/status` and `POST /ingest/reindex` through the API, which adds the token, so users never handle it. The API's status response reads the aggregate run from the shared SQLite file. A reindex during a running (for example scheduled) run answers `409`; an unreachable ingestion service answers `502`.
 - If `TEACHER_INGEST_TOKEN` is empty the endpoints refuse every call (`503`). Generate one with `openssl rand -hex 32`.
 - The Ansible deploy keeps the token already in the host's `.env`, or generates one on first deploy, unless `teacher_ingest_token` is set. `reindex.yml` and `make test-ingest` read it from `.env`.
 
@@ -131,6 +150,7 @@ The optional `voice` container has no published port and no authentication of it
 | Secret | Where |
 |---|---|
 | `TEACHER_AUTH_USERS` (argon2 hashes) | `.env` on the host; Ansible var `teacher_auth_users` from Vault; GitHub secret `TEACHER_AUTH_USERS` for the self-hosted deploy |
+| `TEACHER_AUTH_ADMINS` (account names) | `.env` on the host; Ansible var `teacher_auth_admins` |
 | `TEACHER_INGEST_TOKEN` | `.env` on the host, generated by the deploy |
 | network-share credentials | Ansible Vault |
 

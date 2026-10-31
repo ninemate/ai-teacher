@@ -53,38 +53,52 @@ def upsert_points(points: Sequence[PointStruct]) -> None:
 
 
 def delete_points_for_source(source_path: str) -> None:
+    # documents.source_path is unique; matching it also removes legacy points that predate workspace payloads.
     client = get_client()
     client.delete(
         collection_name=settings.qdrant_collection,
         points_selector=FilterSelector(
             filter=Filter(
-                must=[
-                    FieldCondition(
-                        key="source_path",
-                        match=MatchValue(value=source_path),
-                    )
-                ]
+                must=[FieldCondition(key="source_path", match=MatchValue(value=source_path))]
             )
         ),
     )
 
 
-def search(query_vector: list[float], limit: int, source_paths: list[str] | None = None):
+def delete_points_for_workspace(workspace_id: str) -> None:
     client = get_client()
-    query_filter = None
+    client.delete(
+        collection_name=settings.qdrant_collection,
+        points_selector=FilterSelector(
+            filter=Filter(must=[FieldCondition(key="workspace_id", match=MatchValue(value=workspace_id))])
+        ),
+    )
+
+
+def search(
+    query_vector: list[float],
+    limit: int,
+    workspace_ids: set[str],
+    source_paths: list[str] | None = None,
+):
+    if not workspace_ids:
+        return []
+    client = get_client()
+    conditions = [FieldCondition(key="workspace_id", match=MatchAny(any=sorted(workspace_ids)))]
     if source_paths:
-        query_filter = Filter(must=[FieldCondition(key="source_path", match=MatchAny(any=source_paths))])
+        conditions.append(FieldCondition(key="source_path", match=MatchAny(any=source_paths)))
     return client.search(
         collection_name=settings.qdrant_collection,
         query_vector=query_vector,
         limit=limit,
-        query_filter=query_filter,
+        query_filter=Filter(must=conditions),
         with_payload=True,
     )
 
 
 def build_points(
     source_path: str,
+    workspace_id: str,
     title: str,
     author: str | None,
     language: str | None,
@@ -103,6 +117,7 @@ def build_points(
                     "file_id": file_id or row["file_id"],
                     "file_name": Path(source_path).name,
                     "source_path": source_path,
+                    "workspace_id": workspace_id,
                     "title": title,
                     "author": author,
                     "language": language,

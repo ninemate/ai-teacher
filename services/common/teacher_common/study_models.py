@@ -8,6 +8,9 @@ class QuizSet(Base):
     __tablename__ = "quiz_sets"
 
     id = Column(Integer, primary_key=True)
+    workspace_id = Column(
+        String(128), ForeignKey("workspaces.id"), nullable=False, index=True, default="legacy", server_default="legacy"
+    )
     title = Column(String(512), nullable=False)
     topic = Column(Text, nullable=True)
     level = Column(String(32), nullable=False, default="beginner")
@@ -64,6 +67,9 @@ class FlashcardDeck(Base):
     __tablename__ = "flashcard_decks"
 
     id = Column(Integer, primary_key=True)
+    workspace_id = Column(
+        String(128), ForeignKey("workspaces.id"), nullable=False, index=True, default="legacy", server_default="legacy"
+    )
     title = Column(String(512), nullable=False)
     topic = Column(Text, nullable=True)
     level = Column(String(32), nullable=False, default="beginner")

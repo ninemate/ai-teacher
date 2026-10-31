@@ -2,7 +2,7 @@
 
 Self-hosted Hungarian teacher-agent MVP for a private document library.
 
-This repository is intentionally separate from any GPU image-generation stack. It has its own Compose files, Ansible playbooks, service names, data directories, documentation, and deployment assumptions.
+This repository is self-contained: it has its own Compose files, Ansible playbooks, service names, data directories, documentation, and deployment assumptions.
 
 ## What This Repo Implements
 
@@ -15,7 +15,7 @@ This repository is intentionally separate from any GPU image-generation stack. I
 - Local LLM runtime via Ollama
 - Hungarian-first RAG chat API and mobile-friendly web UI behind a built-in login (argon2 users, sessions, CSRF)
 - Stored quizzes and flashcard decks generated from the library, with source references, spaced-repetition review for cards and quiz attempt history (`/study/...`)
-- Ansible-driven deployment to a separate VM
+- Ansible-driven deployment to a dedicated host or VM
 - Optional offline Hungarian voice: dictation with faster-whisper and read-aloud with Piper, both on the CPU by default (`make dev-up-voice`, see `docs/voice-hungarian.md`)
 - Optional NVIDIA overlay
 
@@ -31,17 +31,17 @@ This repository is intentionally separate from any GPU image-generation stack. I
 
 Why this stack:
 
-- It stays small enough for `1x RTX 3070`, `8 GB VRAM`, `16 GB RAM`
+- It stays small enough for a single consumer NVIDIA GPU and a modest amount of RAM (see [docs/model-selection.md](docs/model-selection.md))
 - It avoids a heavy all-in-one AI platform
 - It keeps custom code limited to ingestion and RAG glue
-- It is easy to migrate to another VM later
+- It is easy to migrate to another host later
 
 ## Resource Expectations
 
 - Do not assume the full library fits on local SSD.
 - Source documents remain on the mounted share.
 - Indexed chunk text, vectors, SQLite metadata, model cache, and logs are stored locally.
-- 7B to 8B quantized chat models are the practical starting point for `8 GB VRAM`.
+- Size the chat model to the VRAM you actually have free: model weights plus context (KV cache) plus anything else sharing the GPU (voice on the GPU, other workloads) must fit. A quantized 7B to 8B model is a common starting point; see [docs/model-selection.md](docs/model-selection.md).
 - Voice is optional and uses no VRAM by default; the voice container needs about 2-2.5 GB of RAM at peak (Whisper turbo plus Piper voices).
 
 ## Quick Start
@@ -90,7 +90,7 @@ python -m pytest
 ```
 
 CI (`.github/workflows/ci.yml`) installs both services' requirements and runs `ruff check services/`,
-`mypy --ignore-missing-imports services/` and `pytest`, then builds the images and deploys `main` to the self-hosted VM.
+`mypy --ignore-missing-imports services/` and `pytest`, then builds the images and deploys `main` to the self-hosted deploy target.
 
 The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed. The voice tests mock Whisper and Piper;
 a real Piper-to-Whisper round trip runs when `VOICE_TEST_PIPER_DIR` points to downloaded voices (see `docs/voice-hungarian.md`). The OCR tests mock Tesseract;
@@ -102,7 +102,7 @@ and are skipped without it; the embedding model is stubbed.
 
 ```mermaid
 flowchart TD
-  Phone[Father's Phone] -->|VPN or HTTPS| UI[FastAPI Web UI]
+  Phone[Phone] -->|VPN or HTTPS| UI[FastAPI Web UI]
   UI --> API[Teacher API]
   API --> OLLAMA[Ollama Runtime]
   API --> QDRANT[(Qdrant)]
@@ -112,6 +112,8 @@ flowchart TD
   INGEST --> QDRANT
   INGEST --> SQLITE
 ```
+
+The deployment view and the planned architecture (per-user isolation, page-level citations, egress blocking) are in [docs/architecture.md](docs/architecture.md).
 
 ## Security Warnings
 
@@ -136,7 +138,7 @@ The repo is structured for deployment first:
 
 Implemented now:
 
-- Separate deployable stack (Compose, Ansible, CI deploy to a self-hosted VM)
+- Separate deployable stack (Compose, Ansible, CI deploy to a self-hosted host)
 - Text-first RAG chat with sources, Hungarian prompts
 - Ingestion of watched folders only, incremental (size + mtime, then hash), with safe handling of an unmounted share
 - Scheduled indexing (interval or cron, `run_on_startup`), sharing one lock with manual reindex; status at `GET /ingest/schedule`
@@ -150,7 +152,7 @@ Implemented now:
 
 Not implemented yet:
 
-- Voice latency and GPU use measured on the target VM (the numbers in `docs/voice-hungarian.md` are from a desktop CPU)
+- Voice latency and GPU use measured on the target host (the numbers in `docs/voice-hungarian.md` are from a desktop CPU)
 - OCR for image-only EPUB/DOCX
 - SSO or an identity provider (users are configured in `.env`)
 

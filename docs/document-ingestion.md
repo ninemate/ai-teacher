@@ -39,7 +39,7 @@ The share holds terabytes, but only selected folders are indexed. They are liste
 - `path`: relative to the library mount point; `.` watches the whole library. Absolute paths and `..` are rejected.
 - `enabled`: set `false` to keep an entry without scanning it.
 - `recursive`: default `true`.
-- `include` / `exclude`: glob patterns (case-insensitive; `*` also matches `/`) matched against the path inside the folder or the bare name. A matching directory in `exclude` is not entered at all. `watch.exclude` applies to every folder (for example `#recycle`, `@eaDir` on Synology).
+- `include` / `exclude`: glob patterns (case-insensitive; `*` also matches `/`) matched against the path inside the folder or the bare name. A matching directory in `exclude` is not entered at all. `watch.exclude` applies to every folder (for example the recycle-bin and thumbnail folders a NAS creates, such as `#recycle` or `@eaDir`).
 - `extensions`: overrides `scan_extensions` for that folder.
 
 Nothing outside the watched folders is walked. With no (active) folders configured a run indexes nothing and removes nothing.
@@ -84,7 +84,7 @@ Files are compared by size and modified timestamp (one `stat` per file, with all
 
 ## Limits and Tradeoffs
 
-- Sequential indexing is the safe default for `16 GB RAM`.
+- Sequential indexing is the safe default on hosts with limited RAM.
 - Chunk text is stored locally in the vector payload for retrieval.
 - OCR is CPU-only (Tesseract) and slow: roughly several seconds per page at 300 DPI. Large scanned books can
   take minutes to hours, so use the per-file limits below and expect the first pass over a scanned library to be long.

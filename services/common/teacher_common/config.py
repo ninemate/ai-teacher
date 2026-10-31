@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     ingest_chunk_overlap: int = Field(default=200, alias="INGEST_CHUNK_OVERLAP")
     teacher_auth_users: str = Field(default="", alias="TEACHER_AUTH_USERS")
     teacher_auth_users_file: str = Field(default="", alias="TEACHER_AUTH_USERS_FILE")
+    teacher_auth_admins: str = Field(default="", alias="TEACHER_AUTH_ADMINS")
     teacher_auth_disabled: bool = Field(default=False, alias="TEACHER_AUTH_DISABLED")
     teacher_session_ttl_hours: int = Field(default=720, ge=1, alias="TEACHER_SESSION_TTL_HOURS")
     teacher_cookie_secure: Literal["auto", "true", "false"] = Field(default="auto", alias="TEACHER_COOKIE_SECURE")
@@ -108,6 +109,14 @@ class Settings(BaseSettings):
                 raise ValueError(f"Invalid TEACHER_AUTH_USERS entry for user {username!r}: expected username:$argon2id$...")
             users[username] = password_hash
         return users
+
+    def auth_admins(self) -> set[str]:
+        """Configured accounts with system-wide access; every other account has the user role."""
+        admins = {name.strip() for name in re.split(r"[,;\n]", self.teacher_auth_admins) if name.strip()}
+        unknown = admins - self.auth_users().keys()
+        if unknown:
+            raise ValueError(f"TEACHER_AUTH_ADMINS names unknown users: {', '.join(sorted(unknown))}")
+        return admins
 
 
 USERNAME_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")

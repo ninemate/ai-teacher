@@ -225,7 +225,9 @@ class PdfOcr:
         return self.report
 
 
-def record_ocr(session, source_path: str, file_hash: str, report: OcrReport, cfg) -> None:
+def record_ocr(
+    session, source_path: str, file_hash: str, report: OcrReport, cfg, workspace_id: str = "legacy"
+) -> None:
     """Upsert the SQLite marker that a document was OCR'd (and how completely)."""
     from sqlalchemy import select
 
@@ -245,8 +247,9 @@ def record_ocr(session, source_path: str, file_hash: str, report: OcrReport, cfg
         message = f"{message}; no progress since the last run, raise OCR_TIMEOUT_SECONDS and run a full reindex"
         message = message.replace(TIME_LIMIT_PREFIX, "Stalled: " + TIME_LIMIT_PREFIX.lower(), 1)
     if row is None:
-        row = OcrRecord(source_path=source_path)
+        row = OcrRecord(source_path=source_path, workspace_id=workspace_id)
         session.add(row)
+    row.workspace_id = workspace_id
     row.source_hash = file_hash
     row.language = cfg.ocr_language
     row.dpi = cfg.ocr_dpi
