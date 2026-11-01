@@ -34,6 +34,8 @@ class Settings(BaseSettings):
         default="qwen2.5:7b-instruct-q4_K_M",
         alias="OLLAMA_MODEL",
     )
+    # Longest reply in tokens, so a model that loops ends instead of running into the request timeout. -1 = no limit.
+    ollama_num_predict: int = Field(default=-1, alias="OLLAMA_NUM_PREDICT")
     teacher_prompt_path: str = Field(
         default="/app/config/prompts/teacher_hu.md",
         alias="TEACHER_PROMPT_PATH",

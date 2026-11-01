@@ -1,5 +1,11 @@
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+UnexpectedResponse = pytest.importorskip("qdrant_client.http.exceptions").UnexpectedResponse
 
 
 def _load_real_qdrant_store():
@@ -49,3 +55,27 @@ def test_every_vector_search_and_delete_has_workspace_filter(monkeypatch):
     previous_search = client.search_args
     assert store.search([0.0], limit=5, workspace_ids=set()) == []
     assert client.search_args is previous_search
+
+
+class RacingQdrant:
+    """Answers like Qdrant when another service created the collection between the check and the create."""
+
+    def __init__(self, status):
+        self.status = status
+
+    def get_collections(self):
+        return SimpleNamespace(collections=[])
+
+    def create_collection(self, **kwargs):
+        raise UnexpectedResponse(self.status, "conflict", b"already exists", httpx.Headers())
+
+
+def test_ensure_collection_survives_losing_the_race_with_the_other_service(monkeypatch):
+    store = _load_real_qdrant_store()
+    monkeypatch.setattr(store, "embedding_dimension", lambda: 4)
+    monkeypatch.setattr(store, "get_client", lambda: RacingQdrant(409))
+    store.ensure_collection()
+
+    monkeypatch.setattr(store, "get_client", lambda: RacingQdrant(500))
+    with pytest.raises(UnexpectedResponse):
+        store.ensure_collection()

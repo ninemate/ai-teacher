@@ -1,0 +1,8 @@
+# Watched folders of the end-to-end trial (scripts/e2e.sh). Paths are inside the trial's own library folder, and the
+# workspaces belong to the trial's accounts, which log in before the first run. No schedule: the trial triggers runs.
+watch:
+  folders:
+    - path: anna
+      workspace: user:e2e-anna
+    - path: bela
+      workspace: user:e2e-bela
