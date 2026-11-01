@@ -313,3 +313,48 @@ def test_every_placement_has_a_report_wording():
     for placement, fraction in (("cpu", 0.0), ("gpu+cpu", 0.6), ("multi-gpu", 1.0), ("single-gpu", 1.0), ("unknown", None)):
         assert ev.describe_placement({"placement": placement, "gpu_fraction": fraction})
     assert "60%" in ev.describe_placement({"placement": "gpu+cpu", "gpu_fraction": 0.6})
+
+
+def test_json_answers_must_be_hungarian_too():
+    english = {"cards": [{"front": "What is the capital of France", "back": "The capital city is Paris and it is large", "sources": [1]}] * 3}
+    q = {"question": "x", "sources": [], "expect": {"json": "cards"}, "count": 3}
+    checks = ev.run_checks(q, json.dumps(english), 1)
+    assert checks["érvényes JSON"]["ok"] and not checks["magyarul (mezők)"]["ok"]
+    hungarian = {"cards": [{"front": "Mi a fotoszintézis és hol zajlik a növényi sejtekben?", "back": "A zöld növények a fény energiájával cukrot állítanak elő, és ez a folyamat a színtestekben zajlik.", "sources": [1]}] * 3}
+    assert ev.run_checks(q, json.dumps(hungarian), 1)["magyarul (mezők)"]["ok"]
+    assert "magyarul (mezők)" not in ev.run_checks(q, json.dumps(GOOD_CARDS), 1)  # too terse to judge
+
+
+def test_url_override_is_loopback_only():
+    assert ev.require_local_url("http://127.0.0.1:11434") and ev.require_local_url("http://localhost:11434")
+    with pytest.raises(SystemExit, match="loopback"):
+        ev.require_local_url("http://192.168.1.20:11434")
+    assert ev.require_local_url("http://192.168.1.20:11434", allow_remote=True)
+
+
+def test_private_file_in_repo_root_is_checked_as_a_file(tmp_path):
+    ev.ensure_ignored(ROOT / "questions.private.json", is_file=True)  # root-level, matches *.private.json
+    with pytest.raises(SystemExit):
+        ev.ensure_ignored(ROOT / "questions.json", is_file=True)
+
+
+def test_default_path_goes_through_docker_compose_exec(fake, tmp_path, monkeypatch):
+    """A stand-in `docker` runs the relay locally; checks the argv and the stdin protocol of compose_transport."""
+    log = tmp_path / "argv.txt"
+    docker = tmp_path / "bin" / "docker"
+    docker.parent.mkdir()
+    docker.write_text(
+        f"#!{sys.executable}\nimport os, subprocess, sys\n"
+        f"open({str(log)!r}, 'w').write(' '.join(sys.argv[1:-1]))\n"
+        "sys.exit(subprocess.run([sys.executable, '-I', '-c', sys.argv[-1]], stdin=sys.stdin).returncode)\n"
+    )
+    docker.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{docker.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("OLLAMA_BASE_URL", fake)
+    candidates = tmp_path / "cand.json"
+    candidates.write_text(json.dumps({"candidates": [{"tag": "fast:1b"}]}), encoding="utf-8")
+    code = ev.main(["run", "--candidates", str(candidates), "--out", str(tmp_path / "out"), "--no-gpu", "--only-questions", "mohacs"])
+    assert code == 0
+    assert "compose" in log.read_text() and "exec -T api python -c" in log.read_text()
+    (run_dir,) = (tmp_path / "out").iterdir()
+    assert json.loads((run_dir / "results.json").read_text(encoding="utf-8"))["models"][0]["answers"]

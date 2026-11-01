@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
 from datetime import datetime
@@ -97,6 +98,21 @@ def compose_transport(env_file: Path | None = None, compose_file: Path | None = 
             yield json.dumps({"error": f"docker compose exec failed ({code}): {error[:300]}"})
 
     return transport
+
+
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def require_local_url(base_url: str, allow_remote: bool = False) -> str:
+    """--url sends private passages to that host, so only loopback is accepted unless remote is explicit."""
+    host = urllib.parse.urlparse(base_url).hostname or ""
+    if host not in LOOPBACK_HOSTS and not allow_remote:
+        raise SystemExit(
+            f"--url {base_url}: {host or 'no host'} is not a loopback address. The prompts contain your documents; "
+            "sending them to another machine bypasses the private network. Use the default path, or pass "
+            "--allow-remote-url if you really mean a trusted Ollama elsewhere."
+        )
+    return base_url
 
 
 def url_transport(base_url: str) -> Callable:
@@ -301,6 +317,29 @@ def check_json(text: str, kind: str, source_count: int, count: int | None) -> tu
     return True, f"{len(result.items)} érvényes elem"
 
 
+def json_text_fields(raw: str) -> str:
+    """All string values of a (valid) quiz/flashcard JSON, joined, for the language heuristic."""
+    start, end = raw.find("{"), raw.rfind("}")
+    try:
+        data = json.loads(raw[start : end + 1])
+    except ValueError:
+        return ""
+    parts: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, str):
+            parts.append(node)
+        elif isinstance(node, dict):
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(data)
+    return " ".join(parts)
+
+
 def run_checks(question: dict, text: str, source_count: int) -> dict[str, dict]:
     """{check name: {"ok": bool, "note": str}} for the checks this question asks for."""
     expect = question.get("expect", {})
@@ -314,7 +353,11 @@ def run_checks(question: dict, text: str, source_count: int) -> dict[str, dict]:
         add("nem üres", False, "üres válasz")
         return out
     if expect.get("json"):
-        add("érvényes JSON", *check_json(answer, expect["json"], source_count, question.get("count")))
+        ok, note = check_json(answer, expect["json"], source_count, question.get("count"))
+        add("érvényes JSON", ok, note)
+        fields = json_text_fields(answer) if ok else ""
+        if len(fields.split()) >= 12:  # too little text for the heuristic to be honest
+            add("magyarul (mezők)", looks_hungarian(fields), "a JSON szövegmezői alapján")
         return out
     add("magyarul", looks_hungarian(answer), "szókincs- és ékezetarány alapján")
     if expect.get("cite"):
@@ -584,14 +627,14 @@ def total_ratings(report: str, results: dict) -> dict[str, dict]:
 # --- guards & commands ------------------------------------------------------------------------------------------
 
 
-def ensure_ignored(path: Path) -> None:
+def ensure_ignored(path: Path, is_file: bool = False) -> None:
     """Refuse to write results inside the repo unless git ignores the place (they hold private answers)."""
     resolved = path.resolve()
     try:
         resolved.relative_to(ROOT)
     except ValueError:
         return  # outside the repo
-    probe = resolved / "x"
+    probe = resolved if is_file else resolved / "x"
     check = subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", str(probe)], capture_output=True)  # noqa: S603, S607
     if check.returncode != 0:
         raise SystemExit(f"{path} is inside the repository and not gitignored; pick eval-results/ or a path outside it")
@@ -602,14 +645,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     for p in private:
         if not p.is_file():
             raise SystemExit(f"private question file not found: {p}")
-        ensure_ignored(p.parent)
+        ensure_ignored(p, is_file=True)
     questions = load_questions([Path(args.questions)] + private)
     if args.only_questions:
         questions = [q for q in questions if any(o in q["id"] for o in args.only_questions)]
     candidates = load_candidates(Path(args.candidates), args.only)
     out_root = Path(args.out)
     ensure_ignored(out_root)
-    transport = url_transport(args.url) if args.url else compose_transport()
+    transport = url_transport(require_local_url(args.url, args.allow_remote_url)) if args.url else compose_transport()
     installed, problem = installed_tags(transport)
     if problem:
         raise SystemExit(
@@ -680,7 +723,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--questions", default=str(DEFAULT_QUESTIONS), help="built-in question set")
     run.add_argument("--private", action="append", default=[], metavar="FILE", help="extra question/passage file kept outside git (repeatable)")
     run.add_argument("--out", default=str(DEFAULT_OUT), help="results directory (must be gitignored if inside the repo)")
-    run.add_argument("--url", help="talk to this Ollama directly instead of through the api container")
+    run.add_argument("--url", help="talk to a local Ollama directly instead of through the api container (loopback only)")
+    run.add_argument("--allow-remote-url", action="store_true", help="allow --url to point at a non-loopback host: prompts, including your passages, are sent there")
     run.add_argument("--only", action="append", help="only candidates whose tag contains this (repeatable)")
     run.add_argument("--only-questions", action="append", help="only questions whose id contains this (repeatable)")
     run.add_argument("--teacher-prompt", help="teacher prompt file (default config/prompts/teacher_hu.md)")

@@ -1,7 +1,7 @@
 {
   "_comment": [
-    "Candidate chat models for scripts/eval_models.py. Tags and sizes were read from the Ollama library pages on 2026-11-01; licences are listed per entry. The statements about language support and quality come from model cards and general reports as I know them; no published per-model Hungarian benchmark (HuLU, OpenHuEval, HuGME) could be reached, so treat them as unverified. Nothing here was run: whether a model teaches well in Hungarian, and whether it fits, is exactly what the run decides.",
-    "expected_fit is an estimate from the file size plus an 8192-token context, per GPU; the run measures the real placement. Partial or multi-GPU placement is slower and depends on the link between the GPUs and on host RAM, which the run shows.",
+    "Candidate chat models for scripts/eval_models.py. Tags and sizes were read from the Ollama library pages on 2026-11-01 and 2026-11-02; licences are listed per entry. Published Hungarian evaluations exist and were consulted: the HuGME benchmark results (https://hugme.nytud.hu/Results/ ; it lists Qwen2.5-7B, Qwen3-4B, Gemma 3 4B/12B/27B and the Hungarian-primary Racka-4B, but covers language proficiency, knowledge and LLM-as-judge modules, not teaching-answer quality in a retrieval prompt) and OpenHuEval (https://aclanthology.org/2025.findings-acl.390.pdf, which includes Qwen2.5-7B). They are used as a hint for the list only; model-card language claims below remain unverified. Nothing here was run: whether a model teaches well in Hungarian, and whether it fits, is exactly what the run decides.",
+    "expected_fit is an estimate from the file size plus the evaluation context, for one GPU of typical consumer size; the run measures the real placement. Partial or multi-GPU placement is slower and depends on the link between the GPUs and on host RAM, which the run shows.",
     "Copy this file outside the repo (or to a gitignored path) to change it."
   ],
   "candidates": [
@@ -9,7 +9,7 @@
       "tag": "qwen2.5:7b-instruct-q4_K_M",
       "role": "baseline: the current default",
       "size_gb": 4.7,
-      "expected_fit": "single GPU of 8 GB or more; room for the context",
+      "expected_fit": "single GPU likely, with room for the context",
       "license": "Apache-2.0 (7B size; the 3B and 72B sizes use other terms)",
       "tag_checked": "ollama.com/library/qwen2.5 tags",
       "reason": "Reference point. Broad multilingual instruct model with 32K context; Hungarian is not among the languages Qwen2.5 lists as supported, so its Hungarian is the question."
@@ -18,7 +18,7 @@
       "tag": "qwen3:8b-q4_K_M",
       "role": "newer Qwen",
       "size_gb": 5.2,
-      "expected_fit": "single GPU of 8 GB or more",
+      "expected_fit": "single GPU likely",
       "license": "Apache-2.0",
       "tag_checked": "ollama.com/library/qwen3 tags",
       "think": false,
@@ -28,16 +28,26 @@
       "tag": "gemma3:4b-it-qat",
       "role": "small, fits easily",
       "size_gb": 4.0,
-      "expected_fit": "single GPU of 8 GB or more, with long context to spare",
+      "expected_fit": "single GPU likely, with long context to spare",
       "license": "Gemma Terms of Use (use restrictions apply; not an OSI open-source licence)",
       "tag_checked": "ollama.com/library/gemma3 tags",
       "reason": "Gemma 3 is trained on 140+ languages and is generally reported to be strong in smaller European languages for its size; the quantisation-aware tag keeps quality close to full precision. Needs Ollama 0.6.0 or newer."
     },
     {
+      "tag": "msallai02/racka:4b-4qkm",
+      "role": "Hungarian-primary (research, ELTE)",
+      "size_gb": 2.5,
+      "expected_fit": "single GPU likely, with long context to spare",
+      "license": "CC-BY-NC-SA-4.0 (non-commercial, share-alike): check it fits your use before relying on it",
+      "tag_checked": "ollama.com/msallai02/racka (single tag: 4b-4qkm, 40K context)",
+      "think": false,
+      "reason": "Racka-4B is continually pretrained on Qwen3-4B with about 44% Hungarian data and a Hungarian-adapted tokenizer, from ELTE. The HuGME results list it with strong spelling and readability-type scores for its size but weak knowledge scores (MMLU, TruthfulQA), so it may write good Hungarian yet answer less reliably; the run shows which matters for grounded teaching. It is a base-style continued-pretraining model, so check that it follows the teacher prompt, JSON and citation rules."
+    },
+    {
       "tag": "gemma3:12b-it-qat",
       "role": "likely best quality that is still local",
       "size_gb": 8.9,
-      "expected_fit": "does not fit one 8 GB GPU with context; needs a layer split across GPUs or partial CPU offload",
+      "expected_fit": "a split across GPUs or partial CPU offload is likely on a small-VRAM GPU",
       "license": "Gemma Terms of Use (use restrictions apply; not an OSI open-source licence)",
       "tag_checked": "ollama.com/library/gemma3 tags",
       "reason": "The largest Gemma 3 that is realistic here. If it is clearly better in Hungarian than the 4B, the run shows what the split costs in time to first token and tokens per second. gemma3:12b-it-q4_K_M (8.2 GB) is the slightly smaller alternative."
@@ -46,7 +56,7 @@
       "tag": "mistral-nemo:12b-instruct-2407-q4_K_M",
       "role": "different family, 12B",
       "size_gb": 7.5,
-      "expected_fit": "weights alone nearly fill an 8 GB GPU; expect a split or partial CPU offload with the context",
+      "expected_fit": "weights alone nearly fill a small-VRAM GPU; a split or partial CPU offload is likely once the context is added",
       "license": "Apache-2.0 (from the model card; not shown on the Ollama page)",
       "tag_checked": "ollama.com/library/mistral-nemo tags",
       "reason": "Multilingual 12B from Mistral and NVIDIA with a large context window; Hungarian is not among its headline languages, so it is a test of a non-Qwen, non-Gemma family. q3_K_M (6.1 GB) would fit one GPU at some quality cost."
@@ -55,16 +65,16 @@
       "tag": "jobautomation/OpenEuroLLM-Hungarian:latest",
       "role": "Hungarian-tuned (community)",
       "size_gb": 8.1,
-      "expected_fit": "12B-class: does not fit one 8 GB GPU with context; needs a split or partial offload",
+      "expected_fit": "12B-class: a split or partial offload is likely on a small-VRAM GPU",
       "license": "The page says Apache-2.0, but it is a fine-tune of Gemma 3, whose terms normally pass on to derivatives: treat it as Gemma Terms of Use until clarified",
       "tag_checked": "ollama.com/jobautomation/OpenEuroLLM-Hungarian (single tag: latest)",
-      "reason": "The only Hungarian-tuned chat model found on Ollama that is usable here: a Gemma 3 fine-tune on Hungarian text, 128K context listed. It is a one-person upload with no published evaluation, so the run has to show whether it beats plain gemma3:12b. It ships its own default system prompt in Hungarian; the script sends the teacher prompt as the whole prompt."
+      "reason": "Hungarian-tuned community chat model: a Gemma 3 fine-tune on Hungarian text, 128K context listed. It is a one-person upload with no published evaluation, so the run has to show whether it beats plain gemma3:12b. It ships its own default system prompt in Hungarian; the script sends the teacher prompt as the whole prompt."
     }
   ],
   "not_selected": {
     "mp3pintyo/sambalingo-hungarian-chat": "Hungarian chat model (Llama 2 based) but only a 4K context, too short for retrieval prompts.",
     "sony/puli-lliumix-32k": "NYTK's Hungarian PULI LlumiX is a 13 GB base model, not an instruction/chat model.",
-    "csabeszkukesz/qwen-hun-27b": "Described as a Hungarian model (16 GB); unknown provenance and too large for one 8 GB GPU.",
+    "csabeszkukesz/qwen-hun-27b": "Described as a Hungarian model (16 GB); unknown provenance and likely too large for one small-VRAM GPU.",
     "aya-expanse:8b": "Hungarian is not among its 23 languages, and the licence is non-commercial.",
     "llama3.1:8b": "Hungarian is not an officially supported language."
   }

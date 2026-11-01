@@ -41,7 +41,7 @@ Reasoning:
 
 ## Choosing the Chat Model: Candidates and Evaluation
 
-`config/models/eval_candidates.example.json` lists a shortlist with the Ollama tag and quantisation, licence, a reason, and whether each should fit one GPU or needs a layer split. Its tags and sizes were read from the Ollama library pages; the language-quality claims are not verified (no published per-model Hungarian benchmark was reachable), so the run, not the list, decides. It includes one Hungarian-tuned community model and notes the ones left out and why. Check each licence before you rely on a model; two entries use Gemma terms, which restrict some uses.
+`config/models/eval_candidates.example.json` lists a shortlist with the Ollama tag and quantisation, licence, a reason, and whether each should fit one GPU or needs a layer split. Its tags and sizes were read from the Ollama library pages; the language-quality claims are only partly backed: the published HuGME results (hugme.nytud.hu/Results/) and OpenHuEval cover some of these models on language proficiency and knowledge, not on grounded teaching answers, so the run, not the list, decides. It includes two Hungarian-focused models (the research model Racka-4B, licensed non-commercially, and a community Gemma 3 fine-tune) and notes the ones left out and why. Check each licence before you rely on a model; two entries use Gemma terms, which restrict some uses.
 
 `scripts/eval_models.py` runs every candidate through the stack's own Ollama with the real teacher prompt (`config/prompts/teacher_hu.md`, citation rules, quiz and flashcard templates), the same way the API builds its prompts, and writes a results file and a report.
 
@@ -49,7 +49,7 @@ Reasoning:
 
 1. Start the stack (`make dev-up`) and fetch the candidates through the one deliberate channel: `scripts/model-update.sh <tag> [<tag> ...]`. The script never downloads anything itself; it lists what is missing and prints this command.
 2. `make eval-models` (or `python3 scripts/eval_models.py run --candidates <file>`). It needs Python 3 and `pydantic` on the host (the same parser the study feature uses validates the quiz JSON), and `nvidia-smi` if you want per-GPU memory.
-3. Requests go through `docker compose exec api`, so they use the private network like the app does: no port is published and no private service gets egress. `--url http://host:11434` talks to an Ollama directly instead, for a local install.
+3. Requests go through `docker compose exec api`, so they use the private network like the app does: no port is published and no private service gets egress. `--url http://localhost:11434` talks to a local Ollama directly instead; only loopback addresses are accepted, because the prompts contain your documents (`--allow-remote-url` overrides that deliberately).
 4. Useful options: `--only <tag part>`, `--only-questions <id part>`, `--num-ctx`, `--no-blind` (show model names), `--candidates <your copy>`.
 
 Copy the candidate file and edit it for your own list; set `EVAL_CANDIDATES` and `EVAL_ARGS` for `make eval-models`.
@@ -62,7 +62,7 @@ The built-in set (`config/eval/questions_hu.json`) is small and generic: an expl
 
 Per model: time to first token (the first question includes loading the model, shown separately as load time), tokens per second, total time, where Ollama put the model (one GPU, several GPUs, split between GPU and CPU, or CPU only, from `/api/ps`) and the memory each GPU gained, from `nvidia-smi` sampled during the run. A model that does not fit one GPU is split or partly offloaded to the CPU. How slow that is depends on your host (the links between GPUs, system RAM, CPU), so it is measured here rather than assumed: compare tokens per second and time to first token of the split models with the single-GPU ones. Memory figures are the increase over the idle baseline, so other GPU workloads (for example speech recognition) distort them; run on idle GPUs.
 
-Automatic checks, only where a script can be honest: quiz and flashcard output is valid JSON in the study feature's format, with the requested count; a citation `[n]` that exists is given; the answer is Hungarian (word-list heuristic); the model declines when the passage lacks the answer (and invents no numbers); an OCR-flagged source is called uncertain; an expected fact appears. These catch formatting and obedience failures, not language quality.
+Automatic checks, only where a script can be honest: quiz and flashcard output is valid JSON in the study feature's format, with the requested count; a citation `[n]` that exists is given; the answer, or the text fields of a quiz or deck, is Hungarian (word-list heuristic); the model declines when the passage lacks the answer (and invents no numbers); an OCR-flagged source is called uncertain; an expected fact appears. These catch formatting and obedience failures, not language quality.
 
 ### Deciding
 
