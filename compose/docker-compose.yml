@@ -79,7 +79,15 @@ services:
       INGESTION_BASE_URL: http://ingestion:8081
       VOICE_BASE_URL: ${VOICE_BASE_URL}
     volumes:
-      - ${TEACHER_MOUNT_POINT}:/library:ro
+      # rslave: a share mounted (or remounted) under the folder after the container started shows up
+      # here; a plain bind mount would keep showing the empty folder underneath.
+      - type: bind
+        source: ${TEACHER_MOUNT_POINT}
+        target: /library
+        read_only: true
+        bind:
+          propagation: ${TEACHER_MOUNT_PROPAGATION:-rslave}
+          create_host_path: false
       - ${TEACHER_DATA_DIR}/metadata:/data/metadata
       - ${TEACHER_DATA_DIR}/logs:/data/logs
       - ../config:/app/config:ro
@@ -111,6 +119,8 @@ services:
       INGEST_CONFIG_PATH: ${INGEST_CONFIG_PATH:-/app/config/ingestion/ingestion.yml}
       INGEST_SCHEDULE_SECONDS: ${INGEST_SCHEDULE_SECONDS}
       INGEST_REMOVE_MISSING: ${INGEST_REMOVE_MISSING}
+      LIBRARY_SENTINEL: ${LIBRARY_SENTINEL:-}
+      INGEST_MAX_REMOVAL_FRACTION: ${INGEST_MAX_REMOVAL_FRACTION:-0.5}
       INGEST_SCAN_EXTENSIONS: ${INGEST_SCAN_EXTENSIONS}
       INGEST_CHUNK_SIZE: ${INGEST_CHUNK_SIZE}
       INGEST_CHUNK_OVERLAP: ${INGEST_CHUNK_OVERLAP}
@@ -123,7 +133,15 @@ services:
       OCR_MAX_PAGES: ${OCR_MAX_PAGES:-0}
       OCR_CACHE_DIR: ${OCR_CACHE_DIR:-/data/metadata/ocr_cache}
     volumes:
-      - ${TEACHER_MOUNT_POINT}:/library:ro
+      # rslave: a share mounted (or remounted) under the folder after the container started shows up
+      # here; a plain bind mount would keep showing the empty folder underneath.
+      - type: bind
+        source: ${TEACHER_MOUNT_POINT}
+        target: /library
+        read_only: true
+        bind:
+          propagation: ${TEACHER_MOUNT_PROPAGATION:-rslave}
+          create_host_path: false
       - ${TEACHER_DATA_DIR}/metadata:/data/metadata
       - ${TEACHER_DATA_DIR}/logs:/data/logs
       - ../config:/app/config:ro

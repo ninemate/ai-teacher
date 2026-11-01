@@ -54,6 +54,11 @@ class Settings(BaseSettings):
         alias="INGEST_CONFIG_PATH",
     )
     ingest_remove_missing: bool = Field(default=True, alias="INGEST_REMOVE_MISSING")
+    # A file that must exist inside the library (e.g. ".teacher-library") for it to count as mounted.
+    # Empty disables the check; the watched folders must exist either way.
+    library_sentinel: str = Field(default="", alias="LIBRARY_SENTINEL")
+    # A run holding back more than this share of the live documents (and at least 5) needs confirmation.
+    ingest_max_removal_fraction: float = Field(default=0.5, ge=0, le=1, alias="INGEST_MAX_REMOVAL_FRACTION")
     ingest_scan_extensions: str = Field(
         default=".pdf,.epub,.txt,.md,.docx,.mobi,.azw,.azw3",
         alias="INGEST_SCAN_EXTENSIONS",

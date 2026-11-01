@@ -23,26 +23,76 @@
     - teacher_share_credentials_username | length > 0
   no_log: true
 
-- name: Mount CIFS share
+# _netdev orders the mount after the network, nofail keeps the host booting when the NAS is down, the
+# mount timeout bounds the wait, and `soft` makes reads fail instead of hanging forever when it goes away.
+# Hardening flags: the library is data only.
+- name: Work out the mount options
+  ansible.builtin.set_fact:
+    teacher_share_opts: >-
+      {{ (
+        [(read_only | bool) | ternary('ro', 'rw')]
+        + ['_netdev', 'nofail', 'soft', 'nosuid', 'nodev', 'noexec',
+           'x-systemd.mount-timeout=' ~ teacher_share_mount_timeout]
+        + (['x-systemd.automount'] if teacher_share_automount | bool else [])
+        + ((['credentials=' ~ teacher_share_credentials_file,
+             'vers=' ~ teacher_share_smb_version,
+             'iocharset=utf8']
+            + (['file_mode=' ~ teacher_share_file_mode, 'dir_mode=' ~ teacher_share_dir_mode] if read_only | bool else [])
+            + (['uid=' ~ teacher_share_uid] if teacher_share_uid | string | length > 0 else [])
+            + (['gid=' ~ teacher_share_gid] if teacher_share_gid | string | length > 0 else []))
+           if share_type == 'cifs' else [])
+        + ([mount_options] if mount_options | length > 0 else [])
+      ) | join(',') }}
+
+# With automount the share is mounted on first access, so the entry is only written here and systemd
+# starts the automount unit; `mounted` would mount it right away and ignore x-systemd.automount.
+- name: Configure the CIFS share
   ansible.posix.mount:
     src: "//{{ share_server }}{{ share_path }}"
     path: "{{ teacher_mount_point }}"
     fstype: cifs
-    opts: >-
-      {{ (read_only | bool) | ternary('ro', 'rw') }},
-      credentials={{ teacher_share_credentials_file }}
-      {% if mount_options %},{{ mount_options }}{% endif %}
-    state: mounted
+    opts: "{{ teacher_share_opts }}"
+    state: "{{ 'present' if teacher_share_automount | bool else 'mounted' }}"
   when: share_type == "cifs"
 
-- name: Mount NFS share
+- name: Configure the NFS share
   ansible.posix.mount:
     src: "{{ share_server }}:{{ share_path }}"
     path: "{{ teacher_mount_point }}"
     fstype: nfs
-    opts: >-
-      {{ (read_only | bool) | ternary('ro', 'rw') }}
-      {% if mount_options %},{{ mount_options }}{% endif %}
-    state: mounted
+    opts: "{{ teacher_share_opts }}"
+    state: "{{ 'present' if teacher_share_automount | bool else 'mounted' }}"
   when: share_type == "nfs"
 
+# Docker starts after remote filesystems when they mount at boot. This is ordering only (no Requires=):
+# a NAS that is down must not keep Docker from starting. Containers started earlier still see the share
+# once it appears, because the compose file bind-mounts the library with rslave propagation.
+- name: Create the Docker drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: "0755"
+
+- name: Order Docker after remote filesystems
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker.service.d/teacher-library.conf
+    mode: "0644"
+    content: |
+      [Unit]
+      After=remote-fs.target
+
+- name: Let systemd pick up the new fstab entry and drop-in
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Name the automount unit
+  ansible.builtin.command: systemd-escape --path --suffix=automount {{ teacher_mount_point | quote }}
+  register: teacher_share_automount_unit
+  changed_when: false
+  when: teacher_share_automount | bool
+
+- name: Start the automount unit
+  ansible.builtin.systemd:
+    name: "{{ teacher_share_automount_unit.stdout }}"
+    state: started
+  when: teacher_share_automount | bool
