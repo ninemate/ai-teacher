@@ -1,0 +1,124 @@
+{
+  "_comment": "Small generic Hungarian set for scripts/eval_models.py. Passages are short textbook-style texts written for this test. Add your own questions and passages in a private file (see docs/model-selection.md); never commit those.",
+  "questions": [
+    {
+      "id": "explain-fotoszintezis",
+      "title": "Magyarázat: fotoszintézis (kezdő)",
+      "task": "answer",
+      "level": "kezdő",
+      "question": "Magyarázd el, hogyan működik a fotoszintézis, és miért fontos.",
+      "sources": [
+        {
+          "title": "Biológia 7. – Az anyagcsere",
+          "locator": "34. oldal",
+          "text": "A fotoszintézis során a zöld növények a fény energiáját felhasználva szén-dioxidból és vízből szőlőcukrot (glükózt) állítanak elő, és közben oxigént bocsátanak ki. A folyamat a sejtek zöld színtestjeiben, a kloroplasztiszokban zajlik, ahol a klorofill nevű színanyag elnyeli a fényt. A fotoszintézis teremti meg a legtöbb élőlény táplálékának alapját, és az oxigén nagy része is ebből származik a levegőben."
+        }
+      ],
+      "expect": {"cite": true}
+    },
+    {
+      "id": "qa-mohacs",
+      "title": "Kérdés a szövegből, hivatkozással: mohácsi csata",
+      "task": "answer",
+      "level": "középhaladó",
+      "question": "Mikor volt a mohácsi csata, és mi lett II. Lajos király sorsa?",
+      "sources": [
+        {
+          "title": "Történelem 8. – A középkor vége",
+          "locator": "2. fejezet",
+          "text": "A mohácsi csatára 1526. augusztus 29-én került sor. Szulejmán szultán török serege döntő győzelmet aratott a magyar királyi sereg felett. A csatában II. Lajos király is életét vesztette: a menekülés közben a Csele-patakba fulladt. A vereség után az ország három részre szakadt, és a központi hatalom évtizedekre meggyengült."
+        }
+      ],
+      "expect": {"cite": true, "must_contain_any": ["1526"]}
+    },
+    {
+      "id": "qa-hianyzik",
+      "title": "Elutasítás: a szöveg nem tartalmazza a választ",
+      "task": "answer",
+      "level": "középhaladó",
+      "question": "Hány katonából állt a magyar sereg a mohácsi csatában, és kik vezették a szárnyakat?",
+      "sources": [
+        {
+          "title": "Történelem 8. – A középkor vége",
+          "locator": "2. fejezet",
+          "text": "A mohácsi csatára 1526. augusztus 29-én került sor. Szulejmán szultán török serege döntő győzelmet aratott a magyar királyi sereg felett. A csatában II. Lajos király is életét vesztette: a menekülés közben a Csele-patakba fulladt. A vereség után az ország három részre szakadt, és a központi hatalom évtizedekre meggyengült."
+        }
+      ],
+      "expect": {"refuse": true}
+    },
+    {
+      "id": "quiz-pitagorasz",
+      "title": "Kvíz JSON: Pitagorasz-tétel",
+      "task": "quiz",
+      "level": "középhaladó",
+      "count": 3,
+      "question": "A Pitagorasz-tétel",
+      "sources": [
+        {
+          "title": "Matematika 8. – Geometria",
+          "locator": "51. oldal",
+          "text": "A Pitagorasz-tétel szerint a derékszögű háromszögben az átfogó négyzete egyenlő a két befogó négyzetének összegével: a² + b² = c². Az átfogó a derékszöggel szemközti, leghosszabb oldal. Ha például a befogók 3 és 4 egység hosszúak, akkor az átfogó 5 egység, mert 9 + 16 = 25."
+        },
+        {
+          "title": "Matematika 8. – Geometria",
+          "locator": "52. oldal",
+          "text": "A tétel megfordítása is igaz: ha egy háromszög oldalaira teljesül, hogy a két rövidebb oldal négyzetének összege egyenlő a leghosszabb oldal négyzetével, akkor a háromszög derékszögű. A 3, 4, 5 oldalú háromszöget ezért gyakran használják derékszög kitűzésére."
+        }
+      ],
+      "expect": {"json": "quiz"}
+    },
+    {
+      "id": "cards-vizkoreles",
+      "title": "Villámkártya JSON: a víz körforgása",
+      "task": "flashcards",
+      "level": "kezdő",
+      "count": 3,
+      "question": "A víz körforgása",
+      "sources": [
+        {
+          "title": "Környezetismeret 5.",
+          "locator": "12. oldal",
+          "text": "A víz körforgása során a Nap melege hatására a tengerek, tavak és folyók vize elpárolog. A felszálló vízgőz a magasban lehűl, és apró cseppekké csapódik le: így keletkeznek a felhők. A felhőkből csapadék, vagyis eső, hó vagy jégeső hullik a felszínre. A lehullott víz egy része a talajba szivárog, más része patakokon és folyókon át visszajut a tengerbe."
+        }
+      ],
+      "expect": {"json": "cards"}
+    },
+    {
+      "id": "summary-balaton",
+      "title": "Összefoglalás: a Balaton",
+      "task": "summary",
+      "level": "középhaladó",
+      "question": "Balaton",
+      "sources": [
+        {
+          "title": "Földrajz 6. – Magyarország tájai",
+          "locator": "88. oldal",
+          "text": "A Balaton Közép-Európa legnagyobb tava, területe körülbelül 592 négyzetkilométer. Hossza mintegy 77 kilométer, átlagos mélysége alig három méter, ezért nyáron gyorsan felmelegszik. A tavat legnagyobb részben a Zala folyó táplálja, vizét a Sió csatorna vezeti le a Dunába. A déli part sekély, homokos, a északi part meredekebb, hegyek szegélyezik, itt terem a híres balatoni bor."
+        },
+        {
+          "title": "Földrajz 6. – Magyarország tájai",
+          "locator": "89. oldal",
+          "text": "A Balaton a magyar idegenforgalom egyik legfontosabb célpontja. A nyári szezonban több százezer látogató érkezik a part menti településekre. A tó vízminőségét a Kis-Balaton védőrendszere javítja, amely a Zala vizét megtisztítja, mielőtt az a tóba jutna."
+        }
+      ],
+      "expect": {"cite": true}
+    },
+    {
+      "id": "ocr-duna",
+      "title": "Zajos (OCR) szöveg: a Duna",
+      "task": "answer",
+      "level": "középhaladó",
+      "question": "Milyen hosszú a Duna, és hány országon folyik át?",
+      "sources": [
+        {
+          "title": "Földrajz (szkennelt jegyzet)",
+          "locator": "17. oldal",
+          "ocr": true,
+          "ocr_confidence": 52,
+          "text": "A Dunä Eur6pa mäsodik leg hosszabb foly6ja, hossza kb. 2850 km. A Fekete-erdöben ered és a Fekete-tengerbe t0rik. Összesen tiz orszägon folyik ätt, ezek között Magyarorszäg is. Hazänk területén a foly6 mintegy 417 km hosszan halad."
+        }
+      ],
+      "expect": {"cite": true, "uncertain": true, "must_contain_any": ["2850", "2 850"]}
+    }
+  ]
+}
