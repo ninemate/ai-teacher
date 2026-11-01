@@ -61,6 +61,7 @@ class SpeakRequest(BaseModel):
 class ReindexRequest(BaseModel):
     full_reindex: bool = False
     remove_missing: bool = True
+    confirm_removal: bool = False
 
 
 class WorkspaceCreate(BaseModel):

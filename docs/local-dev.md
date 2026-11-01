@@ -12,7 +12,7 @@ This repo can start in CPU-first dev mode without a GPU.
 ## Steps
 
 1. Copy `.env.example` to `.env`.
-2. Point `TEACHER_MOUNT_POINT` at a local folder or mounted share.
+2. Point `TEACHER_MOUNT_POINT` at a local folder or mounted share. To use a CIFS share without Ansible, mount it by hand or via `/etc/fstab` as described in [network-share.md](network-share.md#without-ansible), then check it with `make check-library` (`REQUIRE_MOUNTPOINT=0` for a plain local folder). Where bind propagation is not supported (Docker Desktop), set `TEACHER_MOUNT_PROPAGATION=rprivate` and mount the share before starting the stack.
 3. Set a login and the ingestion token in `.env`:
 
 ```bash
