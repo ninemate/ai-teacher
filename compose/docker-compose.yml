@@ -39,6 +39,9 @@ services:
     build:
       context: ..
       dockerfile: services/api/Dockerfile
+      args:
+        # Baked into the image, and the running service is offline: change it and rebuild to switch.
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL}
     restart: unless-stopped
     networks: [private]
     depends_on:
@@ -54,6 +57,7 @@ services:
       QDRANT_COLLECTION: ${QDRANT_COLLECTION}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
       OLLAMA_MODEL: ${OLLAMA_MODEL}
+      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:--1}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL}
       EMBEDDING_DEVICE: ${EMBEDDING_DEVICE}
       TEACHER_PROMPT_PATH: /app/config/prompts/teacher_hu.md
@@ -97,6 +101,8 @@ services:
     build:
       context: ..
       dockerfile: services/ingestion/Dockerfile
+      args:
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL}
     restart: unless-stopped
     networks: [private]
     depends_on:

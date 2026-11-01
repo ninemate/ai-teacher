@@ -89,7 +89,7 @@ Other ways to get a trusted certificate without touching phones: Tailscale (`tai
 ```bash
 make compose-config                      # merged config, includes the proxy
 curl -sI http://localhost:8088/          # 308 -> https://localhost:8443/
-curl --cacert teacher-ca.crt -sI https://localhost:8443/health   # 200, with security headers
+curl --cacert teacher-ca.crt -si https://localhost:8443/health   # 200, with security headers
 docker compose ... logs proxy            # certificate and request log
 ```
 

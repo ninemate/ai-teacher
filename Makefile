@@ -2,7 +2,7 @@ COMPOSE_BASE=docker compose --env-file .env -f compose/docker-compose.yml
 COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml -f compose/docker-compose.proxy.yml
 COMPOSE_VOICE=$(COMPOSE_DEV) -f compose/docker-compose.voice.example.yml
 
-.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test check-library test-chat test-ingest hash-password model-update test-egress
+.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test check-library test-chat test-ingest ingest-now hash-password model-update test-egress test-e2e
 
 dev-up:
 	$(COMPOSE_DEV) up -d --build
@@ -56,6 +56,12 @@ test-ingest:
 	$(COMPOSE_BASE) exec -T ingestion \
 		python -c "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8081/ingest/status', headers={'Authorization': 'Bearer ' + os.environ['TEACHER_INGEST_TOKEN']}); print(urllib.request.urlopen(r).read().decode())"
 
+# Starts an incremental indexing run of the watched folders, from inside the private network.
+# Follow it with make test-ingest.
+ingest-now:
+	$(COMPOSE_BASE) exec -T ingestion \
+		python -c "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8081/ingest/reindex', data=b'{}', headers={'Authorization': 'Bearer ' + os.environ['TEACHER_INGEST_TOKEN'], 'Content-Type': 'application/json'}); print(urllib.request.urlopen(r).read().decode())"
+
 # Pulls models for the internal Ollama container through a temporary edge-network
 # connection, then disconnects it again. This is the only channel that may reach the
 # internet; the private services keep none at runtime (docs/security.md).
@@ -66,6 +72,11 @@ model-update:
 # without a running stack.
 test-egress:
 	bash scripts/test-egress-block.sh
+
+# The whole stack end to end, in its own isolated copy with a small model and Hungarian fixtures. Needs Docker;
+# `scripts/e2e.sh --voice` adds the voice round trip, `--native` runs without containers (proves less).
+test-e2e:
+	bash scripts/e2e.sh
 
 # Prints an argon2 hash for TEACHER_AUTH_USERS.
 hash-password:

@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -19,6 +20,8 @@ def init_db() -> None:
     from teacher_common import models, study_models  # noqa: F401
     from teacher_common.migrations import run_migrations
 
+    if engine.dialect.name == "sqlite" and engine.url.database:
+        Path(engine.url.database).parent.mkdir(parents=True, exist_ok=True)
     with engine.connect() as connection:
         if engine.dialect.name == "sqlite":
             # Both services start together on a fresh volume. Holding the write lock for the whole schema

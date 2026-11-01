@@ -137,12 +137,20 @@ def startup_event() -> None:
         logging.getLogger("uvicorn").warning("TEACHER_AUTH_DISABLED is set: the UI and API are open to anyone.")
     elif not auth_users:
         logging.getLogger("uvicorn").warning("TEACHER_AUTH_USERS is empty: nobody can log in.")
-    Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
+    _ensure_account_workspaces()
     _claim_legacy_workspace()
     ensure_collection()
     warmup_embeddings()
     _check_ollama_model()
+
+
+def _ensure_account_workspaces() -> None:
+    """Every configured account has its workspace from the start, so a watched folder can index into it before
+    the account's first login."""
+    with session_scope() as session:
+        for username in auth_users:
+            ensure_personal_workspace(session, username)
 
 
 def _claim_legacy_workspace() -> None:
@@ -628,7 +636,11 @@ def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: 
         f"Felhasználói kérés: {prompt_input}\n\n"
         "Válasz:"
     )
-    answer = call_ollama(prompt)
+    try:
+        answer = call_ollama(prompt)
+    except httpx.HTTPError as exc:
+        logging.getLogger("uvicorn").warning("Chat model call failed: %r", exc)
+        raise HTTPException(status_code=502, detail="A nyelvi modell nem érhető el vagy nem válaszolt időben.") from exc
     grounding = citations.assess(answer, used)
     return {"answer": answer, "sources": hits[: len(used)], "citations": used, "grounding": grounding}
 
@@ -673,6 +685,7 @@ def call_ollama(prompt: str, json_mode: bool = False) -> str:
         "options": {
             "temperature": 0.2,
             "num_ctx": 8192,
+            "num_predict": settings.ollama_num_predict,
         },
     }
     if json_mode:
