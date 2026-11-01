@@ -2,6 +2,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import (
     Distance,
     FieldCondition,
@@ -27,13 +28,18 @@ def ensure_collection() -> None:
     client = get_client()
     collections = {item.name for item in client.get_collections().collections}
     if settings.qdrant_collection not in collections:
-        client.create_collection(
-            collection_name=settings.qdrant_collection,
-            vectors_config=VectorParams(
-                size=embedding_dimension(),
-                distance=Distance.COSINE,
-            ),
-        )
+        try:
+            client.create_collection(
+                collection_name=settings.qdrant_collection,
+                vectors_config=VectorParams(
+                    size=embedding_dimension(),
+                    distance=Distance.COSINE,
+                ),
+            )
+        except UnexpectedResponse as exc:
+            # The api and ingestion services start together on an empty store; the other one was first.
+            if exc.status_code != 409:
+                raise
 
 
 def recreate_collection() -> None:
