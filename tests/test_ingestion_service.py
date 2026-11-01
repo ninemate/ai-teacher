@@ -209,7 +209,7 @@ def test_unreachable_watched_folder_does_not_delete_its_documents(svc):
     (svc.library / "watched").rmdir()  # e.g. share went away
     svc.run_indexing(False, True)
     assert live_paths(svc) == ["watched/a.txt"]
-    assert any("not found" in e for e in svc.last_run["errors"])
+    assert svc.last_run["status"] == "skipped" and "watched" in svc.last_run["message"]
 
 
 def test_no_watched_folders_indexes_and_removes_nothing(svc):
@@ -343,7 +343,7 @@ def test_full_reindex_with_missing_folder_keeps_the_index(svc):
     svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path="watched"), WatchFolder(path="gone")])
     svc.run_indexing(True, True)
     assert live_paths(svc) == ["watched/a.txt"]
-    assert svc.last_run["status"] == "failed"
+    assert svc.last_run["status"] == "skipped"
 
 
 def test_full_reindex_rebuilds_when_scope_is_scannable(svc):
@@ -372,12 +372,13 @@ def test_errors_survive_a_restart(svc):
     svc.run_indexing(False, True)
     (svc.library / "watched").rename(svc.library / "moved")
     svc.run_indexing(False, True)
-    assert svc.last_run["errors"]
+    assert svc.last_run["status"] == "skipped"
     svc.last_run.clear()  # new process: only the database is left
     body = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"}).get("/ingest/schedule").json()
-    assert body["last_run"]["errors"]
-    assert any("not found" in e for e in body["last_run"]["errors"])
-    assert "\n" not in body["last_run"]["message"]
+    assert body["last_run"]["status"] == "skipped"
+    assert "not found" in body["last_run"]["message"]
+    status = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"}).get("/ingest/status").json()
+    assert status["status"] == "skipped" and "not found" in status["message"]
 
 
 def test_full_reindex_with_emptied_mount_point_keeps_the_index(svc):
@@ -508,3 +509,96 @@ def test_unchanged_file_that_fails_keeps_its_chunks(svc):
     svc.store_error_record(svc.library / "watched" / "a.txt", "boom")
     assert svc.store.deleted_sources == []
     assert len(_chunks(svc)) == 1
+
+
+def last_run_row(svc):
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+
+    with session_scope() as session:
+        row = session.execute(select(svc.IngestRun).order_by(svc.IngestRun.id.desc())).scalars().first()
+        return row.status, row.message, row.deleted
+
+
+def test_missing_watched_folder_skips_the_run_and_says_so(svc):
+    svc.run_indexing(False, True)
+    svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path="watched"), WatchFolder(path="gone")])
+    (svc.library / "watched" / "new.txt").write_text("n")
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "skipped"
+    assert "gone" in svc.last_run["message"]
+    assert live_paths(svc) == ["watched/a.txt"]  # nothing indexed or removed during a skipped run
+    status, message, deleted = last_run_row(svc)
+    assert status == "skipped" and "gone" in message and deleted == 0
+
+
+def test_empty_mount_point_removes_nothing(svc):
+    svc.run_indexing(False, True)
+    for child in list(svc.library.rglob("*"))[::-1]:  # the share went away: an empty folder is left behind
+        child.unlink() if child.is_file() else child.rmdir()
+    svc.store.deleted_sources.clear()
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "skipped"
+    assert svc.store.deleted_sources == []
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+
+    with session_scope() as session:
+        assert session.execute(select(svc.DocumentRecord).where(svc.DocumentRecord.deleted.is_(False))).scalars().all()
+
+
+def test_missing_sentinel_skips_even_when_watched_folder_exists(svc, monkeypatch):
+    monkeypatch.setattr(svc.settings, "library_sentinel", ".mounted")
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "skipped"
+    assert ".mounted" in svc.last_run["message"]
+    assert live_paths(svc) == []
+    (svc.library / ".mounted").write_text("")
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "completed"
+    assert live_paths(svc) == ["watched/a.txt"]
+
+
+def test_missing_sentinel_refuses_full_reindex_before_wiping(svc, monkeypatch):
+    svc.run_indexing(False, True)
+    monkeypatch.setattr(svc.settings, "library_sentinel", ".mounted")
+    svc.store.deleted_workspaces.clear()
+    svc.run_indexing(True, True)
+    assert svc.last_run["status"] == "skipped"
+    assert svc.store.deleted_workspaces == []
+    assert live_paths(svc) == ["watched/a.txt"]
+
+
+def fill_watched(svc, count=10):
+    for i in range(count):
+        (svc.library / "watched" / f"f{i}.txt").write_text(f"content {i}")
+    svc.run_indexing(False, True)
+    assert svc.last_run["failed"] == 0
+
+
+def test_implausibly_large_removal_is_held_back(svc):
+    fill_watched(svc)
+    for i in range(8):
+        (svc.library / "watched" / f"f{i}.txt").unlink()
+    svc.run_indexing(False, True)
+    assert svc.last_run["deleted"] == 0
+    assert len(live_paths(svc)) == 11
+    assert any("confirm" in e for e in svc.last_run["errors"])
+    assert "confirm" in last_run_row(svc)[1]
+
+
+def test_large_removal_goes_ahead_when_confirmed(svc):
+    fill_watched(svc)
+    for i in range(8):
+        (svc.library / "watched" / f"f{i}.txt").unlink()
+    svc.run_indexing(False, True, confirm_removal=True)
+    assert svc.last_run["deleted"] == 8
+    assert len(live_paths(svc)) == 3
+
+
+def test_small_removal_does_not_need_confirmation(svc):
+    fill_watched(svc)
+    for i in range(3):
+        (svc.library / "watched" / f"f{i}.txt").unlink()
+    svc.run_indexing(False, True)
+    assert svc.last_run["deleted"] == 3
