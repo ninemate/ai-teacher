@@ -219,3 +219,14 @@ def test_regular_users_cannot_read_admin_ingestion_status_but_admins_can(api_mai
     assert {data["path_a"], data["path_b"]} <= {
         item["source_path"] for item in admin.get("/sources").json()
     }
+
+
+def test_every_configured_account_has_a_workspace_before_its_first_login(api_main, monkeypatch):
+    from teacher_common.models import Workspace
+
+    name = f"new-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setitem(api_main.auth_users, name, "$argon2id$unused")
+    api_main._ensure_account_workspaces()
+    with session_scope() as session:
+        workspace = session.get(Workspace, f"user:{name}")
+        assert workspace is not None and workspace.owner_username == name

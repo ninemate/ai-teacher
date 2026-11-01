@@ -68,7 +68,6 @@ def require_ingest_token(authorization: str = Header(default="")) -> None:
 def startup_event() -> None:
     if not settings.teacher_ingest_token:
         logging.getLogger("uvicorn").warning("TEACHER_INGEST_TOKEN is empty: /ingest endpoints refuse every call.")
-    Path("/data/metadata").mkdir(parents=True, exist_ok=True)
     init_db()
     close_interrupted_runs()
     ensure_collection()

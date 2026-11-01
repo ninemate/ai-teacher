@@ -34,8 +34,9 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 cd "$repo_dir"
 
-# .env when the developer/host has one, otherwise the checked-in defaults.
-env_file="$repo_dir/.env"
+# .env when the developer/host has one, otherwise the checked-in defaults. TEACHER_ENV_FILE points at another
+# stack's settings (scripts/e2e.sh).
+env_file="${TEACHER_ENV_FILE:-$repo_dir/.env}"
 [ -f "$env_file" ] || env_file="$repo_dir/.env.example"
 
 fail() {

@@ -19,7 +19,8 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 cd "$repo_dir"
 
-env_file="$repo_dir/.env"
+# TEACHER_ENV_FILE points at another stack's settings (scripts/e2e.sh).
+env_file="${TEACHER_ENV_FILE:-$repo_dir/.env}"
 [ -f "$env_file" ] || env_file="$repo_dir/.env.example"
 
 fail() {
@@ -30,14 +31,17 @@ fail() {
 cid=$(docker compose --env-file "$env_file" -f compose/docker-compose.yml ps -q ollama)
 [ -n "$cid" ] || fail "the ollama container is not running; start the stack with make dev-up"
 
-edge_net=$(docker compose --env-file "$env_file" -f compose/docker-compose.yml config --format json \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["networks"]["default"]["name"])')
+# Merged with the proxy overlay: compose leaves a network no service uses out of the config, and only the proxy
+# is on the edge network.
+merged_config=$(docker compose --env-file "$env_file" -f compose/docker-compose.yml \
+    -f compose/docker-compose.dev.yml -f compose/docker-compose.proxy.yml config --format json)
+edge_net=$(printf '%s' "$merged_config" | python3 -c 'import json,sys; print(json.load(sys.stdin)["networks"]["default"]["name"])')
 
 if [ "$#" -gt 0 ]; then
     models="$*"
 else
-    models=$(docker compose --env-file "$env_file" -f compose/docker-compose.yml config --format json \
-        | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["ollama"]["environment"]["OLLAMA_MODEL"])')
+    # The api is the service that uses the model; the ollama container itself is not told its name.
+    models=$(printf '%s' "$merged_config" | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["api"]["environment"]["OLLAMA_MODEL"])')
 fi
 [ -n "$models" ] || fail "no model to pull"
 
