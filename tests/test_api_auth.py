@@ -24,7 +24,9 @@ def client(api_main, monkeypatch):
     monkeypatch.setattr(
         api_main,
         "generate_teaching_response",
-        lambda task, prompt_input, level, top_k: {"answer": f"{task}: {prompt_input}", "sources": []},
+        lambda task, prompt_input, level, top_k, workspace_ids: {
+            "answer": f"{task}: {prompt_input}", "sources": []
+        },
     )
     return TestClient(api_main.app, follow_redirects=False)
 
@@ -189,6 +191,14 @@ def test_rate_limiter_needs_at_least_one_attempt():
         Settings(TEACHER_LOGIN_MAX_ATTEMPTS=0)
 
 
+def test_admin_role_is_explicit_and_unknown_admins_are_rejected():
+    hashed = PasswordHasher().hash("long-enough-password")
+    settings = Settings(TEACHER_AUTH_USERS=f"apa:{hashed};anya:{hashed}", TEACHER_AUTH_ADMINS="apa, anya")
+    assert settings.auth_admins() == {"apa", "anya"}
+    with pytest.raises(ValueError, match="unknown users"):
+        Settings(TEACHER_AUTH_USERS=f"apa:{hashed}", TEACHER_AUTH_ADMINS="intruder").auth_admins()
+
+
 def test_host_header_cannot_make_a_route_public(client):
     for host in ["x/static/", "x/health?", "x/login#"]:
         assert client.get("/sources", headers={"host": host}).status_code == 401
@@ -252,6 +262,7 @@ def test_security_headers(client):
 
 
 def test_reindex_forwards_ingest_token(api_main, client, monkeypatch):
+    monkeypatch.setattr(api_main, "auth_admins", {"apa"})
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -274,6 +285,7 @@ def _fake_ingestion(api_main, monkeypatch, handler) -> None:
 
 
 def test_reindex_while_a_run_is_going_answers_409_not_500(api_main, client, monkeypatch):
+    monkeypatch.setattr(api_main, "auth_admins", {"apa"})
     _fake_ingestion(api_main, monkeypatch, lambda request: httpx.Response(409, json={"detail": "running"}))
     login(client)
     response = client.post("/ingest/reindex", json={}, headers={"X-CSRF-Token": session_csrf(client)})
@@ -281,6 +293,7 @@ def test_reindex_while_a_run_is_going_answers_409_not_500(api_main, client, monk
 
 
 def test_reindex_with_ingestion_down_answers_502(api_main, client, monkeypatch):
+    monkeypatch.setattr(api_main, "auth_admins", {"apa"})
     def down(request):
         raise httpx.ConnectError("connection refused", request=request)
 
@@ -291,6 +304,7 @@ def test_reindex_with_ingestion_down_answers_502(api_main, client, monkeypatch):
 
 
 def test_schedule_is_proxied_with_the_ingest_token(api_main, client, monkeypatch):
+    monkeypatch.setattr(api_main, "auth_admins", {"apa"})
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:

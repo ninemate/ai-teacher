@@ -276,6 +276,10 @@ def ingestion(tmp_path, monkeypatch):
 
     engine = create_engine(f"sqlite:///{tmp_path / 'meta.db'}")
     Base.metadata.create_all(engine)
+    from teacher_common.models import Workspace
+    with sessionmaker(bind=engine)() as session:
+        session.add(Workspace(id="legacy", name="Legacy", owner_username="legacy"))
+        session.commit()
     monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=engine, autoflush=False, autocommit=False))
     monkeypatch.setattr(main, "settings", make_cfg(tmp_path, ingest_chunk_size=500, ingest_chunk_overlap=50))
     monkeypatch.setattr("teacher_common.config.get_settings", lambda: main.settings)

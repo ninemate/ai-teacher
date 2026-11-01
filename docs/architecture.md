@@ -1,6 +1,6 @@
 # Architecture
 
-The MVP is a text-first RAG system designed for a dedicated teacher-agent VM. It is intentionally separate from any other AI workload stack.
+The MVP is a text-first RAG system designed for a dedicated teacher-agent host or VM. It is self-contained and does not share services with any other AI workload stack.
 
 ## Core Services
 
@@ -9,9 +9,93 @@ The MVP is a text-first RAG system designed for a dedicated teacher-agent VM. It
 - `qdrant`: vector storage
 - `ollama`: local LLM runtime
 - `sqlite`: local metadata state stored on the host, not a separate container
-- `voice`: optional overlay (`compose/docker-compose.voice.example.yml`): Whisper STT scaffold, TTS not wired yet
+- `voice`: optional offline Hungarian STT (faster-whisper) and TTS (Piper), added with `compose/docker-compose.voice.example.yml`
 
 `api` and `ingestion` share one SQLite file under `${TEACHER_DATA_DIR}/metadata` (documents, chunks, ingest runs, OCR records, login sessions, quizzes and decks). Both call `init_db()` at startup. SQLite waits up to 30 seconds for the other container's write instead of failing.
+
+## Current Architecture (Deployment View)
+
+What runs today and how the pieces connect. Optional parts (HTTPS proxy, voice, NVIDIA overlays) are dashed.
+
+```mermaid
+flowchart TB
+  subgraph Client[Client]
+    Phone[Phone or desktop browser]
+  end
+  subgraph Host[Teacher-agent host or VM, Docker Compose]
+    Proxy[Caddy proxy: HTTPS, optional overlay]
+    API[api: FastAPI UI + JSON API, app login]
+    ING[ingestion: scheduler, parsers, OCR, embeddings]
+    OLL[ollama: local LLM runtime]
+    QD[(qdrant: vectors + chunk text)]
+    VOX[voice: Piper TTS, faster-whisper STT, optional]
+    DB[(SQLite file in metadata volume)]
+    OCRC[(OCR page cache)]
+  end
+  subgraph Storage[Storage]
+    NAS[(NAS or file server: SMB/NFS share, read-only mount)]
+  end
+  GPU[[NVIDIA GPUs, optional overlay]]
+
+  Phone -->|VPN + HTTPS + login| Proxy
+  Proxy --> API
+  API --> QD
+  API --> OLL
+  API --> DB
+  API -->|bearer token: reindex, schedule| ING
+  API -.->|/voice/*| VOX
+  NAS -->|watched folders| ING
+  ING --> QD
+  ING --> DB
+  ING --> OCRC
+  OLL -.-> GPU
+  VOX -.->|optional Whisper on GPU| GPU
+```
+
+- Only the proxy is meant to be reachable by clients: `proxy` sits on the shared edge network alone; `api`, `ingestion`, `qdrant`, `ollama` and `voice` sit on the internal private network only (see [Network and Egress](#network-and-egress), below). In plain dev mode there are no service host ports either.
+- The source library never leaves the share; only chunk text, vectors, metadata and the OCR cache are stored locally.
+
+## Planned Architecture
+
+These items are designed or under consideration but **not implemented** yet. They are listed here so the target shape is visible; see [open-questions.md](open-questions.md) for the unsettled parts.
+
+```mermaid
+flowchart TB
+  subgraph Client[Client]
+    Phone[Phone or desktop browser]
+  end
+  subgraph Host[Teacher-agent host or VM, Docker Compose]
+    Proxy[Caddy proxy]
+    API[api: per-user access checks]
+    ING[ingestion: collection / owner tagging, OCR for image-only EPUB/DOCX]
+    OLL[ollama]
+    QD[(qdrant: payload filtered by collection and role)]
+    VOX[voice: sentence-by-sentence TTS streaming]
+    DB[(SQLite: users, roles, collection ACLs)]
+  end
+  NAS[(NAS share)]
+  IDP[Identity provider, optional SSO]
+  NET((Internet))
+
+  Phone --> Proxy --> API
+  IDP -.->|SSO| API
+  API -->|filter by caller's collections| QD
+  API --> OLL
+  API --> DB
+  API --> ING
+  API -.-> VOX
+  NAS --> ING
+  ING --> QD
+  Host --x|no egress: internal-only network| NET
+```
+
+Planned changes:
+
+- **Per-user / role-based isolation (RBAC).** Documents belong to collections; each user or role sees only the collections it is allowed to. The filter is applied in retrieval (Qdrant payload filter) and in the study features (quizzes, decks and attempts are scoped to their owner), not only in the UI.
+- **Page-level citations.** Chunks carry their page (or section) so answers cite `title, page` instead of just the document, and the UI can point to the exact location. This extends the `locator` already stored with source references.
+- **Compose HTTPS overlay in deploys.** Use the same Caddy overlay as local dev instead of a separately installed host proxy (open question in [open-questions.md](open-questions.md)).
+- **OCR for image-only EPUB/DOCX**, **voice measurements on the target GPU** and **sentence-by-sentence TTS streaming** for long answers (see [voice-hungarian.md](voice-hungarian.md)).
+- **SSO / identity provider** instead of users configured in `.env` (only if the user count grows).
 
 ## Network and Egress
 
@@ -125,8 +209,8 @@ The UI section "Tanulás" on the main page (`static/study.js`, `study.css`) list
 
 ```mermaid
 flowchart TD
-  Phone[Father's Phone] -->|Preferred: VPN| VPN[WireGuard or Tailscale]
-  VPN --> Host[Teacher-Agent VM]
+  Phone[Phone] -->|Preferred: VPN| VPN[WireGuard or Tailscale]
+  VPN --> Host[Teacher-Agent Host]
   Host --> UI[FastAPI UI]
   Phone -->|HTTPS + app login| Caddy[Caddy: compose overlay or host role]
   Caddy --> UI
@@ -136,18 +220,27 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  Mic[Phone Microphone] --> STT[Optional STT Service]
-  STT --> API[Teacher API]
-  API --> TTS[Optional TTS Service]
-  TTS --> Audio[Hungarian Audio Reply]
+  Mic[Phone Microphone] -->|webm/mp4 upload| API[Teacher API, login + CSRF]
+  API -->|/voice/transcribe| STT[faster-whisper large-v3-turbo, CPU]
+  STT --> Text[Question text, user checks it]
+  Text --> Chat[POST /chat]
+  Chat --> Answer[Hungarian answer]
+  Answer -->|/voice/speak| TTS[Piper hu_HU voice, CPU]
+  TTS --> Audio[MP3 in the browser's player]
 ```
 
-## VM Split Example
+- The `voice` container is internal only; the API proxies `/voice/*` and reports at `/voice/status` whether it is there. The UI shows the voice controls only then.
+- Both engines run on the CPU by default, so the GPU stays with the chat model. `compose/docker-compose.voice.nvidia.example.yml` moves Whisper to the GPU (about 1-1.5 GB, unloaded when idle).
+- Engine choice, measurements and configuration: [voice-hungarian.md](voice-hungarian.md).
+
+## GPU Sharing Example (Illustrative)
+
+One possible pattern when several workloads share a multi-GPU host; the split is whatever your hardware and workloads need.
 
 ```mermaid
 flowchart TB
-  Host[Physical Host: up to 8x RTX 3070] --> VM1[Image Generation VM: 7 GPUs]
-  Host --> VM2[Teacher-Agent VM: 1 GPU]
+  Host[Physical Host: N NVIDIA GPUs] --> VM1[Other GPU Workload VM: some GPUs]
+  Host --> VM2[Teacher-Agent VM: at least 1 GPU]
   VM2 --> Teacher[Teacher-Agent Stack]
 ```
 
@@ -156,7 +249,7 @@ flowchart TB
 - The source library remains on the share.
 - Index data lives locally for speed.
 - Chunk text is stored locally as part of the RAG index payload.
-- Sequential ingestion is a deliberate default to protect `16 GB RAM`.
+- Sequential ingestion is a deliberate default to keep memory use low on hosts with limited RAM.
 - Only folders listed in `config/ingestion/ingestion.yml` are scanned; the share may hold far more than is indexed.
 - Stored quizzes and decks keep a copy of their source references (path, title, locator), not foreign keys, so a reindex or a deleted document does not break them.
 

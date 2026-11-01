@@ -30,6 +30,7 @@ async function runTask(path) {
 
   answerEl.textContent = "Válasz készül...";
   sourcesEl.innerHTML = "";
+  document.dispatchEvent(new CustomEvent("teacher:answer", { detail: { answer: "" } }));
 
   const payload =
     path === "/chat"
@@ -49,6 +50,7 @@ async function runTask(path) {
   }
 
   answerEl.textContent = data.answer;
+  document.dispatchEvent(new CustomEvent("teacher:answer", { detail: { answer: data.answer } }));
   (data.sources || []).forEach((source) => {
     const li = document.createElement("li");
     li.textContent = `${source.title || source.source_path} - ${source.locator || "ismeretlen hely"}`;

@@ -10,7 +10,7 @@ a numbered function to ``MIGRATIONS``. Applied versions are recorded in
 import logging
 from collections.abc import Callable
 
-from sqlalchemy import Column, DateTime, Engine, Integer, String, Table, func, insert, select
+from sqlalchemy import Column, DateTime, Engine, Integer, String, Table, func, insert, inspect, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
@@ -33,9 +33,44 @@ def _baseline_study_tables(connection: Connection) -> None:
     """Quiz and flashcard tables are created by create_all; nothing else to do."""
 
 
+def _workspace_isolation(connection: Connection) -> None:
+    """Add workspace ownership to existing private data; legacy rows stay in an admin-owned workspace."""
+    connection.exec_driver_sql(
+        "INSERT OR IGNORE INTO workspaces (id, name, owner_username) VALUES (?, ?, ?)",
+        ("legacy", "Korábbi tudástár", "legacy"),
+    )
+
+    columns_by_table = {
+        "documents": "legacy",
+        "chunks": "legacy",
+        "ocr_documents": "legacy",
+        "quiz_sets": "legacy",
+        "flashcard_decks": "legacy",
+        "ingest_runs": "system",
+    }
+    inspector = inspect(connection)
+    for table_name, default in columns_by_table.items():
+        names = {column["name"] for column in inspector.get_columns(table_name)}
+        if "workspace_id" not in names:
+            connection.exec_driver_sql(
+                f'ALTER TABLE "{table_name}" ADD COLUMN workspace_id VARCHAR(128) NOT NULL DEFAULT \'{default}\''
+            )
+    connection.exec_driver_sql(
+        "UPDATE chunks SET workspace_id = (SELECT documents.workspace_id FROM documents "
+        "WHERE documents.id = chunks.document_id) WHERE workspace_id = 'legacy'"
+    )
+    connection.exec_driver_sql(
+        "UPDATE ocr_documents SET workspace_id = (SELECT documents.workspace_id FROM documents "
+        "WHERE documents.source_path = ocr_documents.source_path) "
+        "WHERE workspace_id = 'legacy' AND EXISTS "
+        "(SELECT 1 FROM documents WHERE documents.source_path = ocr_documents.source_path)"
+    )
+
+
 # Append only. Never edit or renumber a released migration.
 MIGRATIONS: list[Migration] = [
     (1, "baseline: quiz and flashcard tables", _baseline_study_tables),
+    (2, "workspace ownership for private content", _workspace_isolation),
 ]
 
 

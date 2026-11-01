@@ -11,13 +11,15 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class WatchFolder(BaseModel):
     """One folder (relative to the library mount point) to index."""
 
     path: str
+    # Existing single-user configurations keep indexing into the restricted legacy workspace.
+    workspace: str = "legacy"
     enabled: bool = True
     recursive: bool = True
     include: list[str] = Field(default_factory=list)
@@ -41,10 +43,33 @@ class WatchFolder(BaseModel):
             return None
         return [item.strip().lower() if item.strip().startswith(".") else f".{item.strip().lower()}" for item in value]
 
+    @field_validator("workspace")
+    @classmethod
+    def _workspace_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value or len(value) > 128 or any(char.isspace() for char in value):
+            raise ValueError("watch folder workspace must be a non-empty workspace id")
+        return value
+
 
 class WatchConfig(BaseModel):
     folders: list[WatchFolder] = Field(default_factory=list)
     exclude: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _consistent_overlaps(self) -> "WatchConfig":
+        folders = self.active_folders
+        for index, folder in enumerate(folders):
+            for other in folders[index + 1 :]:
+                nested = (
+                    folder.path in (".", other.path)
+                    or other.path == "."
+                    or folder.path.startswith(other.path.rstrip("/") + "/")
+                    or other.path.startswith(folder.path.rstrip("/") + "/")
+                )
+                if nested and folder.workspace != other.workspace:
+                    raise ValueError("overlapping watched folders must use the same workspace")
+        return self
 
     @property
     def active_folders(self) -> list[WatchFolder]:

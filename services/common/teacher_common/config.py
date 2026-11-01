@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     ingest_chunk_overlap: int = Field(default=200, alias="INGEST_CHUNK_OVERLAP")
     teacher_auth_users: str = Field(default="", alias="TEACHER_AUTH_USERS")
     teacher_auth_users_file: str = Field(default="", alias="TEACHER_AUTH_USERS_FILE")
+    teacher_auth_admins: str = Field(default="", alias="TEACHER_AUTH_ADMINS")
     teacher_auth_disabled: bool = Field(default=False, alias="TEACHER_AUTH_DISABLED")
     teacher_session_ttl_hours: int = Field(default=720, ge=1, alias="TEACHER_SESSION_TTL_HOURS")
     teacher_cookie_secure: Literal["auto", "true", "false"] = Field(default="auto", alias="TEACHER_COOKIE_SECURE")
@@ -67,10 +68,8 @@ class Settings(BaseSettings):
         alias="INGESTION_BASE_URL",
     )
     voice_base_url: str = Field(default="http://voice:8090", alias="VOICE_BASE_URL")
-    voice_stt_backend: str = Field(default="faster-whisper", alias="VOICE_STT_BACKEND")
-    voice_tts_backend: str = Field(default="disabled", alias="VOICE_TTS_BACKEND")
-    voice_stt_model: str = Field(default="base", alias="VOICE_STT_MODEL")
-    voice_stt_device: str = Field(default="auto", alias="VOICE_STT_DEVICE")
+    voice_max_upload_mb: float = Field(default=15, gt=0, alias="VOICE_MAX_UPLOAD_MB")
+    voice_timeout_seconds: float = Field(default=300, gt=0, alias="VOICE_TIMEOUT_SECONDS")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
     ocr_dpi: int = Field(default=300, alias="OCR_DPI")
     ocr_language: str = Field(default="hun+eng", alias="OCR_LANGUAGE")
@@ -106,6 +105,14 @@ class Settings(BaseSettings):
                 raise ValueError(f"Invalid TEACHER_AUTH_USERS entry for user {username!r}: expected username:$argon2id$...")
             users[username] = password_hash
         return users
+
+    def auth_admins(self) -> set[str]:
+        """Configured accounts with system-wide access; every other account has the user role."""
+        admins = {name.strip() for name in re.split(r"[,;\n]", self.teacher_auth_admins) if name.strip()}
+        unknown = admins - self.auth_users().keys()
+        if unknown:
+            raise ValueError(f"TEACHER_AUTH_ADMINS names unknown users: {', '.join(sorted(unknown))}")
+        return admins
 
 
 USERNAME_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")

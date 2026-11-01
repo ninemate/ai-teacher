@@ -6,6 +6,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import relationship
@@ -17,6 +18,9 @@ class DocumentRecord(Base):
     __tablename__ = "documents"
 
     id = Column(Integer, primary_key=True)
+    workspace_id = Column(
+        String(128), ForeignKey("workspaces.id"), nullable=False, index=True, default="legacy", server_default="legacy"
+    )
     source_path = Column(String(2048), unique=True, nullable=False, index=True)
     source_hash = Column(String(64), nullable=False)
     file_type = Column(String(32), nullable=False)
@@ -38,6 +42,9 @@ class ChunkRecord(Base):
     __tablename__ = "chunks"
 
     id = Column(Integer, primary_key=True)
+    workspace_id = Column(
+        String(128), ForeignKey("workspaces.id"), nullable=False, index=True, default="legacy", server_default="legacy"
+    )
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False, index=True)
     chunk_id = Column(String(128), unique=True, nullable=False, index=True)
     position = Column(Integer, nullable=False)
@@ -51,6 +58,8 @@ class IngestRun(Base):
     __tablename__ = "ingest_runs"
 
     id = Column(Integer, primary_key=True)
+    # A run may cover several configured workspaces, so aggregate runs belong to the system workspace.
+    workspace_id = Column(String(128), nullable=False, default="system", server_default="system", index=True)
     status = Column(String(32), nullable=False, default="running")
     message = Column(Text, nullable=True)
     scanned = Column(Integer, nullable=False, default=0)
@@ -69,6 +78,9 @@ class OcrRecord(Base):
     __tablename__ = "ocr_documents"
 
     id = Column(Integer, primary_key=True)
+    workspace_id = Column(
+        String(128), ForeignKey("workspaces.id"), nullable=False, index=True, default="legacy", server_default="legacy"
+    )
     source_path = Column(String(2048), unique=True, nullable=False, index=True)
     source_hash = Column(String(64), nullable=False)
     language = Column(String(64), nullable=False)
@@ -92,3 +104,28 @@ class AuthSession(Base):
     credential_tag = Column(String(64), nullable=False)
     created_at = Column(Integer, nullable=False)
     expires_at = Column(Integer, nullable=False, index=True)
+
+
+class Workspace(Base):
+    """A knowledge base owned by one configured account."""
+
+    __tablename__ = "workspaces"
+
+    id = Column(String(128), primary_key=True)
+    name = Column(String(255), nullable=False)
+    owner_username = Column(String(64), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    shares = relationship("WorkspaceShare", back_populates="workspace", cascade="all, delete-orphan")
+
+
+class WorkspaceShare(Base):
+    __tablename__ = "workspace_shares"
+    __table_args__ = (UniqueConstraint("workspace_id", "username", name="uq_workspace_share_user"),)
+
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(String(128), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    username = Column(String(64), nullable=False, index=True)
+    permission = Column(String(16), nullable=False, default="read")
+
+    workspace = relationship("Workspace", back_populates="shares")

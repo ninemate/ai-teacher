@@ -1,0 +1,21 @@
+# Optional: run Whisper (STT) on the shared GPU. Add after docker-compose.voice.example.yml.
+# Piper (TTS) stays on the CPU. Whisper large-v3-turbo in int8_float16 needs roughly 1-1.5 GB of VRAM next to
+# the chat model; the model is dropped after VOICE_STT_GPU_IDLE_UNLOAD_SECONDS so Ollama gets the memory back.
+# If loading on the GPU fails (e.g. out of memory), the service falls back to the CPU.
+services:
+  voice:
+    build:
+      args:
+        VOICE_CUDA: "true"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    environment:
+      VOICE_STT_DEVICE: auto
+      VOICE_STT_IDLE_UNLOAD_SECONDS: ${VOICE_STT_GPU_IDLE_UNLOAD_SECONDS:-300}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility

@@ -44,10 +44,13 @@ watch:
     - "@eaDir"
   folders:
     - path: Books/Physics
+      workspace: user:apa # Use an id from GET /workspaces.
     - path: Scans/Lecture notes
+      workspace: user:apa
       recursive: true
       exclude: ["drafts", "*~.pdf"]   # in addition to the global excludes
       include: []                     # when set, only matching files are indexed
       extensions: [.pdf]              # overrides scan_extensions for this folder
     - path: Books/Archive
+      workspace: user:apa
       enabled: false
