@@ -3,9 +3,11 @@
 ## Routine Tasks
 
 - deploy: `ansible-playbook -i ansible/inventory/dev.ini ansible/playbooks/deploy.yml`
-- healthcheck: `make healthcheck`
+- healthcheck: `make healthcheck` (container health + the egress audit)
 - reindex: `make reindex` (incremental, `remove_missing: true`)
-- last run: `make test-ingest` (ingestion `/ingest/status` with the token from `.env`)
+- last run: `make test-ingest` (ingestion `/ingest/status` with the token, asked through `docker compose exec` on the private network)
+- model updates: `make model-update` (temporary edge-network connection for `ollama pull`; see docs/security.md)
+- egress proof: `make test-egress` (config + containers + live probe)
 - logs: `make dev-logs`
 
 ## Watched Folders and Schedule
@@ -14,7 +16,7 @@
 - On a deployed host the file lives in `{{ teacher_stack_dir }}/config/ingestion/ingestion.yml`. Set the Ansible variable `teacher_ingest_config` (same structure as the YAML file) to have the deploy write it and restart `ingestion`. If you leave it empty, the deploy keeps the file already on the host and prints a warning when there is none. The local file is git-ignored.
 - Scheduled indexing is the `schedule` section of the same file (interval or cron with a timezone). It is off by default. Manual `POST /ingest/reindex` keeps working and shares the same lock, so the two never overlap.
 - `ingestion` reads the file at startup only, so restart the container after editing it by hand.
-- Check `GET /ingest/schedule` for next run, last run, counts and errors. Use it on the ingestion port with the token, or through the API with a login (see `docs/document-ingestion.md`).
+- Check `GET /ingest/schedule` for next run, last run, counts and errors. Ask it inside the private network (`make test-ingest` style, with the token), or through the API with a login (see `docs/document-ingestion.md`).
 - If a watched folder is missing (share not mounted), its documents are kept and the run reports an error.
 - Reserve a full reindex for parser changes, OCR settings changes that are not picked up automatically (page limit, Tesseract installed later), or index corruption recovery. It is refused while a watched folder looks unavailable.
 

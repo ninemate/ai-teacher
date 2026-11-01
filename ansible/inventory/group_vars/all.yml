@@ -1,13 +1,22 @@
 teacher_repo_local_path: "{{ playbook_dir | dirname | dirname }}"
 
+# Compose project name; the containers are <name>-<service>-1. Keep in sync with the
+# COMPOSE_PROJECT_NAME that teacher_stack templates into the stack's .env.
+teacher_project_name: teacher-agent
+
 teacher_mount_point: /mnt/library
 teacher_stack_dir: /opt/teacher-agent
 teacher_data_dir: /srv/teacher-agent
-teacher_http_bind: 127.0.0.1
-teacher_http_port: 8080
-teacher_ingest_port: 8081
-teacher_qdrant_port: 6333
-teacher_ollama_port: 11434
+
+# The private services (api, ingestion, voice, qdrant, ollama) publish no host ports:
+# the compose defines an `internal: true` network for them, so they have no route to
+# the internet, and only the compose proxy exposes ports. Remote access is VPN-only.
+# Override these when the phone's VPN needs a different name or port.
+teacher_proxy_host: localhost
+teacher_proxy_bind: 127.0.0.1
+teacher_https_port: 8443
+teacher_proxy_http_port: 8088
+teacher_tls: internal
 
 teacher_gpu_enabled: false
 teacher_gpu_vendor: nvidia

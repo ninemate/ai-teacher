@@ -10,6 +10,7 @@ services:
         VOICE_STT_MODEL: ${VOICE_STT_MODEL:-large-v3-turbo}
         VOICE_TTS_VOICES: ${VOICE_TTS_VOICES:-hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium}
     restart: unless-stopped
+    networks: [private]
     environment:
       VOICE_STT_BACKEND: ${VOICE_STT_BACKEND:-faster-whisper}
       VOICE_STT_MODEL: ${VOICE_STT_MODEL:-large-v3-turbo}

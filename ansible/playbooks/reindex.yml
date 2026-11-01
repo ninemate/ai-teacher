@@ -1,33 +1,37 @@
+# The ingestion service sits on the internal compose network and publishes no host
+# port, so the API calls from inside the network; this playbook asks it directly
+# through `docker compose exec`. The token comes from the container's own environment.
 - hosts: teacher
   become: true
   tasks:
-    - name: Read the ingestion token from the deployed environment file
-      ansible.builtin.slurp:
-        src: "{{ teacher_stack_dir }}/.env"
-      register: teacher_env_file
-      no_log: true
-
-    - name: Extract the ingestion token
-      ansible.builtin.set_fact:
-        teacher_ingest_token_effective: >-
-          {{ teacher_env_file.content | b64decode
-             | regex_findall('(?m)^TEACHER_INGEST_TOKEN=(\S+)$') | first | default('') }}
-      no_log: true
-
     - name: Trigger manual reindex
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ teacher_ingest_port }}/ingest/reindex"
-        method: POST
-        headers:
-          Authorization: "Bearer {{ teacher_ingest_token_effective }}"
-        body_format: json
-        body:
-          full_reindex: false
-          remove_missing: true
-        return_content: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --env-file
+          - .env
+          - -f
+          - compose/docker-compose.yml
+          - exec
+          - -T
+          - ingestion
+          - python
+          - -c
+          - >-
+            import os, urllib.request;
+            r = urllib.request.Request('http://127.0.0.1:8081/ingest/reindex',
+                headers={'Authorization': 'Bearer ' + os.environ['TEACHER_INGEST_TOKEN'],
+                         'Content-Type': 'application/json'});
+            body = b'{"full_reindex": false, "remove_missing": true}';
+            print(urllib.request.urlopen(r, data=body, timeout=600).read().decode())
+        chdir: "{{ teacher_stack_dir }}"
+      # The container answers with a JSON summary of the run; it is not secret
+      # (the token lives in the container's environment and is never printed).
+      changed_when: false
       register: reindex_result
+      failed_when: reindex_result.rc != 0
 
     - name: Show reindex response
       ansible.builtin.debug:
-        var: reindex_result.json
-
+        var: reindex_result.stdout

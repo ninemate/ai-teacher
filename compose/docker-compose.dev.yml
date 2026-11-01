@@ -1,8 +1,10 @@
-services:
-  qdrant:
-    ports:
-      - 127.0.0.1:${TEACHER_QDRANT_PORT:-6333}:6333
-
-  ollama:
-    ports:
-      - 127.0.0.1:${TEACHER_OLLAMA_PORT:-11434}:11434
+# Dev overlay. The private services publish no host ports any more: they sit on the
+# internal network (compose/docker-compose.yml), which Docker never NATs to the internet,
+# and published ports do not bind on internal networks (verified on Docker 29).
+# Debug from the host through `docker compose exec` instead, and reach the app only
+# through the reverse proxy (compose/docker-compose.proxy.yml, part of `make dev-up`).
+#
+# Examples:
+#   docker compose --env-file .env -f compose/docker-compose.yml exec ollama ollama list
+#   docker compose --env-file .env -f compose/docker-compose.yml exec api \
+#     python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').read())"
