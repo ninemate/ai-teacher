@@ -44,9 +44,9 @@ DEFAULT_PROMPT_DIR = ROOT / "config" / "prompts"
 DEFAULT_OUT = ROOT / "eval-results"
 # The same generation settings the api uses (services/api/app/main.py call_ollama).
 DEFAULT_OPTIONS = {"temperature": 0.2, "num_ctx": 8192}
-# Same limits as the api defaults (RETRIEVAL_WEAK_SCORE, OCR_LOW_CONFIDENCE, MAX_CONTEXT_CHARS).
+# Same limits as the api defaults (RETRIEVAL_WEAK_SCORE, OCR_LOW_CONFIDENCE, MAX_CONTEXT_CHARS in .env.example).
 LIMITS = citations.Limits(weak_score=0.8, ocr_min_confidence=70)
-MAX_CONTEXT_CHARS = 6000
+MAX_CONTEXT_CHARS = 18000  # the app's default; --max-context-chars overrides, keep it equal to your .env
 TASK_INSTRUCTION = {
     "answer": "Válaszold meg a kérdést tanári stílusban.",
     "summary": "Készíts tömör összefoglalót a témáról.",
@@ -319,9 +319,10 @@ def check_json(text: str, kind: str, source_count: int, count: int | None) -> tu
 
 def json_text_fields(raw: str) -> str:
     """All string values of a (valid) quiz/flashcard JSON, joined, for the language heuristic."""
-    start, end = raw.find("{"), raw.rfind("}")
+    from teacher_common import study
+
     try:
-        data = json.loads(raw[start : end + 1])
+        data = study.extract_json(raw)  # the parser the check before this one used: objects and bare arrays
     except ValueError:
         return ""
     parts: list[str] = []
@@ -641,6 +642,8 @@ def ensure_ignored(path: Path, is_file: bool = False) -> None:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    global MAX_CONTEXT_CHARS
+    MAX_CONTEXT_CHARS = args.max_context_chars
     private = [Path(p) for p in args.private]
     for p in private:
         if not p.is_file():
@@ -728,6 +731,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--only", action="append", help="only candidates whose tag contains this (repeatable)")
     run.add_argument("--only-questions", action="append", help="only questions whose id contains this (repeatable)")
     run.add_argument("--teacher-prompt", help="teacher prompt file (default config/prompts/teacher_hu.md)")
+    run.add_argument("--max-context-chars", type=int, default=MAX_CONTEXT_CHARS, help="passage characters put in a prompt; match MAX_CONTEXT_CHARS in your .env")
     run.add_argument("--num-ctx", type=int, default=DEFAULT_OPTIONS["num_ctx"])
     run.add_argument("--no-blind", action="store_true", help="show model names in the report")
     run.add_argument("--no-gpu", action="store_true", help="do not call nvidia-smi")

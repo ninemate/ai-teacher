@@ -358,3 +358,18 @@ def test_default_path_goes_through_docker_compose_exec(fake, tmp_path, monkeypat
     assert "compose" in log.read_text() and "exec -T api python -c" in log.read_text()
     (run_dir,) = (tmp_path / "out").iterdir()
     assert json.loads((run_dir / "results.json").read_text(encoding="utf-8"))["models"][0]["answers"]
+
+
+def test_bare_array_json_is_still_checked_for_language():
+    english = [{"front": "What is the capital of France", "back": "The capital city is Paris and it is large", "sources": [1]}] * 3
+    q = {"question": "x", "sources": [], "expect": {"json": "cards"}, "count": 3}
+    checks = ev.run_checks(q, json.dumps(english), 1)
+    assert checks["érvényes JSON"]["ok"] and not checks["magyarul (mezők)"]["ok"]
+
+
+def test_long_passages_are_not_cut_at_a_smaller_limit_than_the_app(tmp_path):
+    assert ev.MAX_CONTEXT_CHARS == 18000
+    text = "Hosszú szöveg. " * 800  # 12 000 characters
+    q = {"id": "long", "question": "Miről szól?", "sources": [{"title": "T", "locator": "1", "text": text}]}
+    prompt, _, _ = ev.build_prompt(q, ev.DEFAULT_PROMPT_DIR)
+    assert prompt.count("Hosszú szöveg.") >= 790

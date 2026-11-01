@@ -50,7 +50,7 @@ Reasoning:
 1. Start the stack (`make dev-up`) and fetch the candidates through the one deliberate channel: `scripts/model-update.sh <tag> [<tag> ...]`. The script never downloads anything itself; it lists what is missing and prints this command.
 2. `make eval-models` (or `python3 scripts/eval_models.py run --candidates <file>`). It needs Python 3 and `pydantic` on the host (the same parser the study feature uses validates the quiz JSON), and `nvidia-smi` if you want per-GPU memory.
 3. Requests go through `docker compose exec api`, so they use the private network like the app does: no port is published and no private service gets egress. `--url http://localhost:11434` talks to a local Ollama directly instead; only loopback addresses are accepted, because the prompts contain your documents (`--allow-remote-url` overrides that deliberately).
-4. Useful options: `--only <tag part>`, `--only-questions <id part>`, `--num-ctx`, `--no-blind` (show model names), `--candidates <your copy>`.
+4. Useful options: `--only <tag part>`, `--only-questions <id part>`, `--num-ctx`, `--max-context-chars` (default 18000, the app's `MAX_CONTEXT_CHARS`; keep it equal to your `.env`), `--no-blind` (show model names), `--candidates <your copy>`.
 
 Copy the candidate file and edit it for your own list; set `EVAL_CANDIDATES` and `EVAL_ARGS` for `make eval-models`.
 
