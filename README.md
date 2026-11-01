@@ -66,7 +66,8 @@ make model-update   # pulls OLLAMA_MODEL from .env (see docs/security.md)
 7. Trigger indexing (or wait for the schedule):
 
 ```bash
-make test-ingest          # asks /ingest/status from inside the private network
+make ingest-now           # starts a run of the watched folders, from inside the private network
+make test-ingest          # status and counts of the last run
 ```
 
 8. Open the UI and log in:
@@ -85,6 +86,8 @@ pip install pytest sqlalchemy pydantic-settings fastapi httpx \
   PyMuPDF Pillow pytesseract beautifulsoup4 ebooklib mobi lingua-language-detector python-docx
 python -m pytest
 ```
+
+`make test-e2e` tries the whole stack with a small model and Hungarian fixtures; see [docs/local-dev.md](docs/local-dev.md#testing-the-whole-stack).
 
 CI (`.github/workflows/ci.yml`) installs both services' requirements and runs `ruff check services/`,
 `mypy --ignore-missing-imports services/` and `pytest`, then builds the images and deploys `main` to the self-hosted deploy target.
