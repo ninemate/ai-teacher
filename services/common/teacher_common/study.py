@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 LLM = Callable[[str], str]
 
-SOURCE_KEYS = ("chunk_id", "source_path", "title", "locator")
+SOURCE_KEYS = ("chunk_id", "file_id", "file_name", "source_path", "title", "locator", "page", "chapter")
 
 
 class GenerationError(Exception):

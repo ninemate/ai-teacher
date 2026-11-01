@@ -1,4 +1,5 @@
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
@@ -102,6 +103,7 @@ def build_points(
     author: str | None,
     language: str | None,
     chunk_rows: Iterable[dict],
+    file_id: str | None = None,
 ) -> list[PointStruct]:
     points: list[PointStruct] = []
     for row in chunk_rows:
@@ -111,12 +113,19 @@ def build_points(
                 vector=row["vector"],
                 payload={
                     "chunk_id": row["chunk_id"],
+                    # Who lent the words: what file, where in it, and the answer's confidence in the text.
+                    "file_id": file_id or row["file_id"],
+                    "file_name": Path(source_path).name,
                     "source_path": source_path,
                     "workspace_id": workspace_id,
                     "title": title,
                     "author": author,
                     "language": language,
                     "locator": row["locator"],
+                    "page": row.get("page"),
+                    "chapter": row.get("chapter"),
+                    "ocr": row.get("ocr", False),
+                    "ocr_confidence": row.get("ocr_confidence"),
                     "position": row["position"],
                     "text": row["text"],
                     "preview": row["preview"],

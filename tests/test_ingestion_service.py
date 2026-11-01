@@ -17,7 +17,12 @@ from teacher_common.watch import WatchConfig, WatchFolder
 def svc(tmp_path, monkeypatch):
     hashed: list[str] = []
     documents = types.ModuleType("teacher_common.documents")
-    documents.chunk_segments = lambda segments, chunk_size, chunk_overlap: [types.SimpleNamespace(text="t", locator="p1")]
+    def chunk(segments, chunk_size, chunk_overlap):
+        return [
+            types.SimpleNamespace(text="t", locator="p1", page=1, chapter=None, ocr=False, ocr_confidence=None)
+        ]
+
+    documents.chunk_segments = chunk
     documents.parse_document = lambda path, file_hash=None: types.SimpleNamespace(
         segments=[], title=None, author=None, language="en", ocr=None
     )
@@ -455,3 +460,51 @@ def test_failure_that_cannot_be_recorded_does_not_abort_the_run(svc, monkeypatch
     svc.run_indexing(False, True)
     assert svc.last_run["status"] == "completed"
     assert (svc.last_run["failed"], svc.last_run["indexed"]) == (1, 1)
+
+
+def _chunks(svc):
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+
+    with session_scope() as session:
+        return session.execute(select(svc.models.ChunkRecord.chunk_id)).scalars().all()
+
+
+def test_identical_files_at_two_paths_keep_their_own_points(svc, monkeypatch):
+    """Same content (same hash) in two places must not share point ids, or one overwrites the other's citations."""
+    built = []
+    monkeypatch.setattr(svc, "hash_file", lambda path: "same-hash")
+    monkeypatch.setattr(svc, "build_points", lambda **kw: built.append(kw) or [])
+    (svc.library / "watched" / "copy.txt").write_text("a")
+    svc.run_indexing(False, True)
+    assert svc.last_run["failed"] == 0
+    assert live_paths(svc) == ["watched/a.txt", "watched/copy.txt"]
+    point_ids = [row["point_id"] for kw in built for row in kw["chunk_rows"]]
+    assert len(set(point_ids)) == 2
+    assert {kw["file_id"] for kw in built} == {"same-hash"}
+    assert len(set(_chunks(svc))) == 2
+
+
+def test_changed_file_that_fails_drops_its_stale_chunks(svc, monkeypatch):
+    svc.run_indexing(False, True)
+    assert len(_chunks(svc)) == 1
+    path = svc.library / "watched" / "a.txt"
+    path.write_text("new content that cannot be parsed")
+    svc.store.deleted_sources.clear()
+
+    def fail(path, file_hash=None):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(svc, "parse_document", fail)
+    svc.run_indexing(False, True)
+    assert svc.store.deleted_sources == [str(path)]
+    assert _chunks(svc) == []
+
+
+def test_unchanged_file_that_fails_keeps_its_chunks(svc):
+    """A retry that fails (e.g. a failed PDF reprocessed) must not drop text that still matches the file."""
+    svc.run_indexing(False, True)
+    svc.store.deleted_sources.clear()
+    svc.store_error_record(svc.library / "watched" / "a.txt", "boom")
+    assert svc.store.deleted_sources == []
+    assert len(_chunks(svc)) == 1
