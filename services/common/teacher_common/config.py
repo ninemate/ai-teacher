@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     max_context_chars: int = Field(default=18000, alias="MAX_CONTEXT_CHARS")
     study_top_k: int = Field(default=10, alias="STUDY_TOP_K")
     study_max_attempts: int = Field(default=2, alias="STUDY_MAX_ATTEMPTS")
+    # Document Intelligence (whole-document jobs). 0 for the window sizes = derive from MAX_CONTEXT_CHARS.
+    docintel_window_chars: int = Field(default=0, ge=0, alias="DOCINTEL_WINDOW_CHARS")
+    docintel_translate_chars: int = Field(default=0, ge=0, alias="DOCINTEL_TRANSLATE_CHARS")
+    # Tries per model call; 2 = one retry with feedback, then the step counts as failed.
+    docintel_max_attempts: int = Field(default=2, ge=1, le=5, alias="DOCINTEL_MAX_ATTEMPTS")
+    docintel_max_queued_jobs: int = Field(default=10, ge=1, alias="DOCINTEL_MAX_QUEUED_JOBS")
+    # One model call of a job may take this long (a small model on the CPU is slow); chat keeps its own limit.
+    docintel_llm_timeout_seconds: float = Field(default=1800, gt=0, alias="DOCINTEL_LLM_TIMEOUT_SECONDS")
     ingest_schedule_seconds: int = Field(default=0, alias="INGEST_SCHEDULE_SECONDS")
     ingest_config_path: str = Field(
         default="/app/config/ingestion/ingestion.yml",
@@ -88,6 +96,16 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = Field(default=900, alias="OCR_TIMEOUT_SECONDS")
     ocr_max_pages: int = Field(default=0, alias="OCR_MAX_PAGES")
     ocr_cache_dir: str = Field(default="/data/metadata/ocr_cache", alias="OCR_CACHE_DIR")
+
+    @property
+    def docintel_window(self) -> int:
+        """Characters of document text per model call: half the chat context, the rest is prompt and answer."""
+        return self.docintel_window_chars or max(2000, self.max_context_chars // 2)
+
+    @property
+    def docintel_translate_window(self) -> int:
+        """Translation output is as long as its input, so its windows are smaller."""
+        return self.docintel_translate_chars or max(1200, self.docintel_window // 3)
 
     @property
     def scan_extensions(self) -> list[str]:

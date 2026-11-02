@@ -102,6 +102,38 @@ def search(
     )
 
 
+def scroll_document(source_path: str, workspace_ids: set[str]) -> list[dict]:
+    """Every stored chunk payload of one document (text included), in reading order.
+
+    The chunk text lives only in the vector store (SQLite keeps a short preview), so this is the one place
+    a whole document can be rebuilt from. ``position`` is the chunk's 1-based place in the document.
+    """
+    if not workspace_ids:
+        return []
+    client = get_client()
+    query_filter = Filter(
+        must=[
+            FieldCondition(key="source_path", match=MatchValue(value=source_path)),
+            FieldCondition(key="workspace_id", match=MatchAny(any=sorted(workspace_ids))),
+        ]
+    )
+    payloads: list[dict] = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=settings.qdrant_collection,
+            scroll_filter=query_filter,
+            limit=256,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        payloads.extend(point.payload or {} for point in points)
+        if offset is None:
+            break
+    return sorted(payloads, key=lambda payload: payload.get("position") or 0)
+
+
 def build_points(
     source_path: str,
     workspace_id: str,

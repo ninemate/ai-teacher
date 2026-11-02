@@ -2,12 +2,14 @@ import logging
 import math
 import secrets
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
 import auth
 import httpx
+from docintel_routes import build_router as build_docintel_router
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -16,12 +18,13 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
-from teacher_common import citations, study_store
+from teacher_common import citations, docintel_store, study_store
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
+from teacher_common.docintel_worker import ChatPriority, Worker
 from teacher_common.embeddings import embed_query, warmup_embeddings
 from teacher_common.models import DocumentRecord, IngestRun, OcrRecord, Workspace, WorkspaceShare
-from teacher_common.qdrant_store import ensure_collection, search
+from teacher_common.qdrant_store import ensure_collection, scroll_document, search
 from teacher_common.workspaces import accessible_workspace_ids, ensure_personal_workspace
 
 APP_DIR = Path(__file__).resolve().parent
@@ -140,6 +143,7 @@ def startup_event() -> None:
     init_db()
     _ensure_account_workspaces()
     _claim_legacy_workspace()
+    docintel_worker.start()
     ensure_collection()
     warmup_embeddings()
     _check_ollama_model()
@@ -338,6 +342,8 @@ def delete_source(document_id: int, request: Request):
             raise HTTPException(status_code=404, detail="A dokumentum nem található.")
         delete_points_for_source(row.source_path)
         study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+        # Document Intelligence results are kept but marked stale (the person deletes them); unfinished jobs stop.
+        docintel_store.mark_stale_for_source(session, row.source_path)
         session.query(OcrRecord).filter(
             OcrRecord.source_path == row.source_path,
             OcrRecord.workspace_id == row.workspace_id,
@@ -677,7 +683,12 @@ def retrieve_sources(
     ]
 
 
-def call_ollama(prompt: str, json_mode: bool = False) -> str:
+# Chat and study requests go to the model before background jobs (Document Intelligence waits for them).
+chat_priority = ChatPriority()
+
+
+def call_ollama(prompt: str, json_mode: bool = False, *, background: bool = False) -> str:
+    """One model call. ``background`` is for Document Intelligence jobs: they yield to chat and may take longer."""
     payload: dict = {
         "model": settings.ollama_model,
         "prompt": prompt,
@@ -690,9 +701,15 @@ def call_ollama(prompt: str, json_mode: bool = False) -> str:
     }
     if json_mode:
         payload["format"] = "json"
-    with httpx.Client(timeout=180.0) as client:
-        response = client.post(f"{settings.ollama_base_url}/api/generate", json=payload)
-        response.raise_for_status()
+    if background:
+        chat_priority.wait_idle()
+        timeout = settings.docintel_llm_timeout_seconds
+    else:
+        timeout = 180.0
+    with chat_priority.interactive() if not background else nullcontext():
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(f"{settings.ollama_base_url}/api/generate", json=payload)
+            response.raise_for_status()
     data = response.json()
     return data.get("response", "").strip()
 
@@ -707,3 +724,19 @@ app.include_router(
         llm=lambda prompt, json_mode: call_ollama(prompt, json_mode=json_mode),
     ),
 )
+
+
+# Whole-document jobs (/docintel/...): a single background worker, so one model job runs at a time.
+docintel_worker = Worker(
+    settings=settings,
+    llm=lambda prompt, json_mode: call_ollama(prompt, json_mode, background=True),
+    scroll=lambda source_path, workspace_ids: scroll_document(source_path, workspace_ids),
+    workspace_ids_for=lambda username: _workspace_ids_for_user(username),
+    prompt_dir=Path(settings.teacher_prompt_path).parent,
+)
+app.include_router(build_docintel_router(docintel_worker))
+
+
+def _workspace_ids_for_user(username: str) -> set[str]:
+    with session_scope() as session:
+        return accessible_workspace_ids(session, username, admin=username in auth_admins)
