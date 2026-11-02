@@ -155,6 +155,40 @@ def test_extract_rows_have_type_source_file_and_page_and_exports_keep_them():
     assert "| Típus |" in markdown and "szabalyzat.pdf, 1. oldal" in markdown and "| Tagdíj | 1000 |" in markdown
 
 
+def _table(rows):
+    return {"type": "table", "text": "Díjak", "detail": "", "sources": [1], "table": {"columns": ["Tétel", "Összeg"], "rows": rows}}
+
+
+def test_tables_under_the_same_caption_are_not_merged_unless_their_cells_are_the_same():
+    document = make_doc("dijak.pdf", ["Díjak első táblázata.", "Díjak második táblázata.", "Díjak első táblázata."])
+    answers = [
+        json.dumps({"items": [_table([["Tagdíj", "1000"]])]}),
+        json.dumps({"items": [_table([["Belépő", "500"], ["Kaució", "200"]])]}),
+        json.dumps({"items": [_table([["Tagdíj", "1000"]])]}),
+    ]
+    model = FakeModel()
+    model.script = answers
+    result, _, _ = run("extract", [document], model, options={"types": ["table"]}, window_chars=30)
+    tables = [row for row in result["rows"] if row["type"] == "table"]
+    assert [t["table"]["rows"] for t in tables] == [[["Tagdíj", "1000"]], [["Belépő", "500"], ["Kaució", "200"]]]
+    first = tables[0]
+    assert len(first["sources"]) == 2  # the identical table seen twice is one table citing both pages
+
+
+def test_a_table_with_rows_of_the_wrong_width_is_unusable_output_and_asked_for_again():
+    document = make_doc("dijak.pdf", ["Díjak táblázata."])
+    model = FakeModel()
+    model.script = [
+        json.dumps({"items": [_table([["Tagdíj", "1000", "felesleges"]])]}),
+        json.dumps({"items": [_table([["Tagdíj", "1000"]])]}),
+    ]
+    result, _, _ = run("extract", [document], model, options={"types": ["table"]})
+    assert model.count("extract") == 2
+    (row,) = result["rows"]
+    assert row["table"]["rows"] == [["Tagdíj", "1000"]]
+    assert all(len(r) == len(row["table"]["columns"]) for r in row["table"]["rows"])
+
+
 def test_extract_only_returns_the_requested_types():
     document = make_doc("szabalyzat.pdf", EXTRACT_DOC)
     result, _, _ = run("extract", [document], options={"types": ["deadline"]})

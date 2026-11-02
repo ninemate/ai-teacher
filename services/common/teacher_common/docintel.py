@@ -17,6 +17,7 @@ the way it rates a chat answer.
 
 import csv
 import io
+import json
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -253,10 +254,10 @@ def _table_ok(table: Any) -> dict | None:
     columns, rows = table.get("columns"), table.get("rows")
     if not isinstance(columns, list) or not columns or not isinstance(rows, list) or not rows:
         return None
-    clean_rows = [[str(cell).strip() for cell in row] for row in rows if isinstance(row, list)]
-    if not clean_rows:
+    # Every row as wide as the header: a ragged table would render misaligned and lose cells in the CSV.
+    if not all(isinstance(row, list) and len(row) == len(columns) for row in rows):
         return None
-    return {"columns": [str(c).strip() for c in columns], "rows": clean_rows}
+    return {"columns": [str(c).strip() for c in columns], "rows": [[str(cell).strip() for cell in row] for row in rows]}
 
 
 def _parse_sourced(
@@ -339,6 +340,10 @@ def _dedupe(items: list[dict]) -> list[dict]:
     merged: dict[tuple, dict] = {}
     for item in items:
         key = (item.get("type"), re.sub(r"\W+", " ", item["text"].casefold()).strip())
+        if item.get("type") == "table":
+            # Two tables under the same caption are two tables unless their cells are the same too.
+            table = item.get("table") or {}
+            key += (json.dumps([table.get("columns"), table.get("rows")], ensure_ascii=False).casefold(),)
         if key in merged:
             merged[key]["src"] = list(dict.fromkeys(merged[key]["src"] + item["src"]))
         else:
