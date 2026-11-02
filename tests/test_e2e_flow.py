@@ -21,8 +21,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from argon2 import PasswordHasher
-from fastapi.testclient import TestClient
 from docintel_fakes import MARKERS, FakeModel
+from fastapi.testclient import TestClient
 from teacher_common import ocr
 from teacher_common.config import get_settings
 from teacher_common.scheduling import IngestFileConfig
