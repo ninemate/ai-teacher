@@ -219,7 +219,7 @@
     note.textContent =
       `Ebben a dokumentumban ${ocr} szakasz beolvasott (OCR) szöveg, ebből ${low} bizonytalan ` +
       `(${Math.round(doc.limit)}% alatti az OCR megbízhatósága). A beolvasott oldalakat nem biztos, hogy hibátlanul olvassa fel; ` +
-      "a bizonytalan részek sárgával vannak jelölve.";
+      "a bizonytalan részeket narancssárga sáv jelöli.";
   }
 
   // --- section text and clips ------------------------------------------------------------
@@ -562,5 +562,11 @@
   });
   window.addEventListener("pagehide", flushSave);
 
-  loadVoice().then(loadLibrary);
+  // A link such as /#listen-12 opens that document straight away (for the navigation to come).
+  loadVoice()
+    .then(loadLibrary)
+    .then(() => {
+      const match = /^#listen-(\d+)$/.exec(window.location.hash);
+      if (match) openDocument(Number(match[1]));
+    });
 })();
