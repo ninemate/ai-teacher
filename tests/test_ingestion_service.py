@@ -187,6 +187,62 @@ def test_changed_file_is_reindexed(svc):
     assert svc.hashed == ["a.txt", "a.txt"]
 
 
+def test_tombstoned_path_stays_excluded_until_restored_even_after_full_reindex(svc):
+    import hashlib
+
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+    from teacher_common.models import ExcludedDocument
+
+    path = svc.library / "watched" / "a.txt"
+    svc.hash_file = lambda file_path: hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+    with session_scope() as session:
+        session.add(ExcludedDocument(workspace_id="legacy", source_path=str(path)))
+
+    assert svc.run_indexing(False, True, trigger="manual")
+    assert svc.last_run["scanned"] == svc.last_run["skipped"] == 1
+    assert svc.last_run["indexed"] == 0 and live_paths(svc) == []
+    assert svc.hashed == []
+
+    path.write_text("changed content at the same path")
+    assert svc.run_indexing(True, True, trigger="manual")
+    assert svc.last_run["scanned"] == svc.last_run["skipped"] == 1
+    assert svc.last_run["indexed"] == 0 and live_paths(svc) == []
+    assert svc.hashed == []
+    with session_scope() as session:
+        exclusion = session.execute(select(ExcludedDocument)).scalar_one()
+        session.delete(exclusion)
+
+    assert svc.run_indexing(False, True, trigger="manual")
+    assert live_paths(svc) == ["watched/a.txt"]
+    with session_scope() as session:
+        row = session.execute(select(svc.DocumentRecord)).scalar_one()
+        assert row.source_hash == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_tombstone_in_another_workspace_does_not_exclude_the_same_path(svc):
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+    from teacher_common.models import ExcludedDocument, Workspace
+
+    path = svc.library / "watched" / "a.txt"
+    svc.ingest_config.watch = WatchConfig(
+        folders=[WatchFolder(path="watched", workspace="user:anya")]
+    )
+    with session_scope() as session:
+        session.add_all([
+            Workspace(id="user:anya", name="Anya", owner_username="anya"),
+            Workspace(id="user:apa", name="Apa", owner_username="apa"),
+            ExcludedDocument(workspace_id="user:apa", source_path=str(path)),
+        ])
+
+    assert svc.run_indexing(False, True)
+    with session_scope() as session:
+        row = session.execute(select(svc.DocumentRecord)).scalar_one()
+        assert row.workspace_id == "user:anya"
+    assert live_paths(svc) == ["watched/a.txt"]
+
+
 def test_vanished_documents_are_removed(svc):
     (svc.library / "watched" / "keep.txt").write_text("k")
     svc.run_indexing(False, True)
@@ -194,6 +250,36 @@ def test_vanished_documents_are_removed(svc):
     svc.run_indexing(False, True)
     assert live_paths(svc) == ["watched/keep.txt"]
     assert svc.last_run["deleted"] == 1
+
+
+def test_documents_removed_by_a_scan_mark_document_intelligence_results_stale_and_stop_unfinished_jobs(svc):
+    from teacher_common import docintel_store
+    from teacher_common.db import session_scope
+    from teacher_common.docintel_models import DocIntelJob
+
+    (svc.library / "watched" / "keep.txt").write_text("k")  # a watched folder that turns empty is assumed lost
+    svc.run_indexing(False, True)
+    source = str(svc.library / "watched" / "a.txt")
+    jobs = {}
+    with session_scope() as session:
+        for name in ("done", "running", "waiting", "elsewhere"):
+            path = source if name != "elsewhere" else str(svc.library / "other" / "b.txt")
+            jobs[name] = docintel_store.create_job(
+                session, workspace_id="legacy", username="legacy", kind="summary", title=name,
+                sources=[{"source_path": path, "file_name": "a.txt"}], options={}, model=None,
+            )["id"]
+        for name, status in (("done", "succeeded"), ("running", "running")):
+            session.get(DocIntelJob, jobs[name]).status = status
+
+    (svc.library / "watched" / "a.txt").unlink()
+    svc.run_indexing(False, True)
+
+    with session_scope() as session:
+        done, running, waiting, elsewhere = (session.get(DocIntelJob, jobs[n]) for n in ("done", "running", "waiting", "elsewhere"))
+        assert done.stale and done.status == "succeeded"  # kept for the person to export, marked stale
+        assert running.cancel_requested  # the worker stops it before its next step
+        assert waiting.status == "cancelled"
+        assert not elsewhere.stale and elsewhere.status == "queued"
 
 
 def test_remove_missing_false_keeps_documents(svc):

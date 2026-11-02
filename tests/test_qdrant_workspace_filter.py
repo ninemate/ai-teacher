@@ -45,6 +45,18 @@ def test_every_vector_search_and_delete_has_workspace_filter(monkeypatch):
     conditions = {condition.key: condition.match for condition in client.delete_args["points_selector"].filter.must}
     assert conditions["source_path"].value == "/library/a.pdf"
 
+    store.delete_points_for_source("/library/a.pdf", workspace_id="user:anya")
+    conditions = {condition.key: condition.match for condition in client.delete_args["points_selector"].filter.must}
+    assert conditions["source_path"].value == "/library/a.pdf"
+    assert conditions["workspace_id"].value == "user:anya"
+
+    store.delete_points_for_source("/library/a.pdf", workspace_id="legacy")
+    query_filter = client.delete_args["points_selector"].filter
+    conditions = {condition.key: condition.match for condition in query_filter.must}
+    assert conditions["source_path"].value == "/library/a.pdf"
+    assert query_filter.should[0].match.value == "legacy"
+    assert query_filter.should[1].is_empty.key == "workspace_id"
+
     previous_delete = client.delete_args
     store.delete_points_for_workspace("user:anya")
     conditions = {condition.key: condition.match for condition in client.delete_args["points_selector"].filter.must}

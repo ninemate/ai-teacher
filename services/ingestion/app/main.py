@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
-from teacher_common import listen_store, study_store
+from teacher_common import docintel_store, listen_store, study_store
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.documents import (
@@ -20,7 +20,7 @@ from teacher_common.documents import (
 )
 from teacher_common.ebooks import DrmProtectedError
 from teacher_common.embeddings import embed_passages, warmup_embeddings
-from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun, OcrRecord, Workspace
+from teacher_common.models import ChunkRecord, DocumentRecord, ExcludedDocument, IngestRun, OcrRecord, Workspace
 from teacher_common.ocr import record_ocr, resumable
 from teacher_common.qdrant_store import (
     build_points,
@@ -262,6 +262,7 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str, confirm_
             message = "No watched folders configured; nothing to index"
             remove_missing = False
         known = load_known_documents()
+        excluded = load_excluded_documents()
         reprocess = load_reprocess_paths()
 
         for file_path in scan_watched_files(library_root, watch, settings.scan_extensions, report):
@@ -270,6 +271,9 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str, confirm_
             seen_paths.add(str(file_path))
             try:
                 workspace_id = workspace_for_path(file_path, library_root, watch)
+                if (workspace_id, str(file_path)) in excluded:
+                    skipped += 1
+                    continue
                 outcome = index_one_document(
                     file_path,
                     full_reindex=full_reindex,
@@ -278,7 +282,11 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str, confirm_
                     workspace_id=workspace_id,
                 )
                 if outcome == "indexed":
-                    indexed += 1
+                    if is_excluded_document(workspace_id, str(file_path)):
+                        remove_excluded_document_from_index(workspace_id, str(file_path))
+                        skipped += 1
+                    else:
+                        indexed += 1
                 elif outcome == "skipped":
                     skipped += 1
             except Exception as exc:  # noqa: BLE001 - one broken file must not abort the run
@@ -448,6 +456,42 @@ def load_known_documents() -> dict[str, tuple[int, int, str]]:
             )
         ).all()
     return {path: (size, mtime, workspace_id) for path, size, mtime, workspace_id in rows}
+
+
+def load_excluded_documents() -> set[tuple[str, str]]:
+    """Workspace and source path are the exclusion identity; file contents do not change it."""
+    with session_scope() as session:
+        return set(session.execute(select(ExcludedDocument.workspace_id, ExcludedDocument.source_path)).all())
+
+
+def is_excluded_document(workspace_id: str, source_path: str) -> bool:
+    with session_scope() as session:
+        return session.execute(
+            select(ExcludedDocument.id).where(
+                ExcludedDocument.workspace_id == workspace_id,
+                ExcludedDocument.source_path == source_path,
+            )
+        ).first() is not None
+
+
+def remove_excluded_document_from_index(workspace_id: str, source_path: str) -> None:
+    """Close the race where a deletion happens while a file is being indexed."""
+    delete_points_for_source(source_path, workspace_id=workspace_id)
+    with session_scope() as session:
+        row = session.execute(
+            select(DocumentRecord).where(
+                DocumentRecord.workspace_id == workspace_id,
+                DocumentRecord.source_path == source_path,
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return
+        study_store.delete_derived_items_for_source(session, source_path, workspace_id)
+        session.query(OcrRecord).filter(
+            OcrRecord.workspace_id == workspace_id,
+            OcrRecord.source_path == source_path,
+        ).delete()
+        session.delete(row)
 
 
 def load_reprocess_paths() -> set[str]:
@@ -668,6 +712,8 @@ def remove_deleted_documents(
             session.query(ChunkRecord).filter(ChunkRecord.document_id == row.id).delete()
             session.query(OcrRecord).filter(OcrRecord.source_path == row.source_path).delete()
             study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+            # Same rule as deleting a document in the API: results stay but are stale, unfinished jobs stop.
+            docintel_store.mark_stale_for_source(session, row.source_path)
             # Listening lists and positions go now; the API removes the cached audio (it cannot be played
             # meanwhile: every audio route refuses a deleted document).
             listen_store.delete_for_document(session, row.id)

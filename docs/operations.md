@@ -40,7 +40,7 @@ Run `make backup` on the host. It creates one UTC timestamped directory under `T
 
 The destination must be outside `LIBRARY_PATH`. The directory is mode `0700` and its files are mode `0600`, because the database contains password hashes and session records. Keep the backup storage itself protected and on a filesystem with enough room for the database, index snapshot and OCR cache.
 
-Backups deliberately do not contain `.env`, Ansible Vault files, TLS private keys, or other secrets. Keep those separately in the approved secret store. The network library is not copied: it remains on the NAS and relies on its own snapshots. Documents, vectors and OCR cache can be rebuilt by reindexing from the library; user-created quizzes, attempts and other SQLite state require the database backup.
+Backups deliberately do not contain `.env`, Ansible Vault files, TLS private keys, or other secrets. Keep those separately in the approved secret store, along with any reverse-proxy config you use. The network library is not copied: it remains on the NAS and relies on its own snapshots. Documents, vectors and OCR cache can be rebuilt by reindexing from the library; login sessions, quizzes, decks and review history, Document Intelligence jobs and results, and other SQLite state require the database backup.
 
 ### Restore and undo
 

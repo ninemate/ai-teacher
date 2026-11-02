@@ -48,6 +48,12 @@ Removal: with `remove_missing` (default on), documents not found in the watched 
 
 A full reindex (`full_reindex: true`) wipes the index before rebuilding it, so it is refused, leaving the index untouched, when no watched folders are configured, one of them is missing or unreadable (including nested directories found by the preview scan), or one looks unavailable by the rule above.
 
+## User-excluded documents
+
+Deleting a document with `DELETE /sources/{document_id}` removes it from that workspace's index and records an exclusion keyed by `(workspace_id, source_path)`. The file stays untouched in the read-only library. Scheduled runs, manual runs and full reindexes skip excluded paths; the exclusion is stored in the metadata database and survives service restarts. The existing removal guard still applies to files that disappear from watched folders; an explicit exclusion is a separate user choice.
+
+The source path is the file identity, not its content hash. If the file's contents change while it remains at the same path, it stays excluded until restored. A moved or renamed file has a different path and is treated as a new file if it is still watched. Users can list exclusions with `GET /sources/excluded` and restore one with `POST /sources/excluded/{excluded_id}/restore`. The list and restore action are limited to workspaces where the user has write access. Restoration only removes the exclusion; the next scheduled or manual indexing run reads the file again.
+
 ## Scheduled Indexing
 
 Configured in the `schedule` section of the same file; disabled by default. Use either `interval_seconds` (at least 60) or a five-field `cron` expression with an optional `timezone` (default UTC). `run_on_startup` also starts a run when the service comes up. If the file has no `schedule` section, the legacy `INGEST_SCHEDULE_SECONDS` still enables a fixed interval. An invalid config stops the service at startup with an error.

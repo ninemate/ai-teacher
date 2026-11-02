@@ -27,7 +27,7 @@ Three layers, each useful on its own:
 | `GET /login`, `POST /login` | the login page itself |
 | `/static/*` | CSS and JS for the login page; no private data |
 
-Everything else, including `/`, `/chat`, `/quiz`, `/summary`, `/flashcards`, `/study/*`, `/sources`, `/ingest/*`, `/voice/*`, `/session`, `/logout`, `/docs` and `/openapi.json`, answers `401` without a session (a browser asking for a page is redirected to `/login`). The check is a default-deny middleware, so a new route is protected without any extra code. `tests/test_api_auth.py` walks every registered route to keep it that way.
+Everything else, including `/`, `/chat`, `/quiz`, `/summary`, `/flashcards`, `/study/*`, `/docintel/*`, `/sources`, `/ingest/*`, `/voice/*`, `/session`, `/logout`, `/docs` and `/openapi.json`, answers `401` without a session (a browser asking for a page is redirected to `/login`). The check is a default-deny middleware, so a new route is protected without any extra code. `tests/test_api_auth.py` walks every registered route to keep it that way.
 
 ## App Login
 
@@ -50,7 +50,7 @@ Every configured account has the `user` role unless its username is listed in `T
 
 Each account gets a private workspace (`user:<username>`). Users may create additional knowledge bases with `POST /workspaces` and share one with another configured account using `POST /workspaces/{id}/shares` with `{"username":"anya","permission":"read"}` or `"write"`. The owner can revoke access with `DELETE /workspaces/{id}/shares/{username}`. Read shares permit retrieval and citations; write shares also permit modifying and deleting content. The API derives workspace access from the authenticated session and applies it to source listings, retrieval, study items, attempts, flashcard reviews and document deletion. Supplying another workspace ID or source path does not grant access. Unshared IDs are returned as not found.
 
-Documents and chunks store their workspace in SQLite and in each Qdrant payload. Every vector search requires a server-generated workspace filter. Stored quizzes and flashcard decks are scoped to their owner workspace; attempts and cards inherit access through their parent. Chat prompts and retrieved snippets are not persisted as chat history.
+Document Intelligence jobs and results (`/docintel/*`) are scoped the same way, to the workspace of the person who started them; see [document-intelligence.md](document-intelligence.md) for the stale-result rule when a source is deleted. Documents and chunks store their workspace in SQLite and in each Qdrant payload. Every vector search requires a server-generated workspace filter. Stored quizzes and flashcard decks are scoped to their owner workspace; attempts and cards inherit access through their parent. Chat prompts and retrieved snippets are not persisted as chat history.
 
 Deleting a source with `DELETE /sources/{document_id}` removes its Qdrant points, SQLite chunks, OCR marker, listening lists, bookmarks and cached audio, and quizzes or decks in that same workspace that cite or are scoped to the source. Derived items belonging to another workspace remain private, even if they cite a shared source. A user cannot delete an unshared source, even if they know its numeric ID. The ingestion status, schedule and reindex endpoints on the API are admin-only. Scheduled indexing uses the `workspace` configured on each watched folder; create the workspace first and put its ID in `config/ingestion/ingestion.yml`:
 

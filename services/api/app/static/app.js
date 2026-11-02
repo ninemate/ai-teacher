@@ -125,3 +125,69 @@ if (logoutButton) {
     window.location.assign("/login");
   });
 }
+
+async function loadExcludedDocuments() {
+  const listEl = document.getElementById("excluded-documents-list");
+  const statusEl = document.getElementById("excluded-documents-status");
+  if (!listEl || !statusEl) return;
+
+  try {
+    const response = await fetch("/sources/excluded");
+    if (response.status === 401) {
+      goToLogin();
+      return;
+    }
+    const documents = await response.json();
+    if (!response.ok) throw new Error(typeof documents.detail === "string" ? documents.detail : "Hiba történt.");
+
+    listEl.replaceChildren();
+    if (documents.length === 0) {
+      const empty = document.createElement("li");
+      empty.textContent = "Nincs kizárt dokumentum.";
+      listEl.append(empty);
+      return;
+    }
+
+    documents.forEach((excluded) => {
+      const item = document.createElement("li");
+      item.className = "excluded-item";
+      const info = document.createElement("span");
+      info.className = "excluded-item-info";
+      const name = document.createElement("strong");
+      name.textContent = excluded.file_name || excluded.source_path;
+      const path = document.createElement("small");
+      path.className = "excluded-item-path";
+      path.textContent = excluded.source_path;
+      info.append(name, path);
+
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.className = "secondary";
+      restore.textContent = "Visszaállítás";
+      restore.addEventListener("click", async () => {
+        restore.disabled = true;
+        statusEl.textContent = "";
+        const result = await postJson(`/sources/excluded/${excluded.id}/restore`, {});
+        if (result.status === 401) {
+          goToLogin();
+          return;
+        }
+        if (!result.ok) {
+          const error = await result.json();
+          statusEl.textContent = typeof error.detail === "string" ? error.detail : "Nem sikerült visszaállítani.";
+          restore.disabled = false;
+          return;
+        }
+        statusEl.textContent = "Visszaállítva. A következő indexeléskor újra bekerül a könyvtárba.";
+        await loadExcludedDocuments();
+      });
+      item.append(info, restore);
+      listEl.append(item);
+    });
+  } catch (error) {
+    listEl.replaceChildren();
+    statusEl.textContent = error instanceof Error ? error.message : "Nem sikerült betölteni a kizárt dokumentumokat.";
+  }
+}
+
+loadExcludedDocuments();
