@@ -192,6 +192,11 @@ class Trial:
             expect(not missing, f"citation without {sorted(missing)}")
         return answer
 
+    @staticmethod
+    def report_scores(label: str, answer: dict) -> None:
+        scores = [round(citation["score"], 3) for citation in answer["citations"]]
+        print(f"cosine scores ({label}): {scores}", flush=True)
+
     def index_run(self, **options) -> dict:
         """Trigger a run as admin through the proxy and wait for its counters."""
         admin = self.client(ADMIN)
@@ -289,6 +294,7 @@ class Trial:
 
     def ocr_scanned_pdf(self):
         answer = self.chat(ANNA, SCAN_QUESTION)
+        self.report_scores("scanned PDF question", answer)
         expect(answer["citations"], "no citations for a question about the scanned PDF")
         top = answer["citations"][0]
         expect(file_name(top["source_path"]) == SCAN_PDF, f"top citation is {top['label']}")
@@ -325,6 +331,7 @@ class Trial:
 
     def chat_cites_source(self):
         pdf = self.chat(ANNA, MILL_QUESTION)
+        self.report_scores("watermill question", pdf)
         expect(pdf["citations"], "no citations")
         top = pdf["citations"][0]
         expect(file_name(top["source_path"]) == MILL_PDF, f"top citation is {top['label']}")
@@ -337,6 +344,7 @@ class Trial:
         print(f"model answered: {pdf['answer'][:200]!r} grounding={pdf['grounding']['status']}")
 
         epub = self.chat(ANNA, FISH_QUESTION)
+        self.report_scores("fish question", epub)
         expect(epub["citations"], "no citations")
         top_epub = epub["citations"][0]
         expect(file_name(top_epub["source_path"]) == FISH_EPUB, f"top citation is {top_epub['label']}")
@@ -353,21 +361,17 @@ class Trial:
         expect("nem találtam" in nothing["answer"], f"answer: {nothing['answer']!r}")
         # Part two: documents exist, but none is about the question.
         unrelated = self.chat(ANNA, UNRELATED_QUESTION)
+        self.report_scores("unrelated question", unrelated)
         scores = [round(c["score"], 3) for c in unrelated["citations"]]
         print(f"unrelated question: scores={scores} grounding={unrelated['grounding']}")
-        print(f"model answered: {unrelated['answer'][:200]!r}")
-        grounding = unrelated["grounding"]
-        if unrelated["citations"]:
-            expect(grounding["notice"], f"a question with no source got an unqualified answer: {grounding}")
-            expect(
-                grounding["status"] == "no_source" or grounding["low_confidence"],
-                f"a question with no source is presented as grounded: {grounding}, scores {scores}",
-            )
-        detail = f"empty workspace: fixed refusal. Unrelated question: {grounding['status']}, scores {scores}"
-        # Reported, not failed: whether weak matches alone should bring the fixed refusal is undecided.
-        if unrelated["citations"]:
-            detail += ". OPEN: retrieval has no minimum score, so only the low-confidence notice says it"
-        return detail
+        expect(unrelated["citations"] == [] and unrelated["sources"] == [], f"unrelated question got sources: {scores}")
+        expect(unrelated["grounding"]["status"] == "no_source", f"grounding: {unrelated['grounding']}")
+        expect(
+            unrelated["grounding"]["notice"] and "nem találtam forrást" in unrelated["grounding"]["notice"],
+            f"no-source notice: {unrelated['grounding']}",
+        )
+        expect("nem találtam" in unrelated["answer"], f"answer: {unrelated['answer']!r}")
+        return "empty workspace and unrelated question both return the fixed no-source response"
 
     def isolation(self):
         anna, bela = self.client(ANNA), self.client(BELA)
@@ -495,6 +499,9 @@ class Trial:
         points_before = self.point_count()
         mill = next(r for r in self.sources(ANNA) if file_name(r["source_path"]) == MILL_PDF)
         expect_status(anna.request("DELETE", f"/sources/{mill['id']}"), 204, "delete through the API")
+        excluded = anna.get("/sources/excluded").json()
+        tombstone = next((row for row in excluded if row["source_path"] == mill["source_path"]), None)
+        expect(tombstone is not None, f"deleted document has no tombstone: {excluded}")
         expect(MILL_PDF not in self.source_names(ANNA), "still listed after DELETE")
         answer = self.chat(ANNA, MILL_QUESTION)
         cited = {file_name(c["source_path"]) for c in answer["citations"]}
@@ -510,6 +517,31 @@ class Trial:
             gone = anna.get(f"/study/quizzes/{self.stored['quiz']['id']}")
             expect_status(gone, 404, "quiz built on the deleted document")
 
+        # The path exclusion persists across a restart and a full rebuild of the remaining library.
+        result = self.run_command(self.args.restart_cmd, self.args.restart_timeout)
+        expect(result.returncode == 0, f"restart failed: {result.stderr[-500:] or result.stdout[-500:]}")
+        rebuilt = self.index_run(full_reindex=True)
+        expect(rebuilt.get("status") == "completed", f"full reindex ended as {rebuilt}")
+        expect(MILL_PDF not in self.source_names(ANNA), f"tombstoned file returned after full reindex: {rebuilt}")
+        expect(
+            any(row["id"] == tombstone["id"] and row["source_path"] == mill["source_path"]
+                for row in anna.get("/sources/excluded").json()),
+            "tombstone did not survive restart and full reindex",
+        )
+
+        restored = anna.post(f"/sources/excluded/{tombstone['id']}/restore", {})
+        expect_status(restored, 204, "restore the excluded document")
+        expect(anna.get("/sources/excluded").json() == [], "restored document is still excluded")
+        run = self.index_run()
+        expect(run.get("status") == "completed" and run["indexed"] == 1, f"run after restore: {run}")
+        expect(MILL_PDF in self.source_names(ANNA), "restored file was not indexed on the next run")
+        restored_answer = self.chat(ANNA, MILL_QUESTION)
+        expect(
+            any(file_name(c["source_path"]) == MILL_PDF for c in restored_answer["citations"]),
+            f"restored file is not cited: {restored_answer['citations']}",
+        )
+        detail += "; tombstone survived restart/full reindex, then restore indexed the file again"
+
         # A file removed from the watched folder leaves the index on the next run.
         scan = next(r for r in self.sources(ANNA) if file_name(r["source_path"]) == SCAN_PDF)
         (self.library / "anna" / SCAN_PDF).unlink()
@@ -521,9 +553,6 @@ class Trial:
         cited = {file_name(c["source_path"]) for c in answer["citations"]}
         expect(SCAN_PDF not in cited, f"removed file still cited: {answer['citations']}")
         detail += f"; removed file (id {scan['id']}) leaves on the next run"
-        # Reported, not failed: what a delete should mean while the file stays in a watched folder is undecided.
-        if MILL_PDF in self.source_names(ANNA):
-            detail += f". OPEN: {MILL_PDF} came back in that run, its file is still in the watched folder"
         return detail
 
     def egress(self):

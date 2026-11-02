@@ -163,4 +163,4 @@ def test_selected_document_generation_keeps_low_score_hits(client, fakes):
 
     assert response.status_code == 201, response.text
     assert fakes.retrievals == [("alfa", 10, ["/library/a.pdf"], {"user:study-user"})]
-    assert response.json()["questions"][0]["sources"][0]["chunk_id"] == "c1"
+    assert "[1] A | 3. oldal | alfa" in fakes.prompts[0]

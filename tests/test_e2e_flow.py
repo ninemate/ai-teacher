@@ -89,6 +89,9 @@ def _ollama_answer(request: httpx.Request) -> httpx.Response:
 @pytest.fixture()
 def stack(api_main, ingestion_main, tmp_path, monkeypatch):
     settings = get_settings()
+    # The flow uses a hashed-word fake embedder, whose scores are not calibrated against the E5 default.
+    # The dedicated retrieval-floor tests cover that policy; keep this test focused on the rest of the flow.
+    monkeypatch.setattr(settings, "retrieval_min_score", 0.0)
     library = tmp_path / "library"
     (library / "anna").mkdir(parents=True)
     (library / "bela").mkdir()
@@ -264,7 +267,11 @@ def test_whole_flow(stack):
 def test_a_failing_model_is_reported_and_not_a_server_crash(stack, monkeypatch):
     """A 500 here also closes the proxy's connection, so the next user's request got a 502 too."""
     anna = _login(stack.api, ANNA)
-    monkeypatch.setattr(stack.api, "retrieve_sources", lambda *args, **kwargs: [{"source_path": "/l/a.pdf", "text": "x"}])
+    monkeypatch.setattr(
+        stack.api,
+        "retrieve_sources",
+        lambda *args, **kwargs: [{"source_path": "/l/a.pdf", "text": "x", "score": 0.9}],
+    )
 
     def timed_out(prompt, json_mode=False):
         raise httpx.ReadTimeout("timed out")
