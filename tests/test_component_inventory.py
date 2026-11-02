@@ -1,4 +1,6 @@
+import importlib.metadata
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,3 +27,25 @@ def test_inventory_refuses_non_loopback_ollama_fallback(tmp_path, monkeypatch):
 
     assert models == []
     assert "no remote endpoint was contacted" in status
+
+
+def test_inventory_marks_image_status_unknown_when_compose_query_fails(tmp_path, monkeypatch):
+    settings = component_inventory.backup_restore.Settings(tmp_path / "empty-env")
+    settings.transport = "compose"
+    monkeypatch.setattr(component_inventory, "REQUIREMENTS", ("api",))
+    monkeypatch.setattr(component_inventory, "requirement_lines", lambda _service: [("example-package", "==1.2.3")])
+    monkeypatch.setattr(
+        component_inventory,
+        "compose_python",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, "", "service is not running"),
+    )
+
+    def missing_package(_name):
+        raise importlib.metadata.PackageNotFoundError("example-package")
+
+    monkeypatch.setattr(component_inventory.importlib.metadata, "distribution", missing_package)
+    [row] = component_inventory.installed_packages(settings)
+
+    assert row["version"] == "not found on inventory host; image status unavailable"
+    assert row["location"] == "host fallback; api image metadata unavailable"
+    assert row["license"] == "not checked"

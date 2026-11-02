@@ -112,11 +112,14 @@ def installed_packages(settings: backup_restore.Settings) -> list[dict]:
         declared = requirement_lines(service)
         names = sorted({name for name, _ in declared})
         result = compose_python(settings, service, MODEL_METADATA, json.dumps(names)) if settings.transport == "compose" else None
-        if result and result.returncode == 0:
+        image_query_succeeded = bool(result and result.returncode == 0)
+        if image_query_succeeded:
             metadata = json.loads(result.stdout)
             location = f"{service} container"
         else:
             metadata, location = {}, "inventory host"
+            if settings.transport == "compose":
+                location = f"host fallback; {service} image metadata unavailable"
         for name, constraint in declared:
             details = metadata.get(name) or metadata.get(name.lower())
             if details is None:
@@ -140,8 +143,14 @@ def installed_packages(settings: backup_restore.Settings) -> list[dict]:
                         "dependencies": distribution.requires or [],
                     }
                 except importlib.metadata.PackageNotFoundError:
+                    if settings.transport == "compose" and not image_query_succeeded:
+                        version = "not found on inventory host; image status unavailable"
+                    elif settings.transport == "compose":
+                        version = "not reported by image metadata or inventory host"
+                    else:
+                        version = "not found on inventory host; service image not queried"
                     details = {
-                        "version": "not found in image or host environment",
+                        "version": version,
                         "license": "not checked",
                         "source": "not available",
                         "dependencies": [],

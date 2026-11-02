@@ -102,6 +102,26 @@ def test_restore_requires_explicit_confirmation(tmp_path, monkeypatch):
         backup_restore.restore_backup(config, backup, confirm=False)
 
 
+@pytest.mark.parametrize("live_state", ["missing", "corrupt"])
+def test_restore_recovers_when_live_database_cannot_be_backed_up(tmp_path, monkeypatch, live_state):
+    config = settings(tmp_path, monkeypatch)
+    fake_qdrant(monkeypatch, True)
+    backup = backup_restore.create_backup(config)
+    if live_state == "missing":
+        config.db_path.unlink()
+    else:
+        config.db_path.write_bytes(b"not a sqlite database")
+
+    restored, undo = backup_restore.restore_backup(config, backup, confirm=True)
+
+    assert restored == backup
+    assert undo is None
+    with sqlite3.connect(config.db_path) as db:
+        assert db.execute("SELECT title FROM documents").fetchone() == ("Original document",)
+        assert db.execute("SELECT title FROM quizzes").fetchone() == ("Original quiz",)
+        assert db.execute("SELECT count(*) FROM auth_sessions").fetchone() == (0,)
+
+
 def test_failed_restore_reapplies_the_undo_point(tmp_path, monkeypatch):
     config = settings(tmp_path, monkeypatch)
     fake_qdrant(monkeypatch, True)

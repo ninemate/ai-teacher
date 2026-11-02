@@ -194,7 +194,12 @@ def _headers(settings: Settings) -> dict[str, str]:
     return {"api-key": key} if key else {}
 
 
-def _compose_command(settings: Settings, extra_env: list[str] | None = None) -> list[str]:
+def _compose_command(
+    settings: Settings,
+    extra_env: list[str] | None = None,
+    extra_volumes: list[str] | None = None,
+    worker_code: str = QDRANT_WORKER,
+) -> list[str]:
     args = ["docker", "compose"]
     if settings.env_file.is_file():
         args += ["--env-file", str(settings.env_file)]
@@ -203,7 +208,9 @@ def _compose_command(settings: Settings, extra_env: list[str] | None = None) -> 
     args += ["run", "--rm", "-T", "--no-deps"]
     for item in extra_env or []:
         args += ["-e", item]
-    args += ["--entrypoint", "python", "api", "-c", QDRANT_WORKER]
+    for volume in extra_volumes or []:
+        args += ["-v", volume]
+    args += ["--entrypoint", "python", "api", "-c", worker_code]
     return args
 
 
@@ -493,6 +500,57 @@ def verify_backup(folder: Path) -> tuple[dict, dict[str, Path]]:
     return manifest, verified
 
 
+def live_database_is_backupable(path: Path) -> bool:
+    """Return whether a live SQLite database can safely serve as a restore undo point."""
+    if not path.exists():
+        return False
+    if path.is_symlink() or not path.is_file():
+        raise BackupError(f"refusing to replace a non-file or symlink SQLite database: {path}")
+    try:
+        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=30) as database:
+            result = database.execute("PRAGMA integrity_check").fetchone()
+    except sqlite3.DatabaseError as exc:
+        message = str(exc).lower()
+        if any(marker in message for marker in ("not a database", "malformed", "disk image")):
+            return False
+        raise BackupError(f"could not inspect live SQLite database for an undo point: {exc}") from exc
+    except sqlite3.Error as exc:
+        raise BackupError(f"could not inspect live SQLite database for an undo point: {exc}") from exc
+    return bool(result and result[0] == "ok")
+
+
+def install_database(source_path: Path, target_path: Path) -> None:
+    """Build the restored database beside the target, then atomically replace it."""
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".teacher-db-restore-", dir=target_path.parent)
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        source = sqlite3.connect(source_path, timeout=30)
+        target = sqlite3.connect(temporary, timeout=30)
+        try:
+            source.backup(target)
+            tables = {row[0] for row in target.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "auth_sessions" in tables:
+                target.execute("DELETE FROM auth_sessions")
+            target.commit()
+            result = target.execute("PRAGMA integrity_check").fetchone()[0]
+            if result != "ok":
+                raise BackupError(f"restored SQLite database failed integrity check: {result}")
+            target.execute("PRAGMA journal_mode=DELETE")
+        finally:
+            target.close()
+            source.close()
+        temporary.chmod(0o600)
+        # Writers must be stopped during restore. Discard sidecars for the old database so
+        # they cannot be replayed against the newly installed database after restart.
+        for suffix in ("-wal", "-shm", "-journal"):
+            Path(str(target_path) + suffix).unlink(missing_ok=True)
+        os.replace(temporary, target_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def validate_config_restore_targets(settings: Settings) -> None:
     config_root = settings.stack_dir / "config"
     if config_root.is_symlink():
@@ -525,21 +583,7 @@ def apply_backup(settings: Settings, folder: Path, manifest: dict, files: dict[s
         )
     validate_config_restore_targets(settings)
     source_db = files["database/teacher.db"]
-    settings.db_path.parent.mkdir(parents=True, exist_ok=True)
-    source = sqlite3.connect(source_db, timeout=30)
-    target = sqlite3.connect(settings.db_path, timeout=30)
-    try:
-        source.backup(target)
-        tables = {row[0] for row in target.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if "auth_sessions" in tables:
-            target.execute("DELETE FROM auth_sessions")
-        target.commit()
-        result = target.execute("PRAGMA integrity_check").fetchone()[0]
-        if result != "ok":
-            raise BackupError(f"restored SQLite database failed integrity check: {result}")
-    finally:
-        target.close()
-        source.close()
+    install_database(source_db, settings.db_path)
 
     clear_config_restore_targets(settings)
     for relative, source_path in files.items():
@@ -565,16 +609,25 @@ def apply_backup(settings: Settings, folder: Path, manifest: dict, files: dict[s
         qdrant_delete(settings, collection)
 
 
-def restore_backup(settings: Settings, folder: Path, *, confirm: bool) -> tuple[Path, Path]:
+def restore_backup(settings: Settings, folder: Path, *, confirm: bool) -> tuple[Path, Path | None]:
     if not confirm:
         raise BackupError("restore overwrites live data; pass --confirm-live-data after stopping api and ingestion")
     manifest, files = verify_backup(folder)
     settings.validate_destination()
-    rollback = create_backup(settings, retention=False, allow_missing_collection=True)
-    rollback_manifest, rollback_files = verify_backup(rollback)
+    rollback = None
+    rollback_manifest = None
+    rollback_files = None
+    if live_database_is_backupable(settings.db_path):
+        rollback = create_backup(settings, retention=False, allow_missing_collection=True)
+        rollback_manifest, rollback_files = verify_backup(rollback)
     try:
         apply_backup(settings, folder, manifest, files)
     except Exception as restore_error:
+        if rollback is None:
+            raise BackupError(
+                f"restore failed and no undo point was available because the live SQLite database was missing or corrupt: "
+                f"{restore_error}"
+            ) from restore_error
         try:
             apply_backup(settings, rollback, rollback_manifest, rollback_files)
         except Exception as rollback_error:  # noqa: BLE001 - any restore failure must trigger the saved undo point
@@ -614,7 +667,10 @@ def main() -> int:
                 folder = settings.destination / folder
             restored, rollback = restore_backup(settings, folder.resolve(), confirm=args.confirm_live_data)
             print(f"Restored: {restored}")
-            print(f"Undo point: {rollback}")
+            if rollback:
+                print(f"Undo point: {rollback}")
+            else:
+                print("Undo point: unavailable (live SQLite database was missing or corrupt)")
     except (BackupError, OSError, sqlite3.Error, subprocess.SubprocessError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
