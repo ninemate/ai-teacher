@@ -19,3 +19,7 @@ services/**/.cache/
 .scratch/
 config/ingestion/ingestion.yml
 certs/
+# Model evaluation (scripts/eval_models.py): results hold answers about private documents
+eval-results/
+*.private.json
+eval-private/

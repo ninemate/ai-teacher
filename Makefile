@@ -2,7 +2,7 @@ COMPOSE_BASE=docker compose --env-file .env -f compose/docker-compose.yml
 COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml -f compose/docker-compose.proxy.yml
 COMPOSE_VOICE=$(COMPOSE_DEV) -f compose/docker-compose.voice.example.yml
 
-.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test check-library test-chat test-ingest ingest-now hash-password model-update backup restore inventory test-backup-restore test-egress test-e2e
+.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test check-library test-chat test-ingest ingest-now hash-password model-update backup restore inventory test-backup-restore test-egress test-e2e eval-models
 
 dev-up:
 	$(COMPOSE_DEV) up -d --build
@@ -102,3 +102,9 @@ test-e2e:
 hash-password:
 	$(COMPOSE_BASE) run --rm --no-deps api python auth.py
 
+
+# Compares the chat model candidates on Hungarian teaching tasks through the stack's own Ollama
+# (docker compose exec into the api container; nothing is published). See docs/model-selection.md.
+# Pass private questions with EVAL_ARGS="--private /path/to/questions.private.json".
+eval-models:
+	python3 scripts/eval_models.py run --candidates $${EVAL_CANDIDATES:-config/models/eval_candidates.example.json} $(EVAL_ARGS)
