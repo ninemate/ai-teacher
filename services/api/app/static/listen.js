@@ -421,7 +421,9 @@
 
   audio.addEventListener("ended", () => {
     if (!playing || !doc) return;
+    const myToken = token;
     neighbour(sectionIndex, segmentIndex, 1).then((next) => {
+      if (myToken !== token || !playing) return; // paused or moved while the lookup ran
       if (next) goTo(next[0], next[1], true);
       else {
         setPlayingState(false);

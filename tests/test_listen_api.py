@@ -1,6 +1,7 @@
 """Listening routes: resume across devices, on-demand audio, access control and cache cleanup."""
 
 import re
+import time
 import uuid
 
 import pytest
@@ -233,3 +234,18 @@ def test_reindexed_documents_leave_no_audio_of_the_old_text(world):
     sweep_orphans(world["cache"])
     assert not list(world["cache"].root.rglob("*.mp3"))
     assert isinstance(world["cache"], AudioCache)
+
+
+def test_background_sweep_removes_audio_without_a_request(world, ingestion_main):
+    from listen_routes import start_periodic_sweep
+
+    doc = world["doc"]
+    client, _ = world["apa"]
+    client.get(f"/listen/{doc}/audio/0/0")
+    ingestion_main.remove_deleted_documents(set(), workspace_ids={world["workspace"]}, confirmed=True)
+    assert list(world["cache"].root.rglob("*.mp3"))
+    start_periodic_sweep(world["cache"], interval=0.05)
+    deadline = time.monotonic() + 5
+    while list(world["cache"].root.rglob("*.mp3")) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not list(world["cache"].root.rglob("*.mp3"))

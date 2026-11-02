@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from listen_routes import build_router as build_listen_router
-from listen_routes import sweep_orphans
+from listen_routes import start_periodic_sweep, sweep_orphans
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
@@ -148,6 +148,7 @@ def startup_event() -> None:
     warmup_embeddings()
     _check_ollama_model()
     sweep_orphans(listen_cache)
+    start_periodic_sweep(listen_cache)
 
 
 def _ensure_account_workspaces() -> None:

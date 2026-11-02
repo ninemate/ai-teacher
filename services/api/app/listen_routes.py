@@ -5,6 +5,7 @@ the session and CSRF middleware in ``main.py`` protects every route. Every route
 it against the caller's workspaces first, audio included; the audio cache is only read after that check.
 """
 
+import logging
 import re
 import threading
 import time
@@ -55,6 +56,22 @@ def sweep_orphans(cache: AudioCache) -> int:
             select(DocumentRecord.id, DocumentRecord.source_hash).where(DocumentRecord.deleted.is_(False))
         ).all()
     return cache.sweep(AudioCache.document_key(row_id, source_hash) for row_id, source_hash in rows)
+
+
+def start_periodic_sweep(cache: AudioCache, interval: float = SWEEP_INTERVAL_SECONDS) -> threading.Thread:
+    """Sweep in the background, so audio of documents the indexer removed goes without waiting for a request."""
+
+    def loop() -> None:
+        while True:
+            time.sleep(interval)
+            try:
+                sweep_orphans(cache)
+            except Exception:  # a failed sweep is retried at the next interval
+                logging.getLogger("uvicorn").exception("Listening cache sweep failed")
+
+    thread = threading.Thread(target=loop, name="listen-cache-sweep", daemon=True)
+    thread.start()
+    return thread
 
 
 def build_router(fetch_chunks: FetchChunks, speak: Speak, cache: AudioCache) -> APIRouter:
