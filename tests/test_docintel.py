@@ -212,10 +212,23 @@ def test_gap_reports_only_what_the_reference_requires_and_the_other_lacks():
     a, b = make_doc("elvaras.pdf", A_DOC), make_doc("ajanlat.pdf", B_DOC)
     result, _, _ = run("compare", [a, b], options={"mode": "gap"})
     assert result["mode"] == "gap"
-    assert {f["kind"] for f in result["findings"]} == {"missing_in_b"}
-    missing = " ".join(f["a"]["text"] for f in result["findings"])
+    # never what only B has; the requirement B repeats with another number is a partial match, not silently dropped
+    assert {f["kind"] for f in result["findings"]} == {"missing_in_b", "changed"}
+    missing = " ".join(f["a"]["text"] for f in result["findings"] if f["kind"] == "missing_in_b")
     assert "titkosítva" in missing or "tizenötödikéig" in missing
-    assert all(f["b"] is None for f in result["findings"])
+    assert all(f["b"] is None for f in result["findings"] if f["kind"] == "missing_in_b")
+    (partial,) = [f for f in result["findings"] if f["kind"] == "changed"]
+    assert "ötéves" in partial["a"]["text"] and "nyolcéves" in partial["b"]["text"]
+    assert partial["status"] == "evidenced" and partial["b"]["sources"]
+
+
+def test_a_partial_match_in_gap_mode_that_the_model_did_not_judge_stays_uncertain():
+    a, b = make_doc("elvaras.pdf", A_DOC), make_doc("ajanlat.pdf", B_DOC)
+    model = FakeModel()
+    model.answer_compare = lambda prompt: "ez nem json"
+    result, _, _ = run("compare", [a, b], model, options={"mode": "gap"})
+    partial = [f for f in result["findings"] if f["kind"] == "changed"]
+    assert len(partial) == 1 and partial[0]["status"] == "uncertain"
 
 
 def test_a_gap_that_may_only_be_worded_differently_is_uncertain_not_evidenced():

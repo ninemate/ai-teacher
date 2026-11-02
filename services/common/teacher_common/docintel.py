@@ -626,8 +626,9 @@ def candidates_for(rows_a: list[dict], rows_b: list[dict], chunks_b: Sequence[di
             continue
         if best is not None and scores[best] >= ROW_RELATED:
             matched_b.add(best)
-            if not gap:
-                found.append({"kind": "changed", "a": row, "b": rows_b[best]})
+            # Also in gap mode: a requirement B only partly repeats (another threshold, another deadline) is not
+            # covered; the judge decides, and an unjudged pair stays on the list as uncertain.
+            found.append({"kind": "changed", "a": row, "b": rows_b[best]})
             continue
         chunk, score = closest_chunk(row["text"], chunks_b)
         found.append({
