@@ -7,6 +7,9 @@ doubled sentences. Pure functions apart from ``load_chunks``; the Read/Audiobook
 """
 
 from collections.abc import Callable, Sequence
+from pathlib import Path
+
+from teacher_common import citations
 
 # Longest overlap looked for: the configured overlap plus slack for the whitespace trimmed at chunk edges.
 MAX_OVERLAP = 400
@@ -63,8 +66,16 @@ def load_chunks(
     return chunks
 
 
-# Characters a numbered source line adds around the text ("[12] title (file) | place | ").
-LINE_OVERHEAD = 160
+# Fixed characters of a numbered source line in `citations.build_context`: "[1234] " + " (" + ")" + " | " + " | " plus
+# the longest warning ("BIZONYTALAN: OCR, 100% bizonyosság | "). The title, file name and place are added per chunk.
+LINE_OVERHEAD = 70
+
+
+def chunk_overhead(chunk: dict) -> int:
+    """What the numbered line adds around the text, with the title, file name and place the way `build_context` shows them."""
+    file_name = chunk.get("file_name") or Path(chunk.get("source_path") or "").name
+    place = citations._place(chunk.get("page"), chunk.get("chapter"), chunk.get("locator")) or "ismeretlen hely"
+    return LINE_OVERHEAD + len(chunk.get("title") or "") + len(file_name) + len(place)
 
 
 # Piece size when the numbered line's own overhead already exceeds the budget (an absurdly long title or file name).
@@ -72,7 +83,7 @@ MIN_PIECE = 200
 
 
 def chunk_cost(chunk: dict) -> int:
-    return len(chunk["text"]) + LINE_OVERHEAD + len(chunk.get("title") or "") + len(chunk.get("file_name") or "")
+    return len(chunk["text"]) + chunk_overhead(chunk)
 
 
 def _cut_point(head: str) -> int:
@@ -98,7 +109,8 @@ def split_oversized(chunks: Sequence[dict], max_chars: int) -> list[dict]:
             continue
         # Text room left by the numbered line's overhead. Only when the title and file name alone fill the budget is a
         # fit impossible; then pieces of MIN_PIECE keep the split finite.
-        room = max(1, max_chars - (chunk_cost(chunk) - len(chunk["text"]))) if chunk_cost(chunk) - len(chunk["text"]) < max_chars else MIN_PIECE
+        overhead = chunk_overhead(chunk)
+        room = max_chars - overhead if overhead < max_chars else MIN_PIECE
         text, number = chunk["text"], 0
         while text:
             cut = len(text) if len(text) <= room else _cut_point(text[:room])

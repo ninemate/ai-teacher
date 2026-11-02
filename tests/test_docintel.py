@@ -60,7 +60,7 @@ def test_a_chunk_larger_than_the_window_budget_is_cut_into_pieces_that_fit_and_k
     assert [p["page"] for p in pieces] == sorted(p["page"] for p in pieces)
     assert {p["page"] for p in pieces} == {1, 2, 3}
     # a budget just above the numbered line's overhead still gets pieces that fit, however short
-    for tight in (doc_text.LINE_OVERHEAD + 120, 800):
+    for tight in (doc_text.LINE_OVERHEAD + 200, 800):
         tiny = doc_text.split_oversized(document["chunks"], tight)
         assert all(doc_text.chunk_cost(p) <= tight for p in tiny), tight
     # a budget the chunks already fit leaves them as they are
@@ -78,6 +78,29 @@ def test_a_window_setting_too_small_for_the_numbered_line_is_rejected():
             Settings(**{name: MIN_DOCINTEL_WINDOW - 1})
         assert Settings(**{name: MIN_DOCINTEL_WINDOW})
         assert Settings(**{name: 0})  # unset: derived from the context size
+
+
+def test_the_cost_of_a_chunk_covers_its_whole_numbered_context_line_whatever_its_place():
+    from teacher_common.citations import Limits, build_citations, build_context
+
+    limits = Limits(weak_score=0.8, ocr_min_confidence=70)
+    base = {"chunk_id": "c", "file_name": "jegyzet.txt", "source_path": "/k/jegyzet.txt", "title": "Cím", "score": None,
+            "text": "Mondat a dokumentumból. " * 60}
+    cases = [
+        {**base, "page": None, "chapter": None, "locator": "L" * 255},  # a page-less, chapter-less, long locator
+        {**base, "page": 12, "chapter": None, "locator": None},
+        {**base, "page": None, "chapter": "A" * 100, "locator": None, "ocr": True, "ocr_confidence": 12.0},
+        {**base, "page": None, "chapter": None, "locator": None, "ocr": True},
+        {**base, "file_name": None, "page": 3, "chapter": None, "locator": None},
+    ]
+    for chunk in cases:
+        context, _ = build_context(build_citations([chunk], limits), [chunk], 10**9)
+        assert len(context) <= doc_text.chunk_cost(chunk), chunk
+        # so a window at the smallest allowed budget really holds its numbered context
+        for piece_window in doc_text.make_windows(doc_text.split_oversized([chunk], 800), 800):
+            built = build_citations(piece_window, limits)
+            rendered, used = build_context(built, piece_window, 10**9)
+            assert len(used) == len(piece_window) and len(rendered) <= 800, chunk
 
 
 # --- summary -------------------------------------------------------------------------------------------------------
