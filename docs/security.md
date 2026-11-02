@@ -52,7 +52,7 @@ Each account gets a private workspace (`user:<username>`). Users may create addi
 
 Documents and chunks store their workspace in SQLite and in each Qdrant payload. Every vector search requires a server-generated workspace filter. Stored quizzes and flashcard decks are scoped to their owner workspace; attempts and cards inherit access through their parent. Chat prompts and retrieved snippets are not persisted as chat history.
 
-Deleting a source with `DELETE /sources/{document_id}` removes its Qdrant points, SQLite chunks, OCR marker and quizzes or decks in that same workspace that cite or are scoped to the source. Derived items belonging to another workspace remain private, even if they cite a shared source. A user cannot delete an unshared source, even if they know its numeric ID. The ingestion status, schedule and reindex endpoints on the API are admin-only. Scheduled indexing uses the `workspace` configured on each watched folder; create the workspace first and put its ID in `config/ingestion/ingestion.yml`:
+Deleting a source with `DELETE /sources/{document_id}` removes its Qdrant points, SQLite chunks, OCR marker, listening lists, bookmarks and cached audio, and quizzes or decks in that same workspace that cite or are scoped to the source. Derived items belonging to another workspace remain private, even if they cite a shared source. A user cannot delete an unshared source, even if they know its numeric ID. The ingestion status, schedule and reindex endpoints on the API are admin-only. Scheduled indexing uses the `workspace` configured on each watched folder; create the workspace first and put its ID in `config/ingestion/ingestion.yml`:
 
 ```yaml
 watch:

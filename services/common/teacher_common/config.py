@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     voice_base_url: str = Field(default="http://voice:8090", alias="VOICE_BASE_URL")
     voice_max_upload_mb: float = Field(default=15, gt=0, alias="VOICE_MAX_UPLOAD_MB")
     voice_timeout_seconds: float = Field(default=300, gt=0, alias="VOICE_TIMEOUT_SECONDS")
+    # Listening: synthesized segments are cached here (never in the read-only library) up to this many MB.
+    listen_cache_dir: str = Field(default="/data/metadata/listen_cache", alias="LISTEN_CACHE_DIR")
+    listen_cache_max_mb: float = Field(default=500, ge=1, alias="LISTEN_CACHE_MAX_MB")
+    listen_segment_chars: int = Field(default=300, ge=80, le=2000, alias="LISTEN_SEGMENT_CHARS")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
     ocr_dpi: int = Field(default=300, alias="OCR_DPI")
     ocr_language: str = Field(default="hun+eng", alias="OCR_LANGUAGE")

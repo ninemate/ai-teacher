@@ -17,7 +17,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 
 def init_db() -> None:
-    from teacher_common import models, study_models  # noqa: F401
+    from teacher_common import listen_models, models, study_models  # noqa: F401
     from teacher_common.migrations import run_migrations
 
     if engine.dialect.name == "sqlite" and engine.url.database:

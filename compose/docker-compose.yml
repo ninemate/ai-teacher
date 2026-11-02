@@ -79,6 +79,8 @@ services:
       TEACHER_INGEST_TOKEN: ${TEACHER_INGEST_TOKEN:-}
       INGESTION_BASE_URL: http://ingestion:8081
       VOICE_BASE_URL: ${VOICE_BASE_URL}
+      LISTEN_CACHE_MAX_MB: ${LISTEN_CACHE_MAX_MB:-500}
+      LISTEN_SEGMENT_CHARS: ${LISTEN_SEGMENT_CHARS:-300}
     volumes:
       # rslave: a share mounted (or remounted) under the folder after the container started shows up
       # here; a plain bind mount would keep showing the empty folder underneath.
