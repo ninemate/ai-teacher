@@ -13,10 +13,10 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
-from sqlalchemy import select
 from listen_routes import build_router as build_listen_router
 from listen_routes import sweep_orphans
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from study_routes import build_router as build_study_router
 from teacher_common import citations, listen_store, study_store
 from teacher_common.audio_cache import AudioCache

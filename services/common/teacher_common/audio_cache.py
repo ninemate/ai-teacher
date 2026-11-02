@@ -60,7 +60,7 @@ class AudioCache:
         self.evict()
 
     def _files(self) -> list[tuple[float, int, Path]]:
-        found = []
+        found: list[tuple[float, int, Path]] = []
         if not self.root.is_dir():
             return found
         for path in self.root.glob("*/*.mp3"):
