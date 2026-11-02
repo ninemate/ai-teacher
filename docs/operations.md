@@ -8,6 +8,8 @@
 - last run: `make test-ingest` (ingestion `/ingest/status` with the token, asked through `docker compose exec` on the private network)
 - model updates: `make model-update` (temporary edge-network connection for `ollama pull`; see docs/security.md)
 - egress proof: `make test-egress` (config + containers + live probe)
+- backup restore proof: `make test-backup-restore` (isolated SQLite plus a real Qdrant collection)
+- component inventory: `make inventory` (local metadata only)
 - logs: `make dev-logs`
 
 ## Watched Folders and Schedule
@@ -34,17 +36,29 @@
 
 ## Backups
 
-Back up at least:
+Run `make backup` on the host. It creates one UTC timestamped directory under `TEACHER_BACKUP_DIR` (default `TEACHER_DATA_DIR/backups`) and keeps the newest `BACKUP_KEEP_LAST` directories (default 7). Each directory contains a manifest with SHA-256 checksums, an SQLite backup made with SQLite's online backup API, a Qdrant collection snapshot made through Qdrant's API on the private Compose network, and the non-secret files under `config/ingestion`, `config/prompts` and `config/models`. It also includes the OCR cache and model-update records when present. No service route or host port is added.
 
-- `teacher_data_dir/metadata` (SQLite: documents, runs, login sessions, quizzes, decks and review history; plus `ocr_cache/`, which is expensive to rebuild)
-- `teacher_data_dir/qdrant`
-- `.env` or Vault-backed secrets source (`TEACHER_AUTH_USERS`, `TEACHER_INGEST_TOKEN`)
-- `config/ingestion/ingestion.yml`, unless it comes from `teacher_ingest_config`
-- reverse-proxy config if used
+The destination must be outside `LIBRARY_PATH`. The directory is mode `0700` and its files are mode `0600`, because the database contains password hashes and session records. Keep the backup storage itself protected and on a filesystem with enough room for the database, index snapshot and OCR cache.
 
-Stop the stack (or at least `ingestion` and `api`) before copying the SQLite file, or use `sqlite3 teacher.db ".backup copy.db"`.
+Backups deliberately do not contain `.env`, Ansible Vault files, TLS private keys, or other secrets. Keep those separately in the approved secret store. The network library is not copied: it remains on the NAS and relies on its own snapshots. Documents, vectors and OCR cache can be rebuilt by reindexing from the library; user-created quizzes, attempts and other SQLite state require the database backup.
 
-The network share itself is not duplicated here.
+### Restore and undo
+
+Stop the API and ingestion writers while leaving Qdrant running (`docker compose --env-file .env -f compose/docker-compose.yml stop api ingestion`), then run `make restore CONFIRM=YES`. The host tool launches a short lived worker on the private Compose network to use Qdrant; it does not need the API server running. To select a folder, use `make restore CONFIRM=YES RESTORE_FROM=backup-<timestamp>`. Restore checks every payload checksum before changing anything, saves the current state as a new backup, restores SQLite/config/Qdrant, and prints that undo backup's path. If restore fails partway through, it attempts to restore that undo point automatically. To undo a successful restore, run the same command with the printed undo folder as `RESTORE_FROM`.
+
+Restored `auth_sessions` are cleared, so all devices must sign in again. The undo backup is a normal timestamped backup and counts toward keep-last-N retention; copy it to protected storage if it must be kept longer. Start the stack again after restoring (`make dev-up`). Restoring config does not restore secrets from `.env` or Vault; review those separately before starting services.
+
+### Manually approved model and component updates
+
+1. **Review and approve:** inspect the model or component source and licence, evaluation results, version or digest, dependencies, and the previous `docs/component-inventory.md`. Record the exact approved artifacts and intended rollback point. Do not let an automatic job download or install models or images.
+2. **Carry it offline:** on a connected staging machine, obtain only the approved Ollama artifacts and required container images. Verify their digests there, export container images with `docker save`, and carry the files to the offline host using approved transfer media. Keep an Ollama bundle's `models/manifests` and referenced `models/blobs` paths together.
+3. **Install:** run `make backup` before changing installed state. Load approved image bundles with `docker load`. Before importing an Ollama bundle that replaces an existing tag, preserve that tag with `ollama cp <model:tag> <model:rollback-timestamp-digest>` inside the Ollama container. Merge bundle files into `TEACHER_DATA_DIR/ollama` without deleting prior manifests or blobs, then restart Ollama. The explicit `make model-update` pull path also makes a pre-update backup and preserves each old model under a digest-named rollback tag, but temporarily attaches Ollama to the existing edge network; use it only when that operator-approved path is allowed.
+4. **Verify:** check with `ollama list`/`ollama show`, application smoke checks, `make test`, and `make inventory`. Compare the resulting digest and rollback path to the approval record. After using the temporary pull path, run `make test-egress` to verify the egress block is restored.
+5. **Roll back:** keep the previous model tag and service image digests until acceptance. For a chat-model rollback, select its recorded `rollback-*` tag in `.env` and restart the stack. For service images, load and redeploy the recorded previous image digests. If application data or the index changed, restore the pre-update state backup too.
+
+Embedding model changes need extra care. The current startup path creates a missing collection but does not check an existing collection's vector dimension or model identity. A different dimension makes Qdrant reject searches or upserts; a same-dimension model can leave old and new vectors mixed. The current full reindex clears/rebuilds watched workspaces but does not recreate the collection schema, so it is not a safe dimension migration. Keep the previous images and pre-change backup; if an embedding change has been applied, stop API/ingestion, restore the database and Qdrant backup, restore the old embedding model setting and old api/ingestion image digests, then start the old stack. Do not use an embedding model change as an in-place update until a collection migration is implemented.
+
+`make inventory` refreshes the tracked component report using local metadata only. It records Ollama digests and install timestamps when Ollama is available, Python constraints/installed versions/licences from package metadata, configured voice and embedding models, local container image digests, and known rollback references. Missing license, date or checksum data is marked as unchecked/unavailable rather than inferred.
 
 ## Disk Management
 

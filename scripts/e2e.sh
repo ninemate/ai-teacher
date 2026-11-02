@@ -85,7 +85,10 @@ if [ "$backend" = native ]; then
     [ "$keep" = 1 ] || trap '"$native" down' EXIT
     "$native" up
     "$native" pull "$model"
-    args=(--stack native --restart-cmd "$native restart" --point-count-cmd "$native point-count" --llm-model "$model")
+    backup_qdrant_port=${E2E_QDRANT_PORT:-16333}
+    backup_restore_cmd="QDRANT_URL=http://127.0.0.1:$backup_qdrant_port BACKUP_QDRANT_TRANSPORT=direct \"$E2E_PYTHON\" scripts/backup_restore_trial.py"
+    args=(--stack native --restart-cmd "$native restart" --point-count-cmd "$native point-count"
+          --backup-restore-cmd "$backup_restore_cmd" --llm-model "$model")
     [ "$voice" = 0 ] || args+=(--voice)
     trial "${args[@]}"
     exit
@@ -112,6 +115,7 @@ COMPOSE_PROJECT_NAME=teacher-e2e
 TEACHER_HTTPS_PORT=$TEACHER_HTTPS_PORT
 TEACHER_PROXY_HTTP_PORT=$TEACHER_PROXY_HTTP_PORT
 TEACHER_DATA_DIR=$work/data
+TEACHER_STACK_DIR=$repo
 TEACHER_MOUNT_POINT=$work/library
 TEACHER_TLS_DIR=$work/certs
 TEACHER_ENABLE_VOICE=$([ "$voice" = 1 ] && echo true || echo false)
@@ -148,9 +152,11 @@ TEACHER_ENV_FILE=$env_file bash scripts/model-update.sh "$model"
 
 point_count='python -c "import os,json,urllib.request as u; r=u.Request(os.environ[\"QDRANT_URL\"]+\"/collections/\"+os.environ[\"QDRANT_COLLECTION\"]+\"/points/count\",data=b\"{\\\"exact\\\":true}\",headers={\"Content-Type\":\"application/json\"}); print(json.load(u.urlopen(r))[\"result\"][\"count\"])"'
 compose_cmd="docker compose --env-file $env_file $compose_files"
+backup_restore_cmd="TEACHER_ENV_FILE=$env_file BACKUP_QDRANT_TRANSPORT=compose python3 scripts/backup_restore_trial.py"
 args=(--stack compose
       --restart-cmd "$compose_cmd restart && $compose_cmd up -d --wait --wait-timeout 300"
       --point-count-cmd "$compose_cmd exec -T ingestion $point_count"
+      --backup-restore-cmd "$backup_restore_cmd"
       --egress-cmd "TEACHER_ENV_FILE=$env_file bash scripts/test-egress-block.sh"
       --llm-model "$model")
 [ "$voice" = 0 ] || args+=(--voice)
