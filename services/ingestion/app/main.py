@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
-from teacher_common import study_store
+from teacher_common import listen_store, study_store
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.documents import (
@@ -249,6 +249,7 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str, confirm_
                 for row in rows:
                     delete_points_for_source(row.source_path)
                     study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+                    listen_store.delete_for_document(session, row.id)
                     session.query(OcrRecord).filter(OcrRecord.source_path == row.source_path).delete()
                     session.delete(row)
 
@@ -667,6 +668,9 @@ def remove_deleted_documents(
             session.query(ChunkRecord).filter(ChunkRecord.document_id == row.id).delete()
             session.query(OcrRecord).filter(OcrRecord.source_path == row.source_path).delete()
             study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+            # Listening lists and positions go now; the API removes the cached audio (it cannot be played
+            # meanwhile: every audio route refuses a deleted document).
+            listen_store.delete_for_document(session, row.id)
             row.deleted = True
             row.status = "deleted"
             row.last_indexed_at = datetime.now(UTC)

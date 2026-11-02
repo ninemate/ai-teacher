@@ -104,6 +104,9 @@ docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-c
 | `VOICE_TTS_LENGTH_SCALE` | `1.0` | above 1 speaks slower, e.g. `1.15` for slower listening |
 | `VOICE_TTS_MAX_CHARS` | `6000` | longer text is refused (`413`) |
 | `VOICE_MAX_UPLOAD_MB` | `15` | upload limit, enforced by both the API and the voice service |
+| `LISTEN_CACHE_DIR` | `/data/metadata/listen_cache` | API setting: where synthesized listening segments are cached |
+| `LISTEN_CACHE_MAX_MB` | `500` | API setting: size bound of that cache, least recently played evicted first |
+| `LISTEN_SEGMENT_CHARS` | `300` | API setting: longest text synthesized at once |
 
 ## API
 
@@ -128,6 +131,48 @@ Errors keep the voice service's status and Hungarian message:
 - **Felolvasás** under the answer reads it aloud with the chosen voice, in a normal audio player (pause, seek). The voice choice is kept in the browser's `localStorage`.
 - The CSP allows `media-src 'self' blob:` for the generated audio.
 
+## Listening to Library Documents
+
+The **Hallgatás** panel reads documents from the library aloud, a section at a time, with the same offline Piper voices. It is an overlay like the rest of the voice feature: without the voice service the panel says so and still shows the text; nothing else in the app depends on it.
+
+What a person gets: a personal listening list (any document their workspaces allow), a section list (PDF pages, ebook chapters, markdown headings, or parts of a long flat text), play and pause, previous and next section or segment, speed (0.75 to 2×, applied in the browser), a voice choice, and bookmarks. The current text is shown beside the audio, one segment highlighted, and a tap on a segment jumps there. The position, speed, voice and bookmarks are stored per user on the server, so closing the page or opening it on another device resumes at the same segment. On phones the lock screen and headset buttons work through the Media Session API (play, pause, previous and next section).
+
+### Reading order
+
+The text is rebuilt from the chunks ingestion already stores in the vector store (full text, position, page or chapter, OCR confidence). Consecutive chunks of one page or chapter overlap by `INGEST_CHUNK_OVERLAP` characters; the overlap is removed again by matching the repeated tail exactly, so a sentence is never read twice, and a lookalike that is not really the overlap is kept. **Documents indexed before this feature need no reindex.** Limits of what ingestion keeps: DOCX heading styles are not stored (a DOCX reads as parts of about 6000 characters), and for PDFs a section is one page. A full reindex re-creates documents, so it also clears the listening lists and positions of the documents it rebuilds.
+
+### Audio on demand
+
+A whole book is never synthesized ahead. The page asks for one segment (up to `LISTEN_SEGMENT_CHARS`, 300 by default, cut at sentence ends) at a time and asks for the next two while one plays. The API runs one synthesis at a time, so a long session cannot flood the voice service.
+
+Synthesized segments are cached as MP3 files under the data folder (`LISTEN_CACHE_DIR`, default `/data/metadata/listen_cache`), never in the read-only library:
+
+- One folder per document and its content hash; the file name is a hash of voice and text, so a repeated listen costs nothing and nothing a client sends reaches a path. Changing `VOICE_TTS_LENGTH_SCALE` does not invalidate cached clips; delete the folder to start over.
+- The total is bounded by `LISTEN_CACHE_MAX_MB` (default 500); the least recently played files go first.
+- Deleting a document removes its folder. A document the indexer removes or re-indexes (new hash) leaves an orphan folder that the API removes at startup and at most every ten minutes.
+
+### Access
+
+Every route under `/listen` checks the document against the caller's workspaces, audio included, and a deleted or failed document is not found. The cache is shared per document, not per user, but is only read after that check, so losing a share makes cached audio unreachable at once. The listening list, positions and bookmarks belong to the user; deleting a document removes them for everyone.
+
+| Method | Path | Answer |
+| --- | --- | --- |
+| GET | `/listen/library` | the user's list with positions (documents they can no longer reach are left out) |
+| POST / DELETE | `/listen/library`, `/listen/library/{id}` | add, remove (removing also drops the bookmarks) |
+| GET | `/listen/{id}` | sections, saved position, bookmarks, the OCR confidence limit |
+| GET | `/listen/{id}/sections/{n}` | the segments of a section with OCR flags |
+| GET | `/listen/{id}/audio/{n}/{segment}?voice=` | `audio/mpeg` of one segment (`503` when the voice is off) |
+| PUT | `/listen/{id}/position` | `{section, segment, speed?, voice?}` |
+| POST / DELETE | `/listen/{id}/bookmarks`, `.../{bookmark}` | bookmarks |
+
+### Scanned pages
+
+OCR text is marked in the section list and in the text, and a page under `OCR_LOW_CONFIDENCE` (or with an unmeasured confidence) is highlighted as uncertain, the same rule as the source citations. An option skips uncertain text while playing. A scan is read as it was recognised: wrong words are read as written, so a scanned page will not always sound right.
+
+### Speed
+
+Measured on a desktop CPU (8 cores, voice `hu_HU-imre-medium`, no GPU): 12 segments of about 200 characters each, 147 s of speech, were made in 3.7 s, about 40 times faster than real time (real-time factor 0.02), loading the voice took under a second. A segment of 300 characters (about 18 s of speech) takes about half a second, so the first sound after a jump comes well under a second plus the proxy round trip. The target host is slower and shares its cores with the chat model and OCR; measure there before promising anything, and lower `LISTEN_SEGMENT_CHARS` if the first sound is late.
+
 ## Text Clean-up
 
 Answers come from the chat model and often contain light Markdown. `services/voice/app/speech_text.py` prepares them before Piper sees them:
@@ -144,6 +189,7 @@ Answers come from the chat model and often contain light Markdown. `services/voi
   - `tts.py`: Piper and MP3 encoding
   - `speech_text.py`
   - `voice_settings.py`
+- Listening: `services/api/app/listen_routes.py` (routes), `services/common/teacher_common/listening.py` (reading order, sections, segments), `listen_store.py` and `listen_models.py` (list, position, bookmarks), `audio_cache.py`, and `static/listen.js` / `listen.css`. Tests: `tests/test_listening.py`, `test_audio_cache.py`, `test_listen_api.py`; the end-to-end trial has a listening step (`scripts/e2e_trial.py`, with `--voice` it synthesizes and transcribes a segment).
 - `tests/test_voice_service.py` and `tests/test_api_voice.py` replace the engines and the voice service with fakes, so CI needs neither the models nor the packages. `tests/test_speech_text.py` covers the clean-up.
 - A real round trip (Piper speaks, Whisper hears) runs where the engines are installed:
 
