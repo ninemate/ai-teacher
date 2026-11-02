@@ -339,11 +339,10 @@ def _dedupe(items: list[dict]) -> list[dict]:
     """Merge items saying the same thing (the chunk overlap and repeated headers produce them); keep all sources."""
     merged: dict[tuple, dict] = {}
     for item in items:
-        key = (item.get("type"), re.sub(r"\W+", " ", item["text"].casefold()).strip())
-        if item.get("type") == "table":
-            # Two tables under the same caption are two tables unless their cells are the same too.
-            table = item.get("table") or {}
-            key += (json.dumps([table.get("columns"), table.get("rows")], ensure_ascii=False).casefold(),)
+        text = re.sub(r"\W+", " ", item["text"].casefold()).strip()
+        # Two tables under the same caption are two tables unless their cells are the same too.
+        table = item.get("table") or {} if item.get("type") == "table" else {}
+        key: tuple = (item.get("type"), text, json.dumps([table.get("columns"), table.get("rows")], ensure_ascii=False).casefold())
         if key in merged:
             merged[key]["src"] = list(dict.fromkeys(merged[key]["src"] + item["src"]))
         else:

@@ -7,7 +7,6 @@ result are stored per step, so a restart leaves the job interrupted and resumabl
 
 import logging
 import threading
-import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path

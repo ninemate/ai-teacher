@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
-from teacher_common import study_store
+from teacher_common import docintel_store, study_store
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.documents import (
@@ -667,6 +667,8 @@ def remove_deleted_documents(
             session.query(ChunkRecord).filter(ChunkRecord.document_id == row.id).delete()
             session.query(OcrRecord).filter(OcrRecord.source_path == row.source_path).delete()
             study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+            # Same rule as deleting a document in the API: results stay but are stale, unfinished jobs stop.
+            docintel_store.mark_stale_for_source(session, row.source_path)
             row.deleted = True
             row.status = "deleted"
             row.last_indexed_at = datetime.now(UTC)

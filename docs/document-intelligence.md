@@ -11,7 +11,7 @@ chapter. The panel is "Dokumentumelemzés" on the main page; the routes are unde
 | --- | --- |
 | `summary` | Points with sources for the whole document, optionally per chapter (EPUB/MOBI chapters; for PDFs ranges of 10 pages; otherwise runs of chunks) plus an overall summary. Several documents are summarised each on its own. |
 | `extract` | One table of concepts, requirements, deadlines, obligations and tables. Each row: type, text, detail, source file and page or chapter, uncertainty flag. Export as CSV or Markdown. |
-| `compare` | `diff` (what differs between two documents or versions) or `gap` (what the first, the reference, requires that the second lacks). Each finding is `evidenced` or `uncertain`, with the statements and sources from both sides. |
+| `compare` | `diff` (what differs between two documents or versions) or `gap` (what the first, the reference, requires that the second lacks, or repeats only in part, such as with another number). Each finding is `evidenced` or `uncertain`, with the statements and sources from both sides. |
 | `tasks` | Tasks, obligations, deadlines and requirements found in the document (source data, with sources), and, in a separate block, solution proposals. A proposal is the model's own conclusion, marked as such. |
 | `translate` | The whole document translated hu-en or en-hu, as segments that each name the pages they came from. Download as text or Markdown. |
 
@@ -23,7 +23,9 @@ Ingestion keeps the chunk text only in the vector store (SQLite holds a short pr
 page or chapter and OCR confidence. A job rebuilds the document from there in reading order
 (`teacher_common/doc_text.py`: `load_chunks`, `trim_overlap`, `make_windows`; the chunker's overlap is trimmed so
 sentences are not doubled). The chunks are cut into windows that fit the context: `DOCINTEL_WINDOW_CHARS`, by default
-half of `MAX_CONTEXT_CHARS`, and a third of that for translation, whose answer is as long as its input.
+half of `MAX_CONTEXT_CHARS`, and a third of that for translation, whose answer is as long as its input. A chunk that is
+larger than the window (the setting was lowered after indexing) is cut into pieces at sentence or word boundaries, each
+keeping the page or chapter; the budget holds, and nothing is dropped.
 
 Map-reduce:
 
@@ -31,7 +33,9 @@ Map-reduce:
    numbers.
 2. **Reduce** (summary, tasks): the points so far are numbered and merged by further calls, level by level, until they
    fit one call. A merged point cites the numbered points it is made from and inherits their sources.
-   Extraction needs no model reduce: rows are merged by equal text, keeping all sources.
+   Extraction needs no model reduce: rows are merged by equal text, keeping all sources (a table is merged only with an
+   identical table, so two tables under one caption stay two). A table whose rows are not as wide as its header is
+   unusable output and is asked for again.
 3. **Compare**: both documents are extracted the same way, then statements are paired deterministically by word-stem
    overlap. Near-identical statements are never reported. Only differing pairs and statements without a counterpart go to
    the model, which says whether they really differ or only say the same in other words.
@@ -58,9 +62,11 @@ Map-reduce:
 - A job is a row in SQLite with status (`queued`, `running`, `succeeded`, `failed`, `cancelled`, `interrupted`),
   progress (`done`/`total` steps and the phase), error text and timestamps. The UI polls it.
 - One worker thread in the API process runs **one job at a time**, so one model call at a time. **Chat goes first**: a
-  job waits before each model call while a chat or study request is in flight. A chat request that arrives in the
-  middle of a call waits for that call to end, so a long window delays chat by up to one call.
-- **Cancel** takes effect after the model call in progress. A queued job is cancelled at once.
+  job's model call starts only while no chat or study request is in flight or waiting, and a chat request that arrives
+  in the middle of a job's call waits for that one call to end (a sent call cannot be taken back) and then goes first.
+  So a long window delays chat by up to one call: lower `DOCINTEL_WINDOW_CHARS` if chat must stay quick on a slow model.
+- **Cancel** takes effect after the model call in progress, also when that was the last one: a job cancelled during its
+  final call ends cancelled, without a result. A queued job is cancelled at once.
 - Each finished step (window, merge, batch) is stored. After a restart, jobs that were running become `interrupted`
   (never stuck as running); `Folytatás` re-queues an interrupted or failed job and only the missing steps run again. A
   resumed job refuses a document that changed or is no longer accessible. Nothing resumes by itself: after a restart the
@@ -72,14 +78,16 @@ Map-reduce:
 
 ## Privacy and isolation
 
-- A job and its result belong to the person's own workspace. Every route filters by the workspaces the server derives
-  from the session; another person's job, result or export answers 404, and a job cannot be started on a document the
+- A job and its result belong to the person who started them, in their own workspace. Every route filters by that person
+  and by the workspaces the server derives from the session, so sharing a personal workspace shares its documents, not
+  its jobs or results; another person's job, result or export answers 404, and a job cannot be started on a document the
   person cannot read. A document shared by read access can be used, and the result stays with the person who made it.
   If the share is withdrawn, a resumed job refuses the document; results already made are kept, as with study items.
 - All processing is on the local model; the private services have no egress and this feature adds none. Uploaded and
   processed material is not used for training or fine-tuning: nothing is ever sent anywhere and no weights are changed.
 - **Deleting a source document** keeps the results made from it but marks them **stale** ("the source document was
-  deleted"), also when a re-index changed the document; unfinished jobs on it are cancelled. This differs from quizzes and
+  deleted"), also when a re-index changed the document; unfinished jobs on it are cancelled (a running one stops before
+  its next step). This holds whether the document is deleted in the app or removed by an indexing scan. This differs from quizzes and
   decks, which are deleted with their source, because a result here is something the person asked for and may still want
   to export. It stays until they delete it (`DELETE /docintel/jobs/{id}`). A translation holds the document's whole text,
   so delete it too if the source must be gone.
