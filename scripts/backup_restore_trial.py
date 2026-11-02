@@ -156,7 +156,7 @@ def main() -> int:
                             "payload": {
                                 "document_id": document_id,
                                 "source_path": "/library/restore-probe.txt",
-                                "workspace_id": "trial",
+                                "workspace_id": "restore-trial",
                                 "text": "A searchable restore acceptance document.",
                             },
                         }
@@ -182,9 +182,23 @@ def main() -> int:
                 settings,
                 "POST",
                 f"/collections/{collection}/points/search",
-                {"vector": [1.0, 0.0], "limit": 3, "with_payload": True},
+                {
+                    "vector": [1.0, 0.0],
+                    "limit": 3,
+                    "with_payload": True,
+                    # Mirrors qdrant_store.search's workspace_ids MatchAny condition.
+                    "filter": {
+                        "must": [
+                            {"key": "workspace_id", "match": {"any": ["restore-trial"]}},
+                        ]
+                    },
+                },
             )["result"]
-            assert any(hit["payload"].get("source_path") == document["source_path"] for hit in results), results
+            assert any(
+                hit["payload"].get("source_path") == document["source_path"]
+                and hit["payload"].get("workspace_id") == "restore-trial"
+                for hit in results
+            ), results
             print("PASS: SQLite document and quiz restored; old sessions invalidated; Qdrant search found the document")
             print(f"backup: {backup}")
         finally:
