@@ -613,6 +613,11 @@ def voice_speak(payload: SpeakRequest):
 
 def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: int, workspace_ids: set[str]):
     hits = retrieve_sources(prompt_input, top_k=top_k, workspace_ids=workspace_ids)
+    if task in {"answer", "summary"}:
+        hits = [
+            hit for hit in hits
+            if hit.get("score") is not None and hit["score"] >= settings.retrieval_min_score
+        ]
     if not hits:
         answer = "A megadott könyvtárban nem találtam elég releváns információt a kérdés megbízható megválaszolásához."
         return {"answer": answer, "sources": [], "citations": [], "grounding": citations.assess(answer, [])}

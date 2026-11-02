@@ -41,6 +41,9 @@ class Settings(BaseSettings):
         alias="TEACHER_PROMPT_PATH",
     )
     retrieval_top_k: int = Field(default=6, alias="RETRIEVAL_TOP_K")
+    # Measured with multilingual-e5-base on the Hungarian trial fixtures: unrelated top hits maxed at 0.716.
+    # Keep this below retrieval_weak_score so borderline hits remain visible with a weak-match warning.
+    retrieval_min_score: float = Field(default=0.74, ge=0, le=1, alias="RETRIEVAL_MIN_SCORE")
     # Below this cosine score a retrieved chunk is flagged as a weak match (tuned for multilingual-e5).
     retrieval_weak_score: float = Field(default=0.8, alias="RETRIEVAL_WEAK_SCORE")
     # Below this mean Tesseract word confidence (0-100) OCR'd text is flagged as uncertain.

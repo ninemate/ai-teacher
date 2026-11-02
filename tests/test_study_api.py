@@ -150,3 +150,17 @@ def test_request_validation(client):
     assert client.post("/study/quizzes", json={"topic": "alfa", "count": 0}).status_code == 422
     assert client.post("/study/decks", json={"topic": "alfa", "level": "expert"}).status_code == 422
     assert client.post("/study/quizzes", json={"source_paths": ["/nincs/ilyen.pdf"]}).status_code == 404
+
+
+def test_selected_document_generation_keeps_low_score_hits(client, fakes):
+    fakes.hits = [{**HITS[0], "score": 0.2}]
+    fakes.replies = [QUIZ]
+
+    response = client.post(
+        "/study/quizzes",
+        json={"topic": "alfa", "source_paths": ["/library/a.pdf"]},
+    )
+
+    assert response.status_code == 201, response.text
+    assert fakes.retrievals == [("alfa", 10, ["/library/a.pdf"], {"user:study-user"})]
+    assert response.json()["questions"][0]["sources"][0]["chunk_id"] == "c1"
