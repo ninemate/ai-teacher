@@ -36,7 +36,7 @@
 
 Back up at least:
 
-- `teacher_data_dir/metadata` (SQLite: documents, runs, login sessions, quizzes, decks and review history; plus `ocr_cache/`, which is expensive to rebuild)
+- `teacher_data_dir/metadata` (SQLite: documents, runs, login sessions, quizzes, decks and review history, Document Intelligence jobs and results; plus `ocr_cache/`, which is expensive to rebuild)
 - `teacher_data_dir/qdrant`
 - `.env` or Vault-backed secrets source (`TEACHER_AUTH_USERS`, `TEACHER_INGEST_TOKEN`)
 - `config/ingestion/ingestion.yml`, unless it comes from `teacher_ingest_config`
