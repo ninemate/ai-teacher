@@ -1,7 +1,7 @@
 """Runs queued Document Intelligence jobs one at a time on a background thread.
 
 One model call at a time is the default: a second job waits in the queue, and chat requests go first (a job waits
-before each model call while a chat request is in flight, see ``ChatPriority``). Progress, checkpoints and the
+before each model call while a chat request is in flight, and chat waits for a call in progress, see ``ChatPriority``). Progress, checkpoints and the
 result are stored per step, so a restart leaves the job interrupted and resumable instead of lost.
 """
 
@@ -24,25 +24,43 @@ logger = logging.getLogger("teacher.docintel")
 
 
 class ChatPriority:
-    """Lets interactive requests go before background jobs: a job waits for the model while one is running."""
+    """Chat and study requests go to the model before background jobs, and never beside one.
+
+    A background call starts only while no interactive request is in flight or waiting. An interactive request that
+    arrives during a background call waits for that one call to end (it cannot be taken back once sent), and from
+    then on the next background call waits for it. Interactive requests do not wait for each other.
+    """
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._active = 0
+        self._cond = threading.Condition()
+        self._interactive = 0
+        self._background = False
 
     @contextmanager
     def interactive(self) -> Iterator[None]:
-        with self._lock:
-            self._active += 1
+        with self._cond:
+            self._interactive += 1  # counted before waiting, so the next background call already yields
+            while self._background:
+                self._cond.wait()
         try:
             yield
         finally:
-            with self._lock:
-                self._active -= 1
+            with self._cond:
+                self._interactive -= 1
+                self._cond.notify_all()
 
-    def wait_idle(self, should_stop: Callable[[], bool] = lambda: False, poll: float = 0.5) -> None:
-        while self._active and not should_stop():
-            time.sleep(poll)
+    @contextmanager
+    def background(self) -> Iterator[None]:
+        with self._cond:
+            while self._interactive or self._background:
+                self._cond.wait()
+            self._background = True
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._background = False
+                self._cond.notify_all()
 
 
 class Worker:

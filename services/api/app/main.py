@@ -2,7 +2,6 @@ import logging
 import math
 import secrets
 import uuid
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -701,12 +700,8 @@ def call_ollama(prompt: str, json_mode: bool = False, *, background: bool = Fals
     }
     if json_mode:
         payload["format"] = "json"
-    if background:
-        chat_priority.wait_idle()
-        timeout = settings.docintel_llm_timeout_seconds
-    else:
-        timeout = 180.0
-    with chat_priority.interactive() if not background else nullcontext():
+    timeout = settings.docintel_llm_timeout_seconds if background else 180.0
+    with chat_priority.background() if background else chat_priority.interactive():
         with httpx.Client(timeout=timeout) as client:
             response = client.post(f"{settings.ollama_base_url}/api/generate", json=payload)
             response.raise_for_status()

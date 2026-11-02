@@ -312,6 +312,51 @@ def test_background_model_calls_wait_for_chat(api_main, monkeypatch):
     assert calls == [get_settings().docintel_llm_timeout_seconds]
 
 
+def test_chat_arriving_during_a_background_call_waits_for_it_and_the_next_background_call_waits_for_chat(
+    api_main, monkeypatch
+):
+    events, release = [], threading.Event()
+
+    class Client:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, json):
+            name = json["prompt"]
+            events.append(f"start {name}")
+            if name == "job 1":
+                release.wait(5)  # a long background call
+            events.append(f"end {name}")
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"response": "kész"})
+
+    monkeypatch.setattr(api_main, "httpx", SimpleNamespace(Client=Client, HTTPError=httpx.HTTPError))
+
+    def run(name, background):
+        thread = threading.Thread(target=lambda: api_main.call_ollama(name, background=background))
+        thread.start()
+        return thread
+
+    first = run("job 1", True)
+    deadline = time.monotonic() + 5
+    while "start job 1" not in events and time.monotonic() < deadline:
+        time.sleep(0.01)
+    chat = run("chat", False)  # arrives second, after the background call went out
+    time.sleep(0.4)
+    second = run("job 2", True)
+    time.sleep(0.4)
+    assert events == ["start job 1"]  # neither runs beside the background call
+    release.set()
+    for thread in (first, chat, second):
+        thread.join(5)
+    assert events == ["start job 1", "end job 1", "start chat", "end chat", "start job 2", "end job 2"]
+
+
 # --- who may see what ----------------------------------------------------------------------------------------------
 
 
