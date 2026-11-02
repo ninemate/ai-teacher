@@ -241,6 +241,9 @@ def finish(session: Session, job_id: int, status: str, error: str | None = None,
     job = session.get(DocIntelJob, job_id)
     if job is None:  # deleted while it ran
         return
+    if status == "succeeded" and job.cancel_requested:
+        # Stopped during the last model call: the person asked for it to end, so it ends cancelled, without a result.
+        status, error, content = "cancelled", "A feladatot leállították.", None
     job.status, job.error, job.finished_at = status, error, _now()
     if content is not None:
         session.merge(DocIntelResult(job_id=job_id, content=content))

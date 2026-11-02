@@ -210,6 +210,27 @@ def test_a_running_job_stops_when_cancelled(env, monkeypatch):
     assert env.apa.delete(f"/docintel/jobs/{job['id']}").status_code == 204
 
 
+@pytest.mark.parametrize("kind, extra, answer", [
+    ("extract", {}, "answer_extract"),
+    ("translate", {"direction": "hu-en"}, "answer_translate_hu_en"),
+])
+def test_cancelling_during_the_last_model_call_does_not_end_as_succeeded(env, kind, extra, answer):
+    """A one-window job has no later step to notice the cancel; the end of the job must check it too."""
+    job = start(env.apa, env.docs["apa"], kind, **extra)
+    original = getattr(env.model, answer)
+
+    def cancel_during_the_only_call(prompt):
+        assert env.apa.post(f"/docintel/jobs/{job['id']}/cancel").json()["cancel_requested"] is True
+        return original(prompt)
+
+    setattr(env.model, answer, cancel_during_the_only_call)
+    env.worker.run_pending()
+    assert len([c for c in env.model.calls if c[0].startswith(kind)]) == 1
+    stopped = env.apa.get(f"/docintel/jobs/{job['id']}").json()
+    assert stopped["status"] == "cancelled"
+    assert env.apa.get(f"/docintel/jobs/{job['id']}/result").status_code == 409
+
+
 def test_a_job_left_running_by_a_restart_becomes_interrupted_and_resumes(env):
     job = start(env.apa, env.docs["apa"], "summary")
     with session_scope() as session:
