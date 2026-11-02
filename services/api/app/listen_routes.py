@@ -58,12 +58,15 @@ def sweep_orphans(cache: AudioCache) -> int:
     return cache.sweep(AudioCache.document_key(row_id, source_hash) for row_id, source_hash in rows)
 
 
-def start_periodic_sweep(cache: AudioCache, interval: float = SWEEP_INTERVAL_SECONDS) -> threading.Thread:
+def start_periodic_sweep(
+    cache: AudioCache, interval: float = SWEEP_INTERVAL_SECONDS
+) -> tuple[threading.Thread, threading.Event]:
     """Sweep in the background, so audio of documents the indexer removed goes without waiting for a request."""
 
+    stop = threading.Event()
+
     def loop() -> None:
-        while True:
-            time.sleep(interval)
+        while not stop.wait(interval):
             try:
                 sweep_orphans(cache)
             except Exception:  # a failed sweep is retried at the next interval
@@ -71,7 +74,7 @@ def start_periodic_sweep(cache: AudioCache, interval: float = SWEEP_INTERVAL_SEC
 
     thread = threading.Thread(target=loop, name="listen-cache-sweep", daemon=True)
     thread.start()
-    return thread
+    return thread, stop
 
 
 def build_router(fetch_chunks: FetchChunks, speak: Speak, cache: AudioCache) -> APIRouter:
