@@ -12,3 +12,25 @@ notes:
   - Use CPU fallback for development and troubleshooting.
   - Test Hungarian answer quality with your own library before locking the production model.
 
+# Model metadata checked against the publishers' model pages and license files.
+# This is an inventory/catalog, not a runtime download list.
+models:
+  - id: qwen2.5:7b-instruct-q4_K_M
+    role: default_chat
+    source: https://ollama.com/library/qwen2.5
+    license: Apache-2.0
+    license_source: https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/blob/main/LICENSE
+    license_checked: true
+  - id: gemma2:2b
+    role: cpu_fallback
+    source: https://ollama.com/library/gemma2
+    license: Gemma Terms of Use
+    license_source: https://ai.google.dev/gemma/terms
+    license_checked: true
+  - id: intfloat/multilingual-e5-base
+    role: embeddings
+    source: https://huggingface.co/intfloat/multilingual-e5-base
+    license: MIT
+    license_source: https://huggingface.co/intfloat/multilingual-e5-base
+    license_checked: true
+

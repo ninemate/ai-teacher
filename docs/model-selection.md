@@ -31,6 +31,12 @@ Reasoning:
 - Do not assume a model that looks good in benchmarks will teach well in Hungarian without testing.
 - Do not assume GPU inference is mandatory for dev mode.
 
+## Changing the Embedding Model
+
+Back up before changing `EMBEDDING_MODEL` or rebuilding the api/ingestion images. The current collection stores vectors without the embedding model identity. Startup creates the collection only when it is absent; it does not compare the stored vector size or model with the configured model. A dimension change is rejected by Qdrant at search/upsert time. A same-dimension change can leave old vectors alongside new vectors. The current full reindex does not recreate the Qdrant collection schema, so it does not make a dimension change safe.
+
+Treat embedding-model migration as unsupported until there is an explicit collection migration. Keep the previous api/ingestion images and model setting, plus a pre-change backup. To revert, stop api and ingestion, restore that backup with `make restore CONFIRM=YES RESTORE_FROM=<backup>`, restore the old setting and image digests, then start the previous stack.
+
 ## NVIDIA Notes
 
 - Install a working host driver first.
