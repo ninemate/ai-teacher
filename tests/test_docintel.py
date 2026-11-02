@@ -48,6 +48,23 @@ def test_windows_cover_every_chunk_once_in_order_within_the_budget():
         assert sum(len(c["text"]) for c in window) <= 1500
 
 
+def test_a_chunk_larger_than_the_window_budget_is_cut_into_pieces_that_fit_and_keep_their_source():
+    document = long_doc(pages=3)
+    budget = 400
+    assert any(doc_text.chunk_cost(c) > budget for c in document["chunks"])
+    pieces = doc_text.split_oversized(document["chunks"], budget)
+    assert all(doc_text.chunk_cost(p) <= budget for p in pieces)
+    assert len({p["chunk_id"] for p in pieces}) == len(pieces)
+    # nothing lost, nothing reordered, page attribution kept
+    assert " ".join(" ".join(p["text"].split()) for p in pieces) == " ".join(" ".join(c["text"].split()) for c in document["chunks"])
+    assert [p["page"] for p in pieces] == sorted(p["page"] for p in pieces)
+    assert {p["page"] for p in pieces} == {1, 2, 3}
+    # a budget the chunks already fit leaves them as they are
+    assert doc_text.split_oversized(document["chunks"], 10_000) == document["chunks"]
+    # and the windows made from the pieces respect the budget
+    assert all(sum(doc_text.chunk_cost(c) for c in w) <= budget for w in doc_text.make_windows(pieces, budget))
+
+
 # --- summary -------------------------------------------------------------------------------------------------------
 
 

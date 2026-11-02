@@ -151,6 +151,9 @@ class Worker:
                     )
                 document_workspace = record.workspace_id
             chunks = doc_text.load_chunks(source["source_path"], {document_workspace}, self.scroll)
+            # A window budget below the indexed chunk size must still hold: cut the chunks that would not fit.
+            budget = self.settings.docintel_translate_window if job["kind"] == "translate" else self.settings.docintel_window
+            chunks = doc_text.split_oversized(chunks, budget)
             documents.append({**source, "chunks": chunks})
         return documents
 

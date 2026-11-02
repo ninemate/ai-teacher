@@ -67,16 +67,58 @@ def load_chunks(
 LINE_OVERHEAD = 160
 
 
+MIN_PIECE = 200
+
+
+def chunk_cost(chunk: dict) -> int:
+    return len(chunk["text"]) + LINE_OVERHEAD + len(chunk.get("title") or "") + len(chunk.get("file_name") or "")
+
+
+def _cut_point(head: str) -> int:
+    """Where to cut ``head``: after the last sentence end, else the last space, else (one huge word) at its end."""
+    sentence = max(head.rfind(mark) for mark in (". ", "! ", "? ", "\n"))
+    if sentence >= len(head) // 2:
+        return sentence + 1
+    space = head.rfind(" ")
+    return space if space > 0 else len(head)
+
+
+def split_oversized(chunks: Sequence[dict], max_chars: int) -> list[dict]:
+    """Chunks whose numbered line would not fit ``max_chars`` cut into pieces that do, at a sentence or word boundary.
+
+    Only for a window budget smaller than the chunks of the index (a setting changed after indexing); with the
+    defaults nothing is cut. A piece keeps the chunk's page, chapter and OCR data, and gets its own id
+    (``<id>~2``) so a citation can name it; the text is never dropped or reordered.
+    """
+    out: list[dict] = []
+    for chunk in chunks:
+        if chunk_cost(chunk) <= max_chars:
+            out.append(chunk)
+            continue
+        room = max(MIN_PIECE, max_chars - (chunk_cost(chunk) - len(chunk["text"])))
+        text, number = chunk["text"], 0
+        while text:
+            cut = len(text) if len(text) <= room else _cut_point(text[:room])
+            piece, text = text[:cut].strip(), text[cut:].lstrip()
+            if not piece:
+                continue
+            number += 1
+            out.append({**chunk, "chunk_id": chunk["chunk_id"] if number == 1 else f"{chunk['chunk_id']}~{number}",
+                        "text": piece})
+    return out
+
+
 def make_windows(chunks: Sequence[dict], max_chars: int) -> list[list[dict]]:
     """Consecutive chunks grouped so each group's numbered context stays within ``max_chars``.
 
-    A chunk longer than the budget gets a window of its own (it is cut when shown, never skipped).
+    A chunk that alone exceeds the budget gets a window of its own; run ``split_oversized`` first to keep the
+    budget (the job worker does).
     """
     windows: list[list[dict]] = []
     current: list[dict] = []
     size = 0
     for chunk in chunks:
-        cost = len(chunk["text"]) + LINE_OVERHEAD + len(chunk.get("title") or "") + len(chunk.get("file_name") or "")
+        cost = chunk_cost(chunk)
         if current and size + cost > max_chars:
             windows.append(current)
             current, size = [], 0

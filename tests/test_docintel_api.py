@@ -210,6 +210,22 @@ def test_a_running_job_stops_when_cancelled(env, monkeypatch):
     assert env.apa.delete(f"/docintel/jobs/{job['id']}").status_code == 204
 
 
+def test_a_window_budget_below_the_chunk_size_still_bounds_every_model_call(env, monkeypatch):
+    monkeypatch.setattr(get_settings(), "docintel_window_chars", 700)
+    name = env.docs["apa"]["source_path"].rsplit("/", 1)[-1]
+    page = "Követelmény: a pályázónak sok mindent kell teljesítenie, ezért ez egy hosszabb mondat. " * 12  # ~1000
+    env.docs["apa"]["chunks"] = make_doc(name, [page, page])["chunks"]
+    job = start(env.apa, env.docs["apa"], "summary")
+    env.worker.run_pending()
+    assert env.apa.get(f"/docintel/jobs/{job['id']}").json()["status"] == "succeeded"
+    assert env.model.count("summary_map") > 2  # each long page was cut into pieces that fit
+    assert max(len(p) for k, p in env.model.calls if k == "summary_map") < 700 + 2000  # window plus the fixed prompt
+    assert all(len(p.split("\n\n")[-1]) <= 700 for k, p in env.model.calls if k == "summary_map")
+    result = env.apa.get(f"/docintel/jobs/{job['id']}/result").json()["result"]
+    ids = {c["id"] for c in result["citations"]}
+    assert result["overall"] and all(set(p["sources"]) <= ids for p in result["overall"])
+
+
 @pytest.mark.parametrize("kind, extra, answer", [
     ("extract", {}, "answer_extract"),
     ("translate", {"direction": "hu-en"}, "answer_translate_hu_en"),
