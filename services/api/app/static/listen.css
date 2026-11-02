@@ -1,0 +1,58 @@
+/* Listening section: read library documents aloud, a segment at a time. Mobile first. */
+.listen h2 { margin-top: 0; }
+.listen .notice[hidden], .listen [hidden] { display: none; }
+.listen .check { display: flex; gap: 10px; align-items: center; margin: 4px 0 12px; font-weight: 400; }
+.listen .check input { width: auto; margin: 0; }
+.listen .primary { background: var(--accent); color: #fff; }
+.listen .danger { background: #f3d9d4; color: #7a2118; }
+
+.listen-library { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 10px; }
+.listen-library li {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fffdf8;
+}
+.listen-library .meta { color: var(--muted); font-size: 0.9rem; }
+.listen-library .row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.listen-library .row button { width: auto; min-height: 48px; }
+.listen-library .empty { color: var(--muted); border-style: dashed; }
+
+/* Big targets: five controls across the width of a phone, the play button widest. */
+.listen-controls { display: grid; grid-template-columns: 1fr 1fr 1.6fr 1fr 1fr; gap: 8px; margin: 14px 0; }
+.listen-controls button { min-height: 60px; padding: 8px; font-size: 1.4rem; }
+.listen-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.listen progress { display: block; width: 100%; height: 8px; margin: 8px 0 14px; }
+
+.listen-text {
+  max-height: 46vh;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  padding: 6px 4px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.listen-text p {
+  margin: 0;
+  padding: 10px 10px;
+  border-left: 4px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.listen-text p.current { background: rgba(15, 118, 110, 0.14); border-left-color: var(--accent); }
+.listen-text p.low { background: rgba(180, 83, 9, 0.12); border-left-color: #b45309; }
+.listen-text p.low.current { background: rgba(180, 83, 9, 0.24); }
+.listen-text .tag { display: block; margin-bottom: 4px; font-size: 0.8rem; font-weight: 700; color: #92400e; }
+.listen-text .tag.ok { color: var(--muted); font-weight: 400; }
+
+.listen-bookmarks { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.listen-bookmarks li { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.listen-bookmarks button { width: auto; min-height: 44px; }
+.listen-bookmarks .go { text-align: left; width: 100%; }
+
+@media (min-width: 640px) {
+  .listen-controls button { min-height: 52px; }
+}
