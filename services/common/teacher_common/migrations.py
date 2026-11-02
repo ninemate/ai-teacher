@@ -33,6 +33,10 @@ def _baseline_study_tables(connection: Connection) -> None:
     """Quiz and flashcard tables are created by create_all; nothing else to do."""
 
 
+def _excluded_documents(connection: Connection) -> None:
+    """The workspace-scoped tombstone table is created from model metadata; no data conversion is needed."""
+
+
 def _workspace_isolation(connection: Connection) -> None:
     """Add workspace ownership to existing private data; legacy rows stay in an admin-owned workspace."""
     connection.exec_driver_sql(
@@ -71,6 +75,7 @@ def _workspace_isolation(connection: Connection) -> None:
 MIGRATIONS: list[Migration] = [
     (1, "baseline: quiz and flashcard tables", _baseline_study_tables),
     (2, "workspace ownership for private content", _workspace_isolation),
+    (3, "workspace-scoped excluded documents", _excluded_documents),
 ]
 
 

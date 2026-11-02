@@ -71,6 +71,15 @@
         <h2>Tanulás</h2>
         <p class="lead">Mentett kvízek és villámkártyák a könyvtárból. A kártyák az ismétlési ütemezés szerint jönnek elő.</p>
 
+        <details class="excluded-documents">
+          <summary>Kizárt dokumentumok</summary>
+          <p class="muted-text">A visszaállított fájl a következő indexelési futáskor kerül vissza.</p>
+          <ul id="excluded-documents-list" class="excluded-list" aria-live="polite">
+            <li>Betöltés...</li>
+          </ul>
+          <p id="excluded-documents-status" class="status" role="status"></p>
+        </details>
+
         <label for="study-topic">Téma (nem kötelező, ha választasz dokumentumot)</label>
         <input id="study-topic" type="text" placeholder="Például: a sejt felépítése" />
 

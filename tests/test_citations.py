@@ -260,6 +260,11 @@ def hit(n: int, **fields):
 LIMITS = citations.Limits(weak_score=0.8, ocr_min_confidence=70.0)
 
 
+def test_retrieval_floor_default_leaves_weak_score_band_available(api):
+    assert api.settings.retrieval_min_score == 0.74
+    assert api.settings.retrieval_min_score < api.settings.retrieval_weak_score == 0.8
+
+
 def test_citation_payload_names_file_page_and_chapter():
     built = citations.build_citations([hit(1), hit(2, page=None, chapter="Bevezetés", locator="fejezet Bevezetés")], LIMITS)
     first, second = built
@@ -419,6 +424,33 @@ def test_answer_carries_structured_citations(api, monkeypatch):
     prompt = api.calls["prompts"][0]
     assert "[1] Könyv 1 (konyv1.pdf) | 1. oldal" in prompt
     assert "[forrás nélkül]" in prompt
+
+
+@pytest.mark.parametrize("task", ["answer", "summary"])
+def test_retrieval_floor_removes_low_scores_before_prompt_and_citations(api, monkeypatch, task):
+    monkeypatch.setattr(api.settings, "retrieval_min_score", 0.74, raising=False)
+    hits = [hit(1, score=0.73), hit(2, score=0.79), hit(3, score=0.85)]
+    monkeypatch.setattr(api, "retrieve_sources", lambda *args, **kwargs: hits)
+    api.calls["reply"] = "A forrás állítása [1]."
+
+    result = api.generate_teaching_response(task, "A témáról", "beginner", 6, {"ws1"})
+
+    assert [citation["score"] for citation in result["citations"]] == [0.79, 0.85]
+    assert result["citations"][0]["uncertain_reasons"] == ["weak_match"]
+    assert "forrásszöveg 1" not in api.calls["prompts"][0]
+    assert "forrásszöveg 2" in api.calls["prompts"][0]
+
+
+def test_retrieval_floor_uses_no_source_path_when_all_hits_are_below_it(api, monkeypatch):
+    monkeypatch.setattr(api.settings, "retrieval_min_score", 0.74, raising=False)
+    monkeypatch.setattr(api, "retrieve_sources", lambda *args, **kwargs: [hit(1, score=0.73)])
+
+    result = api.generate_teaching_response("answer", "Egy másik téma", "beginner", 6, {"ws1"})
+
+    assert result["citations"] == []
+    assert result["grounding"]["status"] == "no_source"
+    assert "nem találtam" in result["answer"]
+    assert api.calls["prompts"] == []
 
 
 def test_no_hits_answer_is_marked_without_source(api, monkeypatch):

@@ -8,8 +8,10 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     FilterSelector,
+    IsEmptyCondition,
     MatchAny,
     MatchValue,
+    PayloadField,
     PointStruct,
     VectorParams,
 )
@@ -58,15 +60,26 @@ def upsert_points(points: Sequence[PointStruct]) -> None:
     client.upsert(collection_name=settings.qdrant_collection, points=points)
 
 
-def delete_points_for_source(source_path: str) -> None:
-    # documents.source_path is unique; matching it also removes legacy points that predate workspace payloads.
+def delete_points_for_source(source_path: str, workspace_id: str | None = None) -> None:
     client = get_client()
+    conditions = [FieldCondition(key="source_path", match=MatchValue(value=source_path))]
+    if workspace_id is not None:
+        workspace_match = FieldCondition(key="workspace_id", match=MatchValue(value=workspace_id))
+        if workspace_id == "legacy":
+            # The migration assigns old rows to legacy; their old vector payloads have no workspace_id field.
+            query_filter = Filter(
+                must=conditions,
+                should=[workspace_match, IsEmptyCondition(is_empty=PayloadField(key="workspace_id"))],
+            )
+        else:
+            conditions.append(workspace_match)
+            query_filter = Filter(must=conditions)
+    else:
+        query_filter = Filter(must=conditions)
     client.delete(
         collection_name=settings.qdrant_collection,
         points_selector=FilterSelector(
-            filter=Filter(
-                must=[FieldCondition(key="source_path", match=MatchValue(value=source_path))]
-            )
+            filter=query_filter
         ),
     )
 
