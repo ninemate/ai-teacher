@@ -81,6 +81,26 @@ def delete_points_for_workspace(workspace_id: str) -> None:
     )
 
 
+def scroll_document(source_path: str) -> list[dict]:
+    """Every stored chunk payload of one document, in no particular order (callers sort by ``position``)."""
+    client = get_client()
+    flt = Filter(must=[FieldCondition(key="source_path", match=MatchValue(value=source_path))])
+    payloads: list[dict] = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=settings.qdrant_collection,
+            scroll_filter=flt,
+            limit=256,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        payloads.extend(point.payload or {} for point in points)
+        if offset is None:
+            return payloads
+
+
 def search(
     query_vector: list[float],
     limit: int,

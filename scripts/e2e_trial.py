@@ -147,6 +147,7 @@ class Trial:
         self.first_run: dict = {}
         self.sources_before: dict[str, list[dict]] = {}
         self.stored: dict = {}
+        self.listened: dict = {}
 
     # --- plumbing ---
 
@@ -499,6 +500,92 @@ class Trial:
             f"backup/restore acceptance trial failed: {result.stderr[-1000:]} {result.stdout[-1000:]}",
         )
         return result.stdout.strip().replace("\n", "; ")[-500:]
+    def listen(self):
+        anna, bela = self.client(ANNA), self.client(BELA)
+        rows = {file_name(r["source_path"]): r for r in self.sources(ANNA)}
+        mill, scan = rows[MILL_PDF], rows[SCAN_PDF]
+        voice = anna.get("/voice/status").json()
+        voice_name = voice.get("default_voice") or ""
+        suffix = f"?voice={voice_name}" if voice_name else ""
+
+        # Reading order: sections per page, no overlap repeated between neighbouring segments.
+        for row in (mill, scan):
+            expect_status(anna.post("/listen/library", {"document_id": row["id"]}), 201, "add to the listening list")
+        overview = anna.get(f"/listen/{mill['id']}").json()
+        expect(len(overview["sections"]) >= 2, f"sections: {overview['sections']}")
+        texts = []
+        for section in overview["sections"]:
+            segments = anna.get(f"/listen/{mill['id']}/sections/{section['index']}").json()["segments"]
+            expect(segments, f"section {section['index']} has no text")
+            for before, after in zip(segments, segments[1:], strict=False):
+                expect(before["text"][-40:] not in after["text"], f"overlap repeated: {before['text'][-60:]!r}")
+            texts += [segment["text"] for segment in segments]
+        spoken = " ".join(texts)
+        expect("tizennégy lapátja" in spoken, "the mill text is not in reading order text")
+        expect(spoken.count("tizennégy lapátja") == 1, "a sentence of the page was read back twice")
+
+        # Scanned pages are marked as OCR text, uncertain ones as such (same limit as the citations).
+        scanned = anna.get(f"/listen/{scan['id']}").json()
+        expect(any(section["ocr"] for section in scanned["sections"]), f"scan sections: {scanned['sections']}")
+
+        # Resume on a second device (a fresh login of the same user).
+        saved = anna.request("PUT", f"/listen/{mill['id']}/position", json_body={"section": 1, "segment": 0, "speed": 1.5})
+        expect_status(saved, 200, "save the position")
+        phone = Client(self.args.base_url, timeout=self.args.model_timeout)
+        expect_status(phone.login(ANNA, os.environ[PASSWORD_VARS[ANNA]]), 303, "second login")
+        resumed = phone.get(f"/listen/{mill['id']}").json()["position"]
+        expect((resumed["section"], resumed["segment"], resumed["speed"]) == (1, 0, 1.5), f"resumed at {resumed}")
+
+        # Another account reaches none of it.
+        for path in (f"/listen/{mill['id']}", f"/listen/{mill['id']}/sections/0", f"/listen/{mill['id']}/audio/0/0"):
+            expect_status(bela.get(path), 404, f"bela on {path}")
+        expect_status(bela.request("PUT", f"/listen/{mill['id']}/position", json_body={"section": 0, "segment": 0}), 404, "bela's position")
+
+        if not (voice.get("available") and voice.get("tts")):
+            clip = anna.get(f"/listen/{mill['id']}/audio/0/0")
+            expect_status(clip, 503, "audio without the voice overlay")
+            expect(anna.get(f"/listen/{mill['id']}").status == 200, "the text stops working without the voice")
+            return "text, sections, resume and isolation work; audio answers 503 without the voice overlay (add --voice for synthesis)"
+
+        # Audio is made per requested segment, once, and cached below the data folder.
+        started = time.monotonic()
+        clip = anna.get(f"/listen/{mill['id']}/audio/0/0{suffix}")
+        cold = time.monotonic() - started
+        expect_status(clip, 200, "first segment audio")
+        expect(clip.headers.get("Content-Type", "").startswith("audio/mpeg") and len(clip.body) > 2000, f"{len(clip.body)} bytes")
+        started = time.monotonic()
+        again = anna.get(f"/listen/{mill['id']}/audio/0/0{suffix}")
+        warm = time.monotonic() - started
+        expect(again.body == clip.body, "the cached clip differs")
+        # 64 kbit/s mono MP3: bytes -> seconds of speech
+        seconds = len(clip.body) * 8 / 64000
+        first_text = anna.get(f"/listen/{mill['id']}/sections/0").json()["segments"][0]["text"]
+        cache = self.library.parent / "data" / "metadata" / "listen_cache"
+        files = list(cache.rglob("*.mp3")) if cache.exists() else []
+        if cache.exists():
+            expect(len(files) == 1, f"{len(files)} clips cached after asking for one segment")
+            self.listened = {"mill": mill["id"], "cache": cache}
+        # The clip really says the segment: transcribe it back.
+        boundary = uuid.uuid4().hex
+        form = (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="audio"; filename="clip.mp3"\r\n'
+            "Content-Type: audio/mpeg\r\n\r\n"
+        ).encode() + clip.body + f"\r\n--{boundary}--\r\n".encode()
+        heard = anna.request(
+            "POST", "/voice/transcribe", body=form,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, timeout=self.args.model_timeout,
+        )
+        expect_status(heard, 200, "transcribing the clip")
+        transcript = heard.json()["text"].lower()
+        words = [w.strip(".,;:!?").lower() for w in first_text.split() if len(w.strip(".,;:!?")) >= 5][:8]
+        found = [w for w in words if w in transcript]
+        print(f"segment {first_text[:80]!r} -> heard {transcript[:80]!r}")
+        expect(len(found) >= max(2, len(words) // 3), f"the clip does not say the segment: {found} of {words}: {transcript!r}")
+        return (
+            f"{len(clip.body)} bytes (~{seconds:.1f}s of speech) made in {cold:.1f}s "
+            f"(real-time factor {cold / seconds:.2f}, first request loads the voice), cached repeat {warm * 1000:.0f} ms; "
+            f"{len(files)} clip on disk for one segment asked"
+        )
 
     def delete_document(self):
         anna = self.client(ANNA)
@@ -515,6 +602,11 @@ class Trial:
             points_after = self.point_count()
             expect(points_after == points_before - mill["chunk_count"], f"points {points_before} -> {points_after}")
             detail += f" ({points_before} -> {points_after} Qdrant points)"
+        if self.listened:
+            # Nothing of a deleted document stays playable or on disk.
+            expect_status(anna.get(f"/listen/{mill['id']}/audio/0/0"), 404, "audio of the deleted document")
+            expect(not list(self.listened["cache"].rglob("*.mp3")), "cached audio of the deleted document is still on disk")
+            detail += "; its listening audio is gone"
         if self.stored:
             # A stored quiz built on a deleted document goes with it (docs/security.md).
             gone = anna.get(f"/study/quizzes/{self.stored['quiz']['id']}")
@@ -589,6 +681,7 @@ class Trial:
             ("Quiz and flashcards generated and stored", self.quiz_and_flashcards),
             ("Stored data survives a stack restart", self.survives_restart),
             ("Backup restores a document, saved quiz and searchable Qdrant index", self.backup_restore),
+            ("Listening: reading-order text, resume, isolation, audio on demand", self.listen),
             ("Deleting a document removes it from index and answers", self.delete_document),
             ("Egress check with the stack running", self.egress),
             ("Voice round trip in Hungarian", self.voice),
