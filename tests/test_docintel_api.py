@@ -456,7 +456,7 @@ def test_a_shared_document_can_be_read_but_the_result_stays_with_the_reader(env)
 def test_deleting_a_source_marks_its_results_stale_and_stops_unfinished_jobs(env, monkeypatch):
     import teacher_common.qdrant_store as qdrant_store
 
-    monkeypatch.setattr(qdrant_store, "delete_points_for_source", lambda path: None)
+    monkeypatch.setattr(qdrant_store, "delete_points_for_source", lambda path, workspace_id=None: None)
     done = start(env.apa, env.docs["apa"], "translate", direction="hu-en")
     env.worker.run_pending()
     waiting = start(env.apa, env.docs["apa"])

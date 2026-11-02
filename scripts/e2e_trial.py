@@ -566,6 +566,15 @@ class Trial:
         expect(self.source_names(ANNA) == ANNA_FILES, "the documents did not survive")
         return "session, quiz, deck, attempt, documents and vectors unchanged"
 
+    def backup_restore(self):
+        if not self.args.backup_restore_cmd:
+            raise Skip("no real-Qdrant backup/restore command was configured")
+        result = self.run_command(self.args.backup_restore_cmd, 300)
+        expect(
+            result.returncode == 0,
+            f"backup/restore acceptance trial failed: {result.stderr[-1000:]} {result.stdout[-1000:]}",
+        )
+        return result.stdout.strip().replace("\n", "; ")[-500:]
     def listen(self):
         anna, bela = self.client(ANNA), self.client(BELA)
         rows = {file_name(r["source_path"]): r for r in self.sources(ANNA)}
@@ -777,6 +786,7 @@ class Trial:
             ("Quiz and flashcards generated and stored", self.quiz_and_flashcards),
             ("Extract and translate a whole document in the background", self.document_intelligence),
             ("Stored data survives a stack restart", self.survives_restart),
+            ("Backup restores a document, saved quiz and searchable Qdrant index", self.backup_restore),
             ("Listening: reading-order text, resume, isolation, audio on demand", self.listen),
             ("Deleting a document removes it from index and answers", self.delete_document),
             ("Egress check with the stack running", self.egress),
@@ -814,6 +824,7 @@ def main() -> int:
     parser.add_argument("--restart-cmd", required=True)
     parser.add_argument("--egress-cmd", default="")
     parser.add_argument("--point-count-cmd", default="")
+    parser.add_argument("--backup-restore-cmd", default="")
     parser.add_argument("--voice", action="store_true")
     parser.add_argument("--report", default="")
     parser.add_argument("--model-timeout", type=float, default=600.0)

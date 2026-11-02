@@ -2,7 +2,7 @@ COMPOSE_BASE=docker compose --env-file .env -f compose/docker-compose.yml
 COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml -f compose/docker-compose.proxy.yml
 COMPOSE_VOICE=$(COMPOSE_DEV) -f compose/docker-compose.voice.example.yml
 
-.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test check-library test-chat test-ingest ingest-now hash-password model-update test-egress test-e2e
+.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test check-library test-chat test-ingest ingest-now hash-password model-update backup restore inventory test-backup-restore test-egress test-e2e
 
 dev-up:
 	$(COMPOSE_DEV) up -d --build
@@ -67,6 +67,26 @@ ingest-now:
 # internet; the private services keep none at runtime (docs/security.md).
 model-update:
 	bash scripts/model-update.sh
+
+# Host-side state protection. Backups are private to this OS user; restore requires CONFIRM=YES.
+backup:
+	python3 scripts/backup_restore.py backup
+
+restore:
+	@test "$(CONFIRM)" = YES || { echo "Restore overwrites live data; run make restore CONFIRM=YES" >&2; exit 2; }
+	@if [ -n "$(RESTORE_FROM)" ]; then \
+		python3 scripts/backup_restore.py restore --backup "$(RESTORE_FROM)" --confirm-live-data; \
+	else \
+		python3 scripts/backup_restore.py restore --confirm-live-data; \
+	fi
+
+# Runs a short-lived API image worker on the private network against Compose Qdrant.
+test-backup-restore:
+	BACKUP_QDRANT_TRANSPORT=compose python3 scripts/backup_restore_trial.py
+
+# Writes a current host inventory into the tracked report file; does not pull or install anything.
+inventory:
+	python3 scripts/component_inventory.py --output docs/component-inventory.md
 
 # Proves the egress rule (Private AI acceptance test 11). --config-only works
 # without a running stack.
