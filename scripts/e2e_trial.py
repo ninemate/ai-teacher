@@ -461,6 +461,71 @@ class Trial:
             f"deck {deck['id']} with {len(deck['cards'])} cards ({deck_tries} requests)"
         )
 
+    def _run_job(self, client: Client, payload: dict) -> dict:
+        """Start a Document Intelligence job and wait for it. A small model may give unusable output, which ends the
+        job as failed (resumable); like the study step this gets a few resumes before it counts against the stack."""
+        started = client.post("/docintel/jobs", payload)
+        expect_status(started, 202, f"start {payload['kind']} job")
+        job = started.json()
+        resumes = 0
+        deadline = time.monotonic() + self.args.docintel_timeout
+        seen_progress = False
+        while True:
+            job = client.get(f"/docintel/jobs/{job['id']}").json()
+            seen_progress = seen_progress or job["progress"]["total"] > 0
+            if job["status"] == "succeeded":
+                job["resumes"], job["progress_seen"] = resumes, seen_progress
+                return job
+            if job["status"] in ("failed", "interrupted"):
+                expect(job["error"], f"a {job['status']} job without a reason: {job}")
+                expect(resumes < self.args.study_tries, f"{payload['kind']} job {job['status']}: {job['error']}")
+                expect_status(client.post(f"/docintel/jobs/{job['id']}/resume", {}), 200, "resume")
+                resumes += 1
+            expect(job["status"] != "cancelled", f"job cancelled by itself: {job}")
+            expect(time.monotonic() < deadline, f"job did not finish in time: {job}")
+            time.sleep(2)
+
+    def document_intelligence(self):
+        """Extract and translate a whole document in the background, with sources, kept apart from the index.
+        Quality of both on a small CPU model is poor and is not judged here: structure, sources and storage are."""
+        anna = self.client(ANNA)
+        mill = next(r for r in self.sources(ANNA) if file_name(r["source_path"]) == MILL_PDF)
+        points_before = self.point_count()
+        extract = self._run_job(anna, {"kind": "extract", "source_paths": [mill["source_path"]]})
+        result = anna.get(f"/docintel/jobs/{extract['id']}/result").json()["result"]
+        expect(result["kind"] == "extract" and result["coverage"]["windows"] >= 1, f"extract result: {result}")
+        by_id = {c["id"]: c for c in result["citations"]}
+        for row in result["rows"]:
+            expect(row["sources"] and all(i in by_id for i in row["sources"]), f"row without a real source: {row}")
+            for i in row["sources"]:
+                expect(file_name(by_id[i]["source_path"]) == MILL_PDF and by_id[i]["page"] in (1, 2), f"{by_id[i]}")
+        exported = anna.get(f"/docintel/jobs/{extract['id']}/export?format=csv")
+        expect_status(exported, 200, "CSV export")
+        expect(exported.text.lstrip("\ufeff").startswith("Típus,"), f"CSV header: {exported.text[:80]!r}")
+
+        translate = self._run_job(anna, {"kind": "translate", "source_paths": [mill["source_path"]],
+                                         "direction": "hu-en"})
+        translation = anna.get(f"/docintel/jobs/{translate['id']}/result").json()["result"]
+        expect(translation["segments"] and all(s["text"].strip() and s["sources"] for s in translation["segments"]),
+               f"translation: {translation}")
+        text = anna.get(f"/docintel/jobs/{translate['id']}/export?format=txt")
+        expect_status(text, 200, "text export")
+
+        # The translation is its own result: no new document, no new vectors.
+        expect(self.source_names(ANNA) == ANNA_FILES, "a result appeared in the document list")
+        if points_before is not None:
+            expect(self.point_count() == points_before, "a result was added to the index")
+        bela = self.client(BELA)
+        expect_status(bela.get(f"/docintel/jobs/{extract['id']}/result"), 404, "bela reading anna's extraction")
+        expect(bela.get("/docintel/jobs").json() == [], "bela sees jobs")
+        self.stored["docintel"] = {"id": translate["id"], "result": translation}
+        self.stored["docintel_extract_id"] = extract["id"]
+        return (
+            f"extract: {len(result['rows'])} rows, {result['coverage']['windows']} windows, "
+            f"{extract['resumes']} resumes; translate: {len(translation['segments'])} segments, "
+            f"{translate['resumes']} resumes; progress shown: {extract['progress_seen']}"
+        )
+
     def survives_restart(self):
         result = self.run_command(self.args.restart_cmd, self.args.restart_timeout)
         print(result.stdout[-800:], result.stderr[-800:])
@@ -479,7 +544,7 @@ class Trial:
         anna = self.client(ANNA)
         expect_status(anna.get("/session"), 200, "session after the restart")
         expect(anna.get("/session").json()["username"] == ANNA, "the session did not survive")
-        if not self.stored:
+        if not self.stored.get("quiz"):
             raise AssertionError("nothing to compare: the quiz and flashcards step stored nothing")
         quiz, deck = self.stored["quiz"], self.stored["deck"]
         after_quiz = anna.get(f"/study/quizzes/{quiz['id']}")
@@ -490,6 +555,12 @@ class Trial:
         expect(after_deck.json() == deck, "the deck changed in the restart")
         attempts = anna.get(f"/study/quizzes/{quiz['id']}/attempts").json()
         expect(attempts == self.stored["attempts"] and attempts, "the quiz attempt did not survive")
+        stored_job = self.stored.get("docintel")
+        if stored_job:
+            kept = anna.get(f"/docintel/jobs/{stored_job['id']}/result")
+            expect_status(kept, 200, "translation after the restart")
+            expect(kept.json()["result"] == stored_job["result"], "the translation changed in the restart")
+            expect(not [j for j in anna.get("/docintel/jobs").json() if j["status"] == "running"], "a job is stuck running")
         answer = self.chat(ANNA, MILL_QUESTION)
         expect(answer["citations"] and answer["citations"][0]["page"] == 2, "the index did not survive")
         expect(self.source_names(ANNA) == ANNA_FILES, "the documents did not survive")
@@ -609,6 +680,11 @@ class Trial:
             # A stored quiz built on a deleted document goes with it (docs/security.md).
             gone = anna.get(f"/study/quizzes/{self.stored['quiz']['id']}")
             expect_status(gone, 404, "quiz built on the deleted document")
+        if self.stored.get("docintel"):
+            # A result made from a deleted document stays, marked stale (docs/document-intelligence.md).
+            kept = anna.get(f"/docintel/jobs/{self.stored['docintel']['id']}").json()
+            expect(kept["stale"] is True, f"result of the deleted document not marked stale: {kept}")
+            detail += "; results made from it are marked stale"
 
         # The path exclusion persists across a restart and a full rebuild of the remaining library.
         result = self.run_command(self.args.restart_cmd, self.args.restart_timeout)
@@ -699,6 +775,7 @@ class Trial:
             ("Question with no source says so (acceptance test 5)", self.no_source_says_so),
             ("User B cannot reach user A's documents (acceptance test 6)", self.isolation),
             ("Quiz and flashcards generated and stored", self.quiz_and_flashcards),
+            ("Extract and translate a whole document in the background", self.document_intelligence),
             ("Stored data survives a stack restart", self.survives_restart),
             ("Listening: reading-order text, resume, isolation, audio on demand", self.listen),
             ("Deleting a document removes it from index and answers", self.delete_document),
@@ -743,6 +820,7 @@ def main() -> int:
     parser.add_argument("--index-timeout", type=float, default=1200.0)
     parser.add_argument("--restart-timeout", type=float, default=600.0)
     parser.add_argument("--study-tries", type=int, default=3)
+    parser.add_argument("--docintel-timeout", type=float, default=1800.0)
     return Trial(parser.parse_args()).run()
 
 

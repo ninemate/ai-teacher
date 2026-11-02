@@ -252,6 +252,36 @@ def test_vanished_documents_are_removed(svc):
     assert svc.last_run["deleted"] == 1
 
 
+def test_documents_removed_by_a_scan_mark_document_intelligence_results_stale_and_stop_unfinished_jobs(svc):
+    from teacher_common import docintel_store
+    from teacher_common.db import session_scope
+    from teacher_common.docintel_models import DocIntelJob
+
+    (svc.library / "watched" / "keep.txt").write_text("k")  # a watched folder that turns empty is assumed lost
+    svc.run_indexing(False, True)
+    source = str(svc.library / "watched" / "a.txt")
+    jobs = {}
+    with session_scope() as session:
+        for name in ("done", "running", "waiting", "elsewhere"):
+            path = source if name != "elsewhere" else str(svc.library / "other" / "b.txt")
+            jobs[name] = docintel_store.create_job(
+                session, workspace_id="legacy", username="legacy", kind="summary", title=name,
+                sources=[{"source_path": path, "file_name": "a.txt"}], options={}, model=None,
+            )["id"]
+        for name, status in (("done", "succeeded"), ("running", "running")):
+            session.get(DocIntelJob, jobs[name]).status = status
+
+    (svc.library / "watched" / "a.txt").unlink()
+    svc.run_indexing(False, True)
+
+    with session_scope() as session:
+        done, running, waiting, elsewhere = (session.get(DocIntelJob, jobs[n]) for n in ("done", "running", "waiting", "elsewhere"))
+        assert done.stale and done.status == "succeeded"  # kept for the person to export, marked stale
+        assert running.cancel_requested  # the worker stops it before its next step
+        assert waiting.status == "cancelled"
+        assert not elsewhere.stale and elsewhere.status == "queued"
+
+
 def test_remove_missing_false_keeps_documents(svc):
     svc.run_indexing(False, True)
     (svc.library / "watched" / "a.txt").unlink()

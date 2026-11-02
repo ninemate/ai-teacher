@@ -1,5 +1,6 @@
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+from typing import Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -94,26 +95,6 @@ def delete_points_for_workspace(workspace_id: str) -> None:
     )
 
 
-def scroll_document(source_path: str) -> list[dict]:
-    """Every stored chunk payload of one document, in no particular order (callers sort by ``position``)."""
-    client = get_client()
-    flt = Filter(must=[FieldCondition(key="source_path", match=MatchValue(value=source_path))])
-    payloads: list[dict] = []
-    offset = None
-    while True:
-        points, offset = client.scroll(
-            collection_name=settings.qdrant_collection,
-            scroll_filter=flt,
-            limit=256,
-            offset=offset,
-            with_payload=True,
-            with_vectors=False,
-        )
-        payloads.extend(point.payload or {} for point in points)
-        if offset is None:
-            return payloads
-
-
 def search(
     query_vector: list[float],
     limit: int,
@@ -133,6 +114,38 @@ def search(
         query_filter=Filter(must=conditions),
         with_payload=True,
     )
+
+
+def scroll_document(source_path: str, workspace_ids: set[str] | None = None) -> list[dict]:
+    """Every stored chunk payload of one document (text included), in reading order.
+
+    The chunk text lives only in the vector store (SQLite keeps a short preview), so this is the one place
+    a whole document can be rebuilt from. ``position`` is the chunk's 1-based place in the document.
+    With ``workspace_ids`` only chunks of those workspaces come back (none given: an empty result); without it the
+    caller has already checked access to the document, as the listening routes do.
+    """
+    conditions: list[Any] = [FieldCondition(key="source_path", match=MatchValue(value=source_path))]
+    if workspace_ids is not None:
+        if not workspace_ids:
+            return []
+        conditions.append(FieldCondition(key="workspace_id", match=MatchAny(any=sorted(workspace_ids))))
+    client = get_client()
+    query_filter = Filter(must=conditions)
+    payloads: list[dict] = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=settings.qdrant_collection,
+            scroll_filter=query_filter,
+            limit=256,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        payloads.extend(point.payload or {} for point in points)
+        if offset is None:
+            break
+    return sorted(payloads, key=lambda payload: payload.get("position") or 0)
 
 
 def build_points(

@@ -1,0 +1,44 @@
+/* Document Intelligence panel: background jobs and their source-attributed results. Mobile first. */
+.docintel h2 { margin-top: 0; }
+.docintel h3 { margin: 20px 0 8px; }
+.docintel fieldset { margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 14px; }
+.docintel legend { font-weight: 600; padding: 0 6px; }
+.docintel label.check { display: flex; gap: 10px; align-items: center; width: auto; margin: 0; padding: 6px 0; font-weight: 400; }
+.docintel label.check input { width: auto; margin: 0; }
+.docintel .primary { background: var(--accent); color: #fff; }
+.docintel .danger { background: #f3d9d4; color: #7a2118; }
+.docintel .hint { margin: -6px 0 16px; color: var(--muted); font-size: 0.9rem; }
+.docintel .status { min-height: 1.4em; margin: 10px 0 0; color: var(--muted); }
+.docintel .status.error { color: #9b2c1f; }
+.docintel .items { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.docintel .item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: #fffdf8; }
+.docintel .item-title { font-weight: 700; overflow-wrap: anywhere; }
+.docintel .item-meta { margin: 2px 0 8px; color: var(--muted); font-size: 0.9rem; }
+.docintel .item-error { margin: 6px 0 8px; color: #9b2c1f; font-size: 0.92rem; }
+.docintel progress { display: block; width: 100%; height: 12px; margin: 6px 0; accent-color: var(--accent); }
+.docintel .item-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 8px; }
+.docintel .badge.ok { border-color: #2f855a; background: #e1f3e8; color: #22543d; }
+.docintel .badge.bad { border-color: #c0392b; background: #f8e1de; color: #7a2118; }
+.docintel .di-result { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.docintel .di-result h3 { margin-top: 0; overflow-wrap: anywhere; }
+.docintel .exports { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 12px 0; }
+.docintel .exports a { padding: 10px 14px; border-radius: 14px; background: var(--accent); color: #fff; font-weight: 700; text-align: center; text-decoration: none; }
+.docintel .table-scroll { overflow-x: auto; margin: 8px 0 14px; }
+.docintel table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+.docintel th, .docintel td { padding: 8px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.docintel th { background: #f1ece0; }
+.docintel .src { display: inline-block; margin: 2px 4px 2px 0; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.78rem; color: var(--accent-strong); }
+.docintel .src.uncertain { border-color: #f59e0b; background: #fef3c7; color: #92400e; }
+.docintel .points { margin: 4px 0 14px; padding-left: 20px; }
+.docintel .points li { margin-bottom: 8px; overflow-wrap: anywhere; }
+.docintel .conclusions { margin-top: 18px; padding: 12px 14px; border: 1px dashed #b7791f; border-radius: 14px; background: #fffbeb; }
+.docintel .conclusions h4 { margin: 0 0 6px; }
+.docintel .translation p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 4px; }
+.docintel .translation .place { color: var(--muted); font-size: 0.82rem; margin: 10px 0 2px; }
+.docintel .finding { padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 14px; background: #fff; }
+.docintel .finding .side { margin: 4px 0; overflow-wrap: anywhere; }
+@media (min-width: 720px) {
+  .docintel .item-actions { grid-template-columns: repeat(4, 1fr); }
+}
+.docintel .lead { margin-bottom: 16px; }
+.docintel td:first-child, .docintel th:first-child { white-space: nowrap; }

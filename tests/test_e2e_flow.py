@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from argon2 import PasswordHasher
+from docintel_fakes import MARKERS, FakeModel
 from fastapi.testclient import TestClient
 from teacher_common import ocr
 from teacher_common.config import get_settings
@@ -72,10 +73,15 @@ def _tesseract_has_hungarian() -> bool:
         return False
 
 
+DOCINTEL_MODEL = FakeModel()
+
+
 def _ollama_answer(request: httpx.Request) -> httpx.Response:
     assert request.url.path == "/api/generate"
     payload = json.loads(request.content)
     prompt = payload["prompt"]
+    if any(marker in prompt for marker in MARKERS.values()):  # a Document Intelligence job
+        return httpx.Response(200, json={"response": DOCINTEL_MODEL(prompt, payload.get("format") == "json")})
     if payload.get("format") == "json":
         if '"questions"' in prompt:
             item = {"question": "Hány lapátja van a keréknek?", "options": ["12", "14"], "correct_index": 1,
@@ -121,6 +127,8 @@ def stack(api_main, ingestion_main, tmp_path, monkeypatch):
     monkeypatch.setattr(ingestion_main, "embed_passages", lambda texts: [_embed(text) for text in texts])
     monkeypatch.setattr(api_main, "embed_query", _embed)
     monkeypatch.setattr(api_main, "search", store.search)
+    monkeypatch.setattr(api_main.docintel_worker, "scroll", store.scroll_document)
+    DOCINTEL_MODEL.calls.clear()
     if not _tesseract_has_hungarian():
         monkeypatch.setattr(ocr.PdfOcr, "_recognise", lambda self, page, remaining: (SCANNED_TEXT[page.number], 91.0))
 
@@ -280,3 +288,52 @@ def test_a_failing_model_is_reported_and_not_a_server_crash(stack, monkeypatch):
     answer = anna.post("/chat", json={"question": "Mi a teszt kérdés?"})
     assert answer.status_code == 502
     assert "nyelvi modell" in answer.json()["detail"]
+
+
+def test_document_intelligence_reads_the_whole_indexed_document(stack):
+    """Jobs on the real index: the chunks come back from the vector store in reading order, and the results cite them."""
+    api = stack.api
+    admin = _login(api, ADMIN)
+    anna, bela = _login(api, ANNA), _login(api, BELA)
+    _run_index(admin)
+    mill = next(row for row in anna.get("/sources").json() if row["source_path"].endswith(MILL))
+    fish = next(row for row in anna.get("/sources").json() if row["source_path"].endswith(FISH))
+
+    def run(client, kind, row, **options):
+        job = client.post("/docintel/jobs", json={"kind": kind, "source_paths": [row["source_path"]], **options})
+        assert job.status_code == 202, job.text
+        api.docintel_worker.run_pending()
+        done = client.get(f"/docintel/jobs/{job.json()['id']}").json()
+        assert done["status"] == "succeeded", done
+        return done["id"], client.get(f"/docintel/jobs/{done['id']}/result").json()["result"]
+
+    summary_id, summary = run(anna, "summary", mill)
+    seen = " ".join(" ".join(prompt for kind, prompt in DOCINTEL_MODEL.calls if kind == "summary_map").split())
+    assert "tizennégy lapátja" in seen and "alulcsapott kerék" in seen  # both pages, not retrieved snippets
+    assert summary["overall"] and all(point["sources"] for point in summary["overall"])
+    assert {c["label"] for c in summary["citations"]} <= {f"{MILL}, 1. oldal", f"{MILL}, 2. oldal"}
+
+    chapters_id, chapters = run(anna, "summary", fish, granularity="chapter")
+    # one section per chapter of the book, in reading order (the label is the chapter as ingestion recorded it)
+    assert [s["label"] for s in chapters["sections"]][:2] == ["fejezet1.xhtml fejezet", "fejezet2.xhtml fejezet"]
+    assert all(c["chapter"] for c in chapters["citations"])
+
+    translation_id, translation = run(anna, "translate", mill, direction="hu-en")
+    assert "tizennégy lapátja" in " ".join(" ".join(s["text"] for s in translation["segments"]).split())
+    assert all(s["sources"] for s in translation["segments"])
+
+    # kept apart from the source: not in the index, not in the document list
+    assert {Path(row["source_path"]).name for row in anna.get("/sources").json()} == {MILL, SCAN, FISH}
+    assert stack.client.count("teacher_documents", exact=True).count == sum(
+        row["chunk_count"] for row in anna.get("/sources").json()) + sum(
+        row["chunk_count"] for row in bela.get("/sources").json())
+
+    # the other account sees none of it
+    assert bela.get(f"/docintel/jobs/{summary_id}/result").status_code == 404
+    assert bela.get("/docintel/jobs").json() == []
+
+    # deleting the document keeps the results, marked stale
+    assert anna.delete(f"/sources/{mill['id']}").status_code == 204
+    assert anna.get(f"/docintel/jobs/{summary_id}").json()["stale"] is True
+    assert anna.get(f"/docintel/jobs/{translation_id}/export?format=txt").status_code == 200
+    assert anna.get(f"/docintel/jobs/{chapters_id}").json()["stale"] is False

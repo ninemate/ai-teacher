@@ -106,6 +106,10 @@ Stored quizzes and flashcards keep `file_id`, `file_name`, `page` and `chapter` 
 - SQLite keeps metadata local without another service.
 - This is smaller and easier to migrate than a full Postgres stack for the MVP.
 
+## Whole-Document Jobs
+
+Chat answers come from the few chunks retrieved for a question. Summaries, extraction, comparison, tasks and translation of a whole document read every chunk instead, in reading order, as map-reduce jobs with the same citation numbers and `assess` rating. See [document-intelligence.md](document-intelligence.md).
+
 ## Stored Study Material
 
 Quizzes and flashcards reuse the same retrieval and Ollama path but ask for JSON (`format: json`) with numbered sources, validate it, retry on malformed output, and persist the result. See "Stored Quizzes and Flashcards" in [architecture](architecture.md).

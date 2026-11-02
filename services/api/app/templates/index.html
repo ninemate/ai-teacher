@@ -7,6 +7,7 @@
     <meta name="csrf-token" content="{{ csrf_token }}" />
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="stylesheet" href="/static/study.css" />
+    <link rel="stylesheet" href="/static/docintel.css" />
     <link rel="stylesheet" href="/static/listen.css" />
   </head>
   <body>
@@ -105,6 +106,76 @@
         <div id="study-session"></div>
       </section>
 
+      <section class="panel docintel" id="docintel">
+        <h2>Dokumentumelemzés</h2>
+        <p class="lead">
+          Egy egész dokumentum feldolgozása a háttérben: összefoglaló, kigyűjtés, összehasonlítás, teendők, fordítás.
+          Minden eredmény a forrásfájlt és az oldalt vagy fejezetet is megmutatja. Helyi modellen fut, ezért percekig
+          vagy órákig is eltarthat; közben a kérdezés használható marad.
+        </p>
+
+        <label for="di-kind">Feladat</label>
+        <select id="di-kind">
+          <option value="summary">Összefoglaló (egész dokumentum)</option>
+          <option value="extract">Kigyűjtés táblázatba</option>
+          <option value="compare">Összehasonlítás és hiányelemzés</option>
+          <option value="tasks">Teendők és megoldási javaslatok</option>
+          <option value="translate">Fordítás (magyar ↔ angol)</option>
+        </select>
+
+        <label for="di-doc-a" id="di-doc-a-label">Dokumentum</label>
+        <select id="di-doc-a"></select>
+
+        <div id="di-doc-b-row" hidden>
+          <label for="di-doc-b">Összevetett dokumentum (B)</label>
+          <select id="di-doc-b"></select>
+        </div>
+
+        <div data-for="summary">
+          <label for="di-granularity">Részletesség</label>
+          <select id="di-granularity">
+            <option value="document">Az egész dokumentum egy összefoglalóban</option>
+            <option value="chapter">Fejezetenként (vagy oldaltartományonként)</option>
+          </select>
+        </div>
+
+        <fieldset data-for="extract" hidden>
+          <legend>Mit gyűjtsek ki?</legend>
+          <label class="check"><input type="checkbox" name="di-type" value="concept" checked /> Fogalmak</label>
+          <label class="check"><input type="checkbox" name="di-type" value="requirement" checked /> Követelmények</label>
+          <label class="check"><input type="checkbox" name="di-type" value="deadline" checked /> Határidők</label>
+          <label class="check"><input type="checkbox" name="di-type" value="obligation" checked /> Kötelezettségek</label>
+          <label class="check"><input type="checkbox" name="di-type" value="table" checked /> Táblázatok</label>
+        </fieldset>
+
+        <div data-for="compare" hidden>
+          <label for="di-mode">Mit keressek?</label>
+          <select id="di-mode">
+            <option value="diff">Eltérések a két dokumentum (verzió) között</option>
+            <option value="gap">Az A követelményei közül mi hiányzik a B-ből</option>
+          </select>
+        </div>
+
+        <div data-for="translate" hidden>
+          <label for="di-direction">Irány</label>
+          <select id="di-direction">
+            <option value="hu-en">Magyarról angolra</option>
+            <option value="en-hu">Angolról magyarra</option>
+          </select>
+          <p class="hint">A fordítás külön eredményként tárolódik, nem kerül a keresési indexbe. Kis modellel a minőség gyenge lehet.</p>
+        </div>
+
+        <div class="actions">
+          <button id="di-start" type="button" class="primary">Indítás</button>
+        </div>
+        <p id="di-status" class="status" role="status"></p>
+
+        <h3>Feladatok</h3>
+        <ul id="di-jobs" class="items"></ul>
+
+        <div id="di-result" class="di-result" hidden></div>
+      </section>
+
       <section class="panel listen" id="listen">
         <h2>Hallgatás</h2>
         <p class="lead">A könyvtár dokumentumai felolvasva, szakaszonként. A hely mentődik, így bármelyik eszközön folytathatod.</p>
@@ -170,6 +241,7 @@
 
     <script src="/static/app.js" defer></script>
     <script src="/static/study.js" defer></script>
+    <script src="/static/docintel.js" defer></script>
     <script src="/static/voice.js" defer></script>
     <script src="/static/listen.js" defer></script>
   </body>
