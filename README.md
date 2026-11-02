@@ -155,9 +155,11 @@ Implemented now:
 - HTTPS in front of the UI via an optional Caddy overlay (`compose/docker-compose.proxy.yml`, see [docs/https.md](docs/https.md))
 - MOBI/AZW/AZW3 ingestion (pure-Python unpack to EPUB/HTML; DRM-protected books are skipped with a logged reason)
 - Optional offline Hungarian voice service: Piper TTS (three Hungarian voices) and faster-whisper STT, wired into the API and UI
+- Listening to library documents (PDF, DOCX, EPUB, MOBI, OCR text) with sections, speed, bookmarks and resume across devices; audio is made per segment on demand and cached with a size bound (see `docs/voice-hungarian.md`)
 
 Not implemented yet:
 
+- Listening speed and playback checked on the target host and on real phones (measured so far on a desktop CPU only, in a desktop browser)
 - Voice latency and GPU use measured on the target host (the numbers in `docs/voice-hungarian.md` are from a desktop CPU)
 - OCR for image-only EPUB/DOCX
 - SSO or an identity provider (users are configured in `.env`)
