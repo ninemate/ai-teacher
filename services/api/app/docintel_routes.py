@@ -1,7 +1,8 @@
 """Document Intelligence routes: start, watch, stop, resume, read and export whole-document jobs.
 
 The router has no auth of its own: the session and CSRF middleware in ``main.py`` protects every route. Jobs
-and results belong to the person's workspace; every route filters by the workspaces the server derives for them.
+and results belong to the person who started them, in their own workspace; every route filters by that person and by the
+workspaces the server derives for them, so a shared personal workspace does not share its jobs.
 """
 
 from typing import Literal
@@ -129,24 +130,24 @@ def build_router(worker: Worker) -> APIRouter:
     @router.get("/jobs")
     def list_jobs(request: Request, kind: str | None = None):
         with session_scope() as session:
-            _, workspace_ids = _principal(request, session)
-            return docintel_store.list_jobs(session, workspace_ids, kind)
+            username, workspace_ids = _principal(request, session)
+            return docintel_store.list_jobs(session, username, workspace_ids, kind)
 
     @router.get("/jobs/{job_id}")
     def get_job(job_id: int, request: Request):
         with session_scope() as session:
-            _, workspace_ids = _principal(request, session)
+            username, workspace_ids = _principal(request, session)
             try:
-                return docintel_store.get_job(session, job_id, workspace_ids)
+                return docintel_store.get_job(session, job_id, username, workspace_ids)
             except docintel_store.NotFoundError as exc:
                 raise _job_error(exc) from exc
 
     @router.get("/jobs/{job_id}/result")
     def get_result(job_id: int, request: Request):
         with session_scope() as session:
-            _, workspace_ids = _principal(request, session)
+            username, workspace_ids = _principal(request, session)
             try:
-                job, result = docintel_store.get_result(session, job_id, workspace_ids)
+                job, result = docintel_store.get_result(session, job_id, username, workspace_ids)
             except (docintel_store.NotFoundError, docintel_store.StateError) as exc:
                 raise _job_error(exc) from exc
             return {"job": job, "result": result}
@@ -154,9 +155,9 @@ def build_router(worker: Worker) -> APIRouter:
     @router.get("/jobs/{job_id}/export")
     def export_result(job_id: int, request: Request, format: Literal["csv", "md", "txt"] = "md"):
         with session_scope() as session:
-            _, workspace_ids = _principal(request, session)
+            username, workspace_ids = _principal(request, session)
             try:
-                job, result = docintel_store.get_result(session, job_id, workspace_ids)
+                job, result = docintel_store.get_result(session, job_id, username, workspace_ids)
             except (docintel_store.NotFoundError, docintel_store.StateError) as exc:
                 raise _job_error(exc) from exc
         kind = result["kind"]
@@ -178,9 +179,9 @@ def build_router(worker: Worker) -> APIRouter:
     @router.post("/jobs/{job_id}/cancel")
     def cancel_job(job_id: int, request: Request):
         with session_scope() as session:
-            _, workspace_ids = _principal(request, session, write=True)
+            username, workspace_ids = _principal(request, session, write=True)
             try:
-                return docintel_store.request_cancel(session, job_id, workspace_ids)
+                return docintel_store.request_cancel(session, job_id, username, workspace_ids)
             except (docintel_store.NotFoundError, docintel_store.StateError) as exc:
                 raise _job_error(exc) from exc
 
@@ -191,7 +192,7 @@ def build_router(worker: Worker) -> APIRouter:
             if docintel_store.pending_count(session, username) >= settings.docintel_max_queued_jobs:
                 raise HTTPException(status_code=429, detail="Túl sok várakozó feladat. Várd meg, amíg lefutnak.")
             try:
-                job = docintel_store.resume(session, job_id, workspace_ids)
+                job = docintel_store.resume(session, job_id, username, workspace_ids)
             except (docintel_store.NotFoundError, docintel_store.StateError) as exc:
                 raise _job_error(exc) from exc
         worker.wake()
@@ -200,9 +201,9 @@ def build_router(worker: Worker) -> APIRouter:
     @router.delete("/jobs/{job_id}", status_code=204)
     def delete_job(job_id: int, request: Request):
         with session_scope() as session:
-            _, workspace_ids = _principal(request, session, write=True)
+            username, workspace_ids = _principal(request, session, write=True)
             try:
-                docintel_store.delete_job(session, job_id, workspace_ids)
+                docintel_store.delete_job(session, job_id, username, workspace_ids)
             except (docintel_store.NotFoundError, docintel_store.StateError) as exc:
                 raise _job_error(exc) from exc
         return Response(status_code=204)

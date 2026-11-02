@@ -327,6 +327,28 @@ def test_jobs_and_results_are_private_to_their_owner(env):
     assert env.apa.get(base).json()["status"] == "succeeded"  # her attempts changed nothing
 
 
+def test_sharing_a_personal_workspace_does_not_share_its_jobs(env):
+    job = start(env.apa, env.docs["apa"], "translate", direction="hu-en")
+    env.worker.run_pending()
+    base = f"/docintel/jobs/{job['id']}"
+    with session_scope() as session:
+        session.add(WorkspaceShare(workspace_id=env.docs["apa"]["workspace_id"], username="anya", permission="write"))
+    try:
+        assert env.anya.get("/docintel/jobs").json() == []
+        for method, path in (("GET", base), ("GET", base + "/result"), ("GET", base + "/export?format=txt"),
+                             ("POST", base + "/cancel"), ("POST", base + "/resume"), ("DELETE", base)):
+            assert env.anya.request(method, path).status_code == 404, (method, path)
+        # the shared document itself is readable, so she can make a job of her own from it
+        own = start(env.anya, env.docs["apa"])
+        assert [j["id"] for j in env.anya.get("/docintel/jobs").json()] == [own["id"]]
+        assert own["id"] not in {j["id"] for j in env.apa.get("/docintel/jobs").json()}
+    finally:
+        with session_scope() as session:
+            session.query(WorkspaceShare).filter(WorkspaceShare.workspace_id == env.docs["apa"]["workspace_id"],
+                                                 WorkspaceShare.username == "anya").delete()
+    assert env.apa.get(base).json()["status"] == "succeeded"
+
+
 def test_a_shared_document_can_be_read_but_the_result_stays_with_the_reader(env):
     with session_scope() as session:
         session.add(WorkspaceShare(workspace_id=env.docs["apa"]["workspace_id"], username="anya", permission="read"))

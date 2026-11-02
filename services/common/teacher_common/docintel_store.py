@@ -79,9 +79,12 @@ def pending_count(session: Session, username: str) -> int:
     ).all())
 
 
-def _get(session: Session, job_id: int, workspace_ids: set[str]) -> DocIntelJob:
+def _get(session: Session, job_id: int, username: str, workspace_ids: set[str]) -> DocIntelJob:
+    """The person's own job. A personal workspace can be shared, so the workspace alone does not make a job theirs."""
     job = session.execute(
-        select(DocIntelJob).where(DocIntelJob.id == job_id, DocIntelJob.workspace_id.in_(workspace_ids))
+        select(DocIntelJob).where(
+            DocIntelJob.id == job_id, DocIntelJob.username == username, DocIntelJob.workspace_id.in_(workspace_ids)
+        )
     ).scalar_one_or_none() if workspace_ids else None
     if job is None:
         raise NotFoundError("A feladat nem található.")
@@ -105,10 +108,10 @@ def refresh_stale(session: Session, job: DocIntelJob) -> None:
             return
 
 
-def list_jobs(session: Session, workspace_ids: set[str], kind: str | None = None) -> list[dict]:
+def list_jobs(session: Session, username: str, workspace_ids: set[str], kind: str | None = None) -> list[dict]:
     if not workspace_ids:
         return []
-    query = select(DocIntelJob).where(DocIntelJob.workspace_id.in_(workspace_ids))
+    query = select(DocIntelJob).where(DocIntelJob.username == username, DocIntelJob.workspace_id.in_(workspace_ids))
     if kind:
         query = query.where(DocIntelJob.kind == kind)
     jobs = session.execute(query.order_by(DocIntelJob.id.desc()).limit(200)).scalars().all()
@@ -117,21 +120,21 @@ def list_jobs(session: Session, workspace_ids: set[str], kind: str | None = None
     return [serialize(job) for job in jobs]
 
 
-def get_job(session: Session, job_id: int, workspace_ids: set[str]) -> dict:
-    return serialize(_get(session, job_id, workspace_ids))
+def get_job(session: Session, job_id: int, username: str, workspace_ids: set[str]) -> dict:
+    return serialize(_get(session, job_id, username, workspace_ids))
 
 
-def get_result(session: Session, job_id: int, workspace_ids: set[str]) -> tuple[dict, dict]:
+def get_result(session: Session, job_id: int, username: str, workspace_ids: set[str]) -> tuple[dict, dict]:
     """(job, result content); StateError while there is no result."""
-    job = _get(session, job_id, workspace_ids)
+    job = _get(session, job_id, username, workspace_ids)
     result = session.get(DocIntelResult, job.id)
     if result is None:
         raise StateError("A feladatnak még nincs eredménye.")
     return serialize(job), result.content
 
 
-def request_cancel(session: Session, job_id: int, workspace_ids: set[str]) -> dict:
-    job = _get(session, job_id, workspace_ids)
+def request_cancel(session: Session, job_id: int, username: str, workspace_ids: set[str]) -> dict:
+    job = _get(session, job_id, username, workspace_ids)
     if job.status == "queued":
         job.status, job.finished_at, job.error = "cancelled", _now(), "A feladatot leállították."
     elif job.status == "running":
@@ -142,16 +145,16 @@ def request_cancel(session: Session, job_id: int, workspace_ids: set[str]) -> di
     return serialize(job)
 
 
-def resume(session: Session, job_id: int, workspace_ids: set[str]) -> dict:
-    job = _get(session, job_id, workspace_ids)
+def resume(session: Session, job_id: int, username: str, workspace_ids: set[str]) -> dict:
+    job = _get(session, job_id, username, workspace_ids)
     if job.status not in RESUMABLE:
         raise StateError("Csak megszakadt vagy sikertelen feladat folytatható.")
     job.status, job.error, job.cancel_requested, job.finished_at = "queued", None, False, None
     return serialize(job)
 
 
-def delete_job(session: Session, job_id: int, workspace_ids: set[str]) -> None:
-    job = _get(session, job_id, workspace_ids)
+def delete_job(session: Session, job_id: int, username: str, workspace_ids: set[str]) -> None:
+    job = _get(session, job_id, username, workspace_ids)
     if job.status == "running":
         raise StateError("Futó feladat nem törölhető; előbb állítsd le.")
     session.query(DocIntelPart).filter(DocIntelPart.job_id == job.id).delete()
