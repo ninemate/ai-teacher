@@ -12,7 +12,7 @@ This repo can start in CPU-first dev mode without a GPU.
 ## Steps
 
 1. Copy `.env.example` to `.env`.
-2. Point `TEACHER_MOUNT_POINT` at a local folder or mounted share, and `TEACHER_DATA_DIR` at a folder for the stack's data. Without a GPU, set `OLLAMA_MODEL` to a small model such as `qwen2.5:0.5b`; the default is slow on a CPU.
+2. Point `TEACHER_MOUNT_POINT` at a local folder or mounted share, and `TEACHER_DATA_DIR` at a folder for the stack's data. To use a CIFS share without Ansible, mount it by hand or via `/etc/fstab` as described in [network-share.md](network-share.md#without-ansible), then check it with `make check-library` (`REQUIRE_MOUNTPOINT=0` for a plain local folder). Where bind propagation is not supported (Docker Desktop), set `TEACHER_MOUNT_PROPAGATION=rprivate` and mount the share before starting the stack. Without a GPU, set `OLLAMA_MODEL` to a small model such as `qwen2.5:0.5b`; the default is slow on a CPU.
 3. Set a login and the ingestion token in `.env`:
 
 ```bash
@@ -78,6 +78,6 @@ scripts/e2e.sh --voice        # also a Hungarian speech round trip (the voice im
 scripts/e2e.sh --keep         # leaves the stack up to look around
 ```
 
-It builds and starts everything, pulls `E2E_OLLAMA_MODEL` (default `qwen2.5:0.5b`), and goes through the HTTPS proxy as a browser would: login, indexing of a text PDF, a scanned PDF, an EPUB and a DOCX, citations, a question with no source, isolation between two accounts, stored quizzes and flashcards across a restart, deleting a document, and `make test-egress`. It prints a table of what passed, failed or was skipped, and leaves it in `.scratch/e2e/report.md`. A dev stack on the same host is not touched. The assertions check structure, citations and storage, not the model's wording.
+It builds and starts everything, pulls `E2E_OLLAMA_MODEL` (default `qwen2.5:0.5b`), and goes through the HTTPS proxy as a browser would: login, indexing of a text PDF, a scanned PDF, an EPUB and a DOCX, citations, a question with no source, isolation between two accounts, stored quizzes and flashcards, extraction and translation of a whole document as background jobs, all across a restart, listening to a document (reading-order text, resume on a second login, isolation, and with `--voice` a synthesized segment that is transcribed back), deleting a document, and `make test-egress`. It prints a table of what passed, failed or was skipped, and leaves it in `.scratch/e2e/report.md`. A dev stack on the same host is not touched. The assertions check structure, citations and storage, not the model's wording.
 
 Where Docker cannot run, `scripts/e2e.sh --native` runs the same steps against the services as plain processes (see `scripts/e2e-native.sh` for the binaries it needs). That proves the application, but not the images, the compose wiring or the egress rule.

@@ -35,3 +35,17 @@ def test_services_starting_together_on_a_fresh_database(tmp_path):
         ]
         errors = [err for p in procs if (err := p.communicate(timeout=60)[1]) and p.returncode != 0]
         assert not errors, errors[0]
+
+
+def test_excluded_documents_schema_migration_is_recorded():
+    from sqlalchemy import select
+    from teacher_common.db import init_db, session_scope
+    from teacher_common.migrations import SchemaMigration
+
+    init_db()
+    with session_scope() as session:
+        migration_name = session.execute(
+            select(SchemaMigration.name).where(SchemaMigration.version == 3)
+        ).scalar_one_or_none()
+
+    assert migration_name == "workspace-scoped excluded documents"

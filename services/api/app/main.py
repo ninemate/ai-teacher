@@ -8,20 +8,25 @@ from urllib.parse import quote
 
 import auth
 import httpx
+from docintel_routes import build_router as build_docintel_router
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from listen_routes import build_router as build_listen_router
+from listen_routes import start_periodic_sweep, sweep_orphans
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
-from teacher_common import citations, study_store
+from teacher_common import citations, docintel_store, listen_store, study_store
+from teacher_common.audio_cache import AudioCache
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
+from teacher_common.docintel_worker import ChatPriority, Worker
 from teacher_common.embeddings import embed_query, warmup_embeddings
-from teacher_common.models import DocumentRecord, IngestRun, OcrRecord, Workspace, WorkspaceShare
-from teacher_common.qdrant_store import ensure_collection, search
+from teacher_common.models import DocumentRecord, ExcludedDocument, IngestRun, OcrRecord, Workspace, WorkspaceShare
+from teacher_common.qdrant_store import ensure_collection, scroll_document, search
 from teacher_common.workspaces import accessible_workspace_ids, ensure_personal_workspace
 
 APP_DIR = Path(__file__).resolve().parent
@@ -40,6 +45,7 @@ login_limiter = auth.LoginRateLimiter(settings.teacher_login_max_attempts, setti
 app = FastAPI(title="teacher-agent-api", version="0.1.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
+listen_cache = AudioCache(settings.listen_cache_dir, int(settings.listen_cache_max_mb * 1024 * 1024))
 
 
 class ChatRequest(BaseModel):
@@ -61,6 +67,7 @@ class SpeakRequest(BaseModel):
 class ReindexRequest(BaseModel):
     full_reindex: bool = False
     remove_missing: bool = True
+    confirm_removal: bool = False
 
 
 class WorkspaceCreate(BaseModel):
@@ -139,9 +146,12 @@ def startup_event() -> None:
     init_db()
     _ensure_account_workspaces()
     _claim_legacy_workspace()
+    docintel_worker.start()
     ensure_collection()
     warmup_embeddings()
     _check_ollama_model()
+    sweep_orphans(listen_cache)
+    start_periodic_sweep(listen_cache)
 
 
 def _ensure_account_workspaces() -> None:
@@ -321,6 +331,46 @@ def list_sources(request: Request):
         ]
 
 
+@app.get("/sources/excluded")
+def list_excluded_sources(request: Request):
+    with session_scope() as session:
+        # Only show exclusions this user can restore (owned workspaces or write shares).
+        workspace_ids = _workspace_ids(request, session, write=True)
+        if not workspace_ids:
+            return []
+        rows = session.execute(
+            select(ExcludedDocument)
+            .where(ExcludedDocument.workspace_id.in_(workspace_ids))
+            .order_by(ExcludedDocument.excluded_at.desc(), ExcludedDocument.id.desc())
+        ).scalars()
+        return [
+            {
+                "id": row.id,
+                "workspace_id": row.workspace_id,
+                "source_path": row.source_path,
+                "file_name": Path(row.source_path).name,
+                "excluded_at": row.excluded_at.isoformat() if row.excluded_at else None,
+            }
+            for row in rows
+        ]
+
+
+@app.post("/sources/excluded/{excluded_id}/restore", status_code=204)
+def restore_excluded_source(excluded_id: int, request: Request):
+    with session_scope() as session:
+        workspace_ids = _workspace_ids(request, session, write=True)
+        row = session.execute(
+            select(ExcludedDocument).where(
+                ExcludedDocument.id == excluded_id,
+                ExcludedDocument.workspace_id.in_(workspace_ids),
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="A kizárt dokumentum nem található.")
+        session.delete(row)
+    return Response(status_code=204)
+
+
 @app.delete("/sources/{document_id}", status_code=204)
 def delete_source(document_id: int, request: Request):
     from teacher_common.qdrant_store import delete_points_for_source
@@ -335,12 +385,24 @@ def delete_source(document_id: int, request: Request):
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="A dokumentum nem található.")
-        delete_points_for_source(row.source_path)
+        excluded = session.execute(
+            select(ExcludedDocument).where(
+                ExcludedDocument.workspace_id == row.workspace_id,
+                ExcludedDocument.source_path == row.source_path,
+            )
+        ).scalar_one_or_none()
+        if excluded is None:
+            session.add(ExcludedDocument(workspace_id=row.workspace_id, source_path=row.source_path))
+        delete_points_for_source(row.source_path, workspace_id=row.workspace_id)
         study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+        # Document Intelligence results are kept but marked stale (the person deletes them); unfinished jobs stop.
+        docintel_store.mark_stale_for_source(session, row.source_path)
         session.query(OcrRecord).filter(
             OcrRecord.source_path == row.source_path,
             OcrRecord.workspace_id == row.workspace_id,
         ).delete()
+        listen_store.delete_for_document(session, row.id)
+        listen_cache.remove_document(row.id)
         session.delete(row)
     return Response(status_code=204)
 
@@ -612,6 +674,11 @@ def voice_speak(payload: SpeakRequest):
 
 def generate_teaching_response(task: str, prompt_input: str, level: str, top_k: int, workspace_ids: set[str]):
     hits = retrieve_sources(prompt_input, top_k=top_k, workspace_ids=workspace_ids)
+    if task in {"answer", "summary"}:
+        hits = [
+            hit for hit in hits
+            if hit.get("score") is not None and hit["score"] >= settings.retrieval_min_score
+        ]
     if not hits:
         answer = "A megadott könyvtárban nem találtam elég releváns információt a kérdés megbízható megválaszolásához."
         return {"answer": answer, "sources": [], "citations": [], "grounding": citations.assess(answer, [])}
@@ -676,7 +743,12 @@ def retrieve_sources(
     ]
 
 
-def call_ollama(prompt: str, json_mode: bool = False) -> str:
+# Chat and study requests go to the model before background jobs (Document Intelligence waits for them).
+chat_priority = ChatPriority()
+
+
+def call_ollama(prompt: str, json_mode: bool = False, *, background: bool = False) -> str:
+    """One model call. ``background`` is for Document Intelligence jobs: they yield to chat and may take longer."""
     payload: dict = {
         "model": settings.ollama_model,
         "prompt": prompt,
@@ -689,9 +761,11 @@ def call_ollama(prompt: str, json_mode: bool = False) -> str:
     }
     if json_mode:
         payload["format"] = "json"
-    with httpx.Client(timeout=180.0) as client:
-        response = client.post(f"{settings.ollama_base_url}/api/generate", json=payload)
-        response.raise_for_status()
+    timeout = settings.docintel_llm_timeout_seconds if background else 180.0
+    with chat_priority.background() if background else chat_priority.interactive():
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(f"{settings.ollama_base_url}/api/generate", json=payload)
+            response.raise_for_status()
     data = response.json()
     return data.get("response", "").strip()
 
@@ -704,5 +778,36 @@ app.include_router(
             query, top_k, source_paths, workspace_ids
         ),
         llm=lambda prompt, json_mode: call_ollama(prompt, json_mode=json_mode),
+    ),
+)
+
+
+# Whole-document jobs (/docintel/...): a single background worker, so one model job runs at a time.
+docintel_worker = Worker(
+    settings=settings,
+    llm=lambda prompt, json_mode: call_ollama(prompt, json_mode, background=True),
+    scroll=lambda source_path, workspace_ids: scroll_document(source_path, workspace_ids),
+    workspace_ids_for=lambda username: _workspace_ids_for_user(username),
+    prompt_dir=Path(settings.teacher_prompt_path).parent,
+)
+app.include_router(build_docintel_router(docintel_worker))
+
+
+def _workspace_ids_for_user(username: str) -> set[str]:
+    with session_scope() as session:
+        return accessible_workspace_ids(session, username, admin=username in auth_admins)
+
+
+# Listening to library documents (/listen/...): text rebuilt from the stored chunks, audio made per segment on demand.
+app.include_router(
+    build_listen_router(
+        fetch_chunks=lambda source_path: scroll_document(source_path),
+        speak=lambda text, voice: _voice_request(
+            "POST",
+            "/voice/speak",
+            timeout=settings.voice_timeout_seconds,
+            json={"text": text, "voice": voice, "format": "mp3"},
+        ).content,
+        cache=listen_cache,
     ),
 )

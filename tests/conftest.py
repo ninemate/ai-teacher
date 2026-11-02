@@ -53,7 +53,8 @@ _stub("teacher_common.embeddings", embed_query=lambda text: [0.0], embed_passage
       warmup_embeddings=_noop, embedding_dimension=lambda: 1)
 _stub("teacher_common.qdrant_store", ensure_collection=_noop,
       search=lambda vector, limit, workspace_ids, source_paths=None: [], build_points=_noop,
-      delete_points_for_source=_noop, delete_points_for_workspace=_noop, recreate_collection=_noop, upsert_points=_noop)
+      delete_points_for_source=_noop, delete_points_for_workspace=_noop, recreate_collection=_noop, upsert_points=_noop,
+      scroll_document=lambda source_path, workspace_ids=None: [])
 _stub("teacher_common.documents", chunk_segments=_noop, hash_file=_noop, iter_library_files=lambda *a: [],
       parse_document=_noop)
 
@@ -92,7 +93,7 @@ def voice_main():
 
 @pytest.fixture
 def session():
-    from teacher_common import models, study_models  # noqa: F401
+    from teacher_common import docintel_models, listen_models, models, study_models  # noqa: F401
     from teacher_common.db import Base
 
     engine = create_engine("sqlite://", future=True)

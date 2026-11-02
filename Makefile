@@ -2,7 +2,7 @@ COMPOSE_BASE=docker compose --env-file .env -f compose/docker-compose.yml
 COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml -f compose/docker-compose.proxy.yml
 COMPOSE_VOICE=$(COMPOSE_DEV) -f compose/docker-compose.voice.example.yml
 
-.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test test-chat test-ingest ingest-now hash-password model-update test-egress test-e2e eval-models
+.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test check-library test-chat test-ingest ingest-now hash-password model-update test-egress test-e2e eval-models
 
 dev-up:
 	$(COMPOSE_DEV) up -d --build
@@ -38,6 +38,11 @@ nvidia-check:
 
 test:
 	python -m pytest
+
+# Is the library share mounted, readable and does it hold the watched folders? Run on the host.
+# REQUIRE_MOUNTPOINT=0 accepts a plain local folder.
+check-library:
+	scripts/check-library.sh
 
 # Needs TEACHER_USER and TEACHER_PASSWORD in the environment. Speaks to the HTTPS proxy;
 # the private services publish no host ports (CURL_INSECURE=1 trusts the internal CA).

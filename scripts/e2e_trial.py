@@ -147,6 +147,7 @@ class Trial:
         self.first_run: dict = {}
         self.sources_before: dict[str, list[dict]] = {}
         self.stored: dict = {}
+        self.listened: dict = {}
 
     # --- plumbing ---
 
@@ -191,6 +192,11 @@ class Trial:
             missing = CITATION_FIELDS - citation.keys()
             expect(not missing, f"citation without {sorted(missing)}")
         return answer
+
+    @staticmethod
+    def report_scores(label: str, answer: dict) -> None:
+        scores = [round(citation["score"], 3) for citation in answer["citations"]]
+        print(f"cosine scores ({label}): {scores}", flush=True)
 
     def index_run(self, **options) -> dict:
         """Trigger a run as admin through the proxy and wait for its counters."""
@@ -289,6 +295,7 @@ class Trial:
 
     def ocr_scanned_pdf(self):
         answer = self.chat(ANNA, SCAN_QUESTION)
+        self.report_scores("scanned PDF question", answer)
         expect(answer["citations"], "no citations for a question about the scanned PDF")
         top = answer["citations"][0]
         expect(file_name(top["source_path"]) == SCAN_PDF, f"top citation is {top['label']}")
@@ -325,6 +332,7 @@ class Trial:
 
     def chat_cites_source(self):
         pdf = self.chat(ANNA, MILL_QUESTION)
+        self.report_scores("watermill question", pdf)
         expect(pdf["citations"], "no citations")
         top = pdf["citations"][0]
         expect(file_name(top["source_path"]) == MILL_PDF, f"top citation is {top['label']}")
@@ -337,6 +345,7 @@ class Trial:
         print(f"model answered: {pdf['answer'][:200]!r} grounding={pdf['grounding']['status']}")
 
         epub = self.chat(ANNA, FISH_QUESTION)
+        self.report_scores("fish question", epub)
         expect(epub["citations"], "no citations")
         top_epub = epub["citations"][0]
         expect(file_name(top_epub["source_path"]) == FISH_EPUB, f"top citation is {top_epub['label']}")
@@ -353,21 +362,17 @@ class Trial:
         expect("nem találtam" in nothing["answer"], f"answer: {nothing['answer']!r}")
         # Part two: documents exist, but none is about the question.
         unrelated = self.chat(ANNA, UNRELATED_QUESTION)
+        self.report_scores("unrelated question", unrelated)
         scores = [round(c["score"], 3) for c in unrelated["citations"]]
         print(f"unrelated question: scores={scores} grounding={unrelated['grounding']}")
-        print(f"model answered: {unrelated['answer'][:200]!r}")
-        grounding = unrelated["grounding"]
-        if unrelated["citations"]:
-            expect(grounding["notice"], f"a question with no source got an unqualified answer: {grounding}")
-            expect(
-                grounding["status"] == "no_source" or grounding["low_confidence"],
-                f"a question with no source is presented as grounded: {grounding}, scores {scores}",
-            )
-        detail = f"empty workspace: fixed refusal. Unrelated question: {grounding['status']}, scores {scores}"
-        # Reported, not failed: whether weak matches alone should bring the fixed refusal is undecided.
-        if unrelated["citations"]:
-            detail += ". OPEN: retrieval has no minimum score, so only the low-confidence notice says it"
-        return detail
+        expect(unrelated["citations"] == [] and unrelated["sources"] == [], f"unrelated question got sources: {scores}")
+        expect(unrelated["grounding"]["status"] == "no_source", f"grounding: {unrelated['grounding']}")
+        expect(
+            unrelated["grounding"]["notice"] and "nem találtam forrást" in unrelated["grounding"]["notice"],
+            f"no-source notice: {unrelated['grounding']}",
+        )
+        expect("nem találtam" in unrelated["answer"], f"answer: {unrelated['answer']!r}")
+        return "empty workspace and unrelated question both return the fixed no-source response"
 
     def isolation(self):
         anna, bela = self.client(ANNA), self.client(BELA)
@@ -456,6 +461,71 @@ class Trial:
             f"deck {deck['id']} with {len(deck['cards'])} cards ({deck_tries} requests)"
         )
 
+    def _run_job(self, client: Client, payload: dict) -> dict:
+        """Start a Document Intelligence job and wait for it. A small model may give unusable output, which ends the
+        job as failed (resumable); like the study step this gets a few resumes before it counts against the stack."""
+        started = client.post("/docintel/jobs", payload)
+        expect_status(started, 202, f"start {payload['kind']} job")
+        job = started.json()
+        resumes = 0
+        deadline = time.monotonic() + self.args.docintel_timeout
+        seen_progress = False
+        while True:
+            job = client.get(f"/docintel/jobs/{job['id']}").json()
+            seen_progress = seen_progress or job["progress"]["total"] > 0
+            if job["status"] == "succeeded":
+                job["resumes"], job["progress_seen"] = resumes, seen_progress
+                return job
+            if job["status"] in ("failed", "interrupted"):
+                expect(job["error"], f"a {job['status']} job without a reason: {job}")
+                expect(resumes < self.args.study_tries, f"{payload['kind']} job {job['status']}: {job['error']}")
+                expect_status(client.post(f"/docintel/jobs/{job['id']}/resume", {}), 200, "resume")
+                resumes += 1
+            expect(job["status"] != "cancelled", f"job cancelled by itself: {job}")
+            expect(time.monotonic() < deadline, f"job did not finish in time: {job}")
+            time.sleep(2)
+
+    def document_intelligence(self):
+        """Extract and translate a whole document in the background, with sources, kept apart from the index.
+        Quality of both on a small CPU model is poor and is not judged here: structure, sources and storage are."""
+        anna = self.client(ANNA)
+        mill = next(r for r in self.sources(ANNA) if file_name(r["source_path"]) == MILL_PDF)
+        points_before = self.point_count()
+        extract = self._run_job(anna, {"kind": "extract", "source_paths": [mill["source_path"]]})
+        result = anna.get(f"/docintel/jobs/{extract['id']}/result").json()["result"]
+        expect(result["kind"] == "extract" and result["coverage"]["windows"] >= 1, f"extract result: {result}")
+        by_id = {c["id"]: c for c in result["citations"]}
+        for row in result["rows"]:
+            expect(row["sources"] and all(i in by_id for i in row["sources"]), f"row without a real source: {row}")
+            for i in row["sources"]:
+                expect(file_name(by_id[i]["source_path"]) == MILL_PDF and by_id[i]["page"] in (1, 2), f"{by_id[i]}")
+        exported = anna.get(f"/docintel/jobs/{extract['id']}/export?format=csv")
+        expect_status(exported, 200, "CSV export")
+        expect(exported.text.lstrip("\ufeff").startswith("Típus,"), f"CSV header: {exported.text[:80]!r}")
+
+        translate = self._run_job(anna, {"kind": "translate", "source_paths": [mill["source_path"]],
+                                         "direction": "hu-en"})
+        translation = anna.get(f"/docintel/jobs/{translate['id']}/result").json()["result"]
+        expect(translation["segments"] and all(s["text"].strip() and s["sources"] for s in translation["segments"]),
+               f"translation: {translation}")
+        text = anna.get(f"/docintel/jobs/{translate['id']}/export?format=txt")
+        expect_status(text, 200, "text export")
+
+        # The translation is its own result: no new document, no new vectors.
+        expect(self.source_names(ANNA) == ANNA_FILES, "a result appeared in the document list")
+        if points_before is not None:
+            expect(self.point_count() == points_before, "a result was added to the index")
+        bela = self.client(BELA)
+        expect_status(bela.get(f"/docintel/jobs/{extract['id']}/result"), 404, "bela reading anna's extraction")
+        expect(bela.get("/docintel/jobs").json() == [], "bela sees jobs")
+        self.stored["docintel"] = {"id": translate["id"], "result": translation}
+        self.stored["docintel_extract_id"] = extract["id"]
+        return (
+            f"extract: {len(result['rows'])} rows, {result['coverage']['windows']} windows, "
+            f"{extract['resumes']} resumes; translate: {len(translation['segments'])} segments, "
+            f"{translate['resumes']} resumes; progress shown: {extract['progress_seen']}"
+        )
+
     def survives_restart(self):
         result = self.run_command(self.args.restart_cmd, self.args.restart_timeout)
         print(result.stdout[-800:], result.stderr[-800:])
@@ -474,7 +544,7 @@ class Trial:
         anna = self.client(ANNA)
         expect_status(anna.get("/session"), 200, "session after the restart")
         expect(anna.get("/session").json()["username"] == ANNA, "the session did not survive")
-        if not self.stored:
+        if not self.stored.get("quiz"):
             raise AssertionError("nothing to compare: the quiz and flashcards step stored nothing")
         quiz, deck = self.stored["quiz"], self.stored["deck"]
         after_quiz = anna.get(f"/study/quizzes/{quiz['id']}")
@@ -485,16 +555,112 @@ class Trial:
         expect(after_deck.json() == deck, "the deck changed in the restart")
         attempts = anna.get(f"/study/quizzes/{quiz['id']}/attempts").json()
         expect(attempts == self.stored["attempts"] and attempts, "the quiz attempt did not survive")
+        stored_job = self.stored.get("docintel")
+        if stored_job:
+            kept = anna.get(f"/docintel/jobs/{stored_job['id']}/result")
+            expect_status(kept, 200, "translation after the restart")
+            expect(kept.json()["result"] == stored_job["result"], "the translation changed in the restart")
+            expect(not [j for j in anna.get("/docintel/jobs").json() if j["status"] == "running"], "a job is stuck running")
         answer = self.chat(ANNA, MILL_QUESTION)
         expect(answer["citations"] and answer["citations"][0]["page"] == 2, "the index did not survive")
         expect(self.source_names(ANNA) == ANNA_FILES, "the documents did not survive")
         return "session, quiz, deck, attempt, documents and vectors unchanged"
+
+    def listen(self):
+        anna, bela = self.client(ANNA), self.client(BELA)
+        rows = {file_name(r["source_path"]): r for r in self.sources(ANNA)}
+        mill, scan = rows[MILL_PDF], rows[SCAN_PDF]
+        voice = anna.get("/voice/status").json()
+        voice_name = voice.get("default_voice") or ""
+        suffix = f"?voice={voice_name}" if voice_name else ""
+
+        # Reading order: sections per page, no overlap repeated between neighbouring segments.
+        for row in (mill, scan):
+            expect_status(anna.post("/listen/library", {"document_id": row["id"]}), 201, "add to the listening list")
+        overview = anna.get(f"/listen/{mill['id']}").json()
+        expect(len(overview["sections"]) >= 2, f"sections: {overview['sections']}")
+        texts = []
+        for section in overview["sections"]:
+            segments = anna.get(f"/listen/{mill['id']}/sections/{section['index']}").json()["segments"]
+            expect(segments, f"section {section['index']} has no text")
+            for before, after in zip(segments, segments[1:], strict=False):
+                expect(before["text"][-40:] not in after["text"], f"overlap repeated: {before['text'][-60:]!r}")
+            texts += [segment["text"] for segment in segments]
+        spoken = " ".join(texts)
+        expect("tizennégy lapátja" in spoken, "the mill text is not in reading order text")
+        expect(spoken.count("tizennégy lapátja") == 1, "a sentence of the page was read back twice")
+
+        # Scanned pages are marked as OCR text, uncertain ones as such (same limit as the citations).
+        scanned = anna.get(f"/listen/{scan['id']}").json()
+        expect(any(section["ocr"] for section in scanned["sections"]), f"scan sections: {scanned['sections']}")
+
+        # Resume on a second device (a fresh login of the same user).
+        saved = anna.request("PUT", f"/listen/{mill['id']}/position", json_body={"section": 1, "segment": 0, "speed": 1.5})
+        expect_status(saved, 200, "save the position")
+        phone = Client(self.args.base_url, timeout=self.args.model_timeout)
+        expect_status(phone.login(ANNA, os.environ[PASSWORD_VARS[ANNA]]), 303, "second login")
+        resumed = phone.get(f"/listen/{mill['id']}").json()["position"]
+        expect((resumed["section"], resumed["segment"], resumed["speed"]) == (1, 0, 1.5), f"resumed at {resumed}")
+
+        # Another account reaches none of it.
+        for path in (f"/listen/{mill['id']}", f"/listen/{mill['id']}/sections/0", f"/listen/{mill['id']}/audio/0/0"):
+            expect_status(bela.get(path), 404, f"bela on {path}")
+        expect_status(bela.request("PUT", f"/listen/{mill['id']}/position", json_body={"section": 0, "segment": 0}), 404, "bela's position")
+
+        if not (voice.get("available") and voice.get("tts")):
+            clip = anna.get(f"/listen/{mill['id']}/audio/0/0")
+            expect_status(clip, 503, "audio without the voice overlay")
+            expect(anna.get(f"/listen/{mill['id']}").status == 200, "the text stops working without the voice")
+            return "text, sections, resume and isolation work; audio answers 503 without the voice overlay (add --voice for synthesis)"
+
+        # Audio is made per requested segment, once, and cached below the data folder.
+        started = time.monotonic()
+        clip = anna.get(f"/listen/{mill['id']}/audio/0/0{suffix}")
+        cold = time.monotonic() - started
+        expect_status(clip, 200, "first segment audio")
+        expect(clip.headers.get("Content-Type", "").startswith("audio/mpeg") and len(clip.body) > 2000, f"{len(clip.body)} bytes")
+        started = time.monotonic()
+        again = anna.get(f"/listen/{mill['id']}/audio/0/0{suffix}")
+        warm = time.monotonic() - started
+        expect(again.body == clip.body, "the cached clip differs")
+        # 64 kbit/s mono MP3: bytes -> seconds of speech
+        seconds = len(clip.body) * 8 / 64000
+        first_text = anna.get(f"/listen/{mill['id']}/sections/0").json()["segments"][0]["text"]
+        cache = self.library.parent / "data" / "metadata" / "listen_cache"
+        files = list(cache.rglob("*.mp3")) if cache.exists() else []
+        if cache.exists():
+            expect(len(files) == 1, f"{len(files)} clips cached after asking for one segment")
+            self.listened = {"mill": mill["id"], "cache": cache}
+        # The clip really says the segment: transcribe it back.
+        boundary = uuid.uuid4().hex
+        form = (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="audio"; filename="clip.mp3"\r\n'
+            "Content-Type: audio/mpeg\r\n\r\n"
+        ).encode() + clip.body + f"\r\n--{boundary}--\r\n".encode()
+        heard = anna.request(
+            "POST", "/voice/transcribe", body=form,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, timeout=self.args.model_timeout,
+        )
+        expect_status(heard, 200, "transcribing the clip")
+        transcript = heard.json()["text"].lower()
+        words = [w.strip(".,;:!?").lower() for w in first_text.split() if len(w.strip(".,;:!?")) >= 5][:8]
+        found = [w for w in words if w in transcript]
+        print(f"segment {first_text[:80]!r} -> heard {transcript[:80]!r}")
+        expect(len(found) >= max(2, len(words) // 3), f"the clip does not say the segment: {found} of {words}: {transcript!r}")
+        return (
+            f"{len(clip.body)} bytes (~{seconds:.1f}s of speech) made in {cold:.1f}s "
+            f"(real-time factor {cold / seconds:.2f}, first request loads the voice), cached repeat {warm * 1000:.0f} ms; "
+            f"{len(files)} clip on disk for one segment asked"
+        )
 
     def delete_document(self):
         anna = self.client(ANNA)
         points_before = self.point_count()
         mill = next(r for r in self.sources(ANNA) if file_name(r["source_path"]) == MILL_PDF)
         expect_status(anna.request("DELETE", f"/sources/{mill['id']}"), 204, "delete through the API")
+        excluded = anna.get("/sources/excluded").json()
+        tombstone = next((row for row in excluded if row["source_path"] == mill["source_path"]), None)
+        expect(tombstone is not None, f"deleted document has no tombstone: {excluded}")
         expect(MILL_PDF not in self.source_names(ANNA), "still listed after DELETE")
         answer = self.chat(ANNA, MILL_QUESTION)
         cited = {file_name(c["source_path"]) for c in answer["citations"]}
@@ -505,10 +671,45 @@ class Trial:
             points_after = self.point_count()
             expect(points_after == points_before - mill["chunk_count"], f"points {points_before} -> {points_after}")
             detail += f" ({points_before} -> {points_after} Qdrant points)"
+        if self.listened:
+            # Nothing of a deleted document stays playable or on disk.
+            expect_status(anna.get(f"/listen/{mill['id']}/audio/0/0"), 404, "audio of the deleted document")
+            expect(not list(self.listened["cache"].rglob("*.mp3")), "cached audio of the deleted document is still on disk")
+            detail += "; its listening audio is gone"
         if self.stored:
             # A stored quiz built on a deleted document goes with it (docs/security.md).
             gone = anna.get(f"/study/quizzes/{self.stored['quiz']['id']}")
             expect_status(gone, 404, "quiz built on the deleted document")
+        if self.stored.get("docintel"):
+            # A result made from a deleted document stays, marked stale (docs/document-intelligence.md).
+            kept = anna.get(f"/docintel/jobs/{self.stored['docintel']['id']}").json()
+            expect(kept["stale"] is True, f"result of the deleted document not marked stale: {kept}")
+            detail += "; results made from it are marked stale"
+
+        # The path exclusion persists across a restart and a full rebuild of the remaining library.
+        result = self.run_command(self.args.restart_cmd, self.args.restart_timeout)
+        expect(result.returncode == 0, f"restart failed: {result.stderr[-500:] or result.stdout[-500:]}")
+        rebuilt = self.index_run(full_reindex=True)
+        expect(rebuilt.get("status") == "completed", f"full reindex ended as {rebuilt}")
+        expect(MILL_PDF not in self.source_names(ANNA), f"tombstoned file returned after full reindex: {rebuilt}")
+        expect(
+            any(row["id"] == tombstone["id"] and row["source_path"] == mill["source_path"]
+                for row in anna.get("/sources/excluded").json()),
+            "tombstone did not survive restart and full reindex",
+        )
+
+        restored = anna.post(f"/sources/excluded/{tombstone['id']}/restore", {})
+        expect_status(restored, 204, "restore the excluded document")
+        expect(anna.get("/sources/excluded").json() == [], "restored document is still excluded")
+        run = self.index_run()
+        expect(run.get("status") == "completed" and run["indexed"] == 1, f"run after restore: {run}")
+        expect(MILL_PDF in self.source_names(ANNA), "restored file was not indexed on the next run")
+        restored_answer = self.chat(ANNA, MILL_QUESTION)
+        expect(
+            any(file_name(c["source_path"]) == MILL_PDF for c in restored_answer["citations"]),
+            f"restored file is not cited: {restored_answer['citations']}",
+        )
+        detail += "; tombstone survived restart/full reindex, then restore indexed the file again"
 
         # A file removed from the watched folder leaves the index on the next run.
         scan = next(r for r in self.sources(ANNA) if file_name(r["source_path"]) == SCAN_PDF)
@@ -521,9 +722,6 @@ class Trial:
         cited = {file_name(c["source_path"]) for c in answer["citations"]}
         expect(SCAN_PDF not in cited, f"removed file still cited: {answer['citations']}")
         detail += f"; removed file (id {scan['id']}) leaves on the next run"
-        # Reported, not failed: what a delete should mean while the file stays in a watched folder is undecided.
-        if MILL_PDF in self.source_names(ANNA):
-            detail += f". OPEN: {MILL_PDF} came back in that run, its file is still in the watched folder"
         return detail
 
     def egress(self):
@@ -577,7 +775,9 @@ class Trial:
             ("Question with no source says so (acceptance test 5)", self.no_source_says_so),
             ("User B cannot reach user A's documents (acceptance test 6)", self.isolation),
             ("Quiz and flashcards generated and stored", self.quiz_and_flashcards),
+            ("Extract and translate a whole document in the background", self.document_intelligence),
             ("Stored data survives a stack restart", self.survives_restart),
+            ("Listening: reading-order text, resume, isolation, audio on demand", self.listen),
             ("Deleting a document removes it from index and answers", self.delete_document),
             ("Egress check with the stack running", self.egress),
             ("Voice round trip in Hungarian", self.voice),
@@ -620,6 +820,7 @@ def main() -> int:
     parser.add_argument("--index-timeout", type=float, default=1200.0)
     parser.add_argument("--restart-timeout", type=float, default=600.0)
     parser.add_argument("--study-tries", type=int, default=3)
+    parser.add_argument("--docintel-timeout", type=float, default=1800.0)
     return Trial(parser.parse_args()).run()
 
 

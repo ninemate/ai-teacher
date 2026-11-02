@@ -15,6 +15,7 @@ This repository is self-contained: it has its own Compose files, Ansible playboo
 - Local LLM runtime via Ollama
 - Hungarian-first RAG chat API and mobile-friendly web UI behind a built-in login (argon2 users, sessions, CSRF)
 - Stored quizzes and flashcard decks generated from the library, with source references, spaced-repetition review for cards and quiz attempt history (`/study/...`)
+- Document Intelligence: whole-document summary, structured extraction (CSV/Markdown export), comparison and gap analysis, task list with proposals, and hu-en/en-hu translation as background jobs with progress, cancel, resume and per-person results, each item with its source file and page or chapter (`/docintel/...`, see `docs/document-intelligence.md`)
 - Ansible-driven deployment to a dedicated host or VM
 - Optional offline Hungarian voice: dictation with faster-whisper and read-aloud with Piper, both on the CPU by default (`make dev-up-voice`, see `docs/voice-hungarian.md`)
 - Optional NVIDIA overlay
@@ -149,13 +150,16 @@ Implemented now:
 - OCR for scanned PDF pages: per-page cache, per-file time and page limits, time-limited files resumed by later runs, interrupted runs recorded and picked up again
 - App login for the UI and every API route (argon2 users from config, server-side sessions, CSRF, login rate limits); ingestion endpoints behind a bearer token
 - Stored quizzes and flashcard decks with source references, SM-2 card review and quiz attempt history
+- Document Intelligence jobs (summary, extract, compare, tasks, translate) on the local model, one at a time with chat first, stored per person; translations are kept apart from the index. Quality on a small CPU model is poor; opt-in indexing of results and links to open a source at its page are not built yet
 - Mobile-friendly web UI
 - HTTPS in front of the UI via an optional Caddy overlay (`compose/docker-compose.proxy.yml`, see [docs/https.md](docs/https.md))
 - MOBI/AZW/AZW3 ingestion (pure-Python unpack to EPUB/HTML; DRM-protected books are skipped with a logged reason)
 - Optional offline Hungarian voice service: Piper TTS (three Hungarian voices) and faster-whisper STT, wired into the API and UI
+- Listening to library documents (PDF, DOCX, EPUB, MOBI, OCR text) with sections, speed, bookmarks and resume across devices; audio is made per segment on demand and cached with a size bound (see `docs/voice-hungarian.md`)
 
 Not implemented yet:
 
+- Listening speed and playback checked on the target host and on real phones (measured so far on a desktop CPU only, in a desktop browser)
 - Voice latency and GPU use measured on the target host (the numbers in `docs/voice-hungarian.md` are from a desktop CPU)
 - OCR for image-only EPUB/DOCX
 - SSO or an identity provider (users are configured in `.env`)
@@ -166,6 +170,7 @@ Not implemented yet:
 - [Ansible Deploy](docs/ansible-deploy.md)
 - [Network Share](docs/network-share.md)
 - [Document Ingestion](docs/document-ingestion.md)
+- [Document Intelligence](docs/document-intelligence.md)
 - [Model Selection](docs/model-selection.md)
 - [Mobile Access](docs/mobile-access.md)
 - [Voice Hungarian](docs/voice-hungarian.md)

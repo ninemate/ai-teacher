@@ -34,6 +34,8 @@ teacher_retrieval_top_k: 6
 teacher_max_context_chars: 18000
 teacher_ingest_schedule_seconds: 0
 teacher_ingest_remove_missing: true
+# Hold back a run that would remove more than this share of the documents (see docs/network-share.md).
+teacher_ingest_max_removal_fraction: 0.5
 teacher_ingest_scan_extensions: ".pdf,.epub,.txt,.md,.docx,.mobi,.azw,.azw3"
 teacher_ingest_chunk_size: 1200
 teacher_ingest_chunk_overlap: 200
@@ -84,8 +86,23 @@ teacher_share_enabled: true
 share_type: cifs
 share_server: nas.local
 share_path: /library
+# Extra mount options, appended to the ones below.
 mount_options: ""
 read_only: true
+# CIFS: SMB dialect, and how files look to the (non-root) container user on a read-only mount.
+teacher_share_smb_version: "3.0"
+teacher_share_file_mode: "0444"
+teacher_share_dir_mode: "0555"
+# Optional owner of the mounted files (numeric); empty keeps root.
+teacher_share_uid: ""
+teacher_share_gid: ""
+# Mount on first access through systemd (x-systemd.automount) instead of at boot, so a NAS that is
+# slow to appear or down at boot neither blocks the host nor leaves an empty folder behind.
+teacher_share_automount: true
+teacher_share_mount_timeout: 30
+# Bind propagation of the library into the containers, and the marker file that proves it is mounted.
+teacher_mount_propagation: rslave
+teacher_library_sentinel: ""
 teacher_share_credentials_file: /root/.smb-teacher-agent
 teacher_share_credentials_username: ""
 teacher_share_credentials_password: ""

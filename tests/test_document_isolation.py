@@ -106,7 +106,11 @@ def test_user_data_and_vector_retrieval_are_workspace_scoped(api_main, monkeypat
     monkeypatch.setattr(api_main, "embed_query", lambda text: [0.0])
     monkeypatch.setattr(api_main, "call_ollama", lambda prompt: "Rövid válasz")
     import teacher_common.qdrant_store as qdrant_store
-    monkeypatch.setattr(qdrant_store, "delete_points_for_source", lambda path: deleted_vectors.append(path))
+
+    def record_delete(path, workspace_id=None):
+        deleted_vectors.append(path)
+
+    monkeypatch.setattr(qdrant_store, "delete_points_for_source", record_delete)
 
     client_a, csrf_a = _login(api_main, "apa")
     client_b, csrf_b = _login(api_main, "anya")
@@ -125,6 +129,7 @@ def test_user_data_and_vector_retrieval_are_workspace_scoped(api_main, monkeypat
     answer_a = client_a.post("/chat", json={"question": "Mit tudok erről?"}, headers=headers_a).json()
     assert [source["source_path"] for source in answer_a["sources"]] == [data["path_a"]]
     assert vector_scopes[-1] == {"user:apa"}
+
 
     assert data["quiz_id"] not in {quiz["id"] for quiz in client_b.get("/study/quizzes").json()}
     assert client_b.get(f"/study/quizzes/{data['quiz_id']}").status_code == 404
@@ -203,6 +208,43 @@ def test_user_data_and_vector_retrieval_are_workspace_scoped(api_main, monkeypat
         )).first() is None
         assert session.get(study_store.QuizSet, other_quiz["id"]) is not None
         assert session.get(study_store.FlashcardDeck, other_deck["id"]) is not None
+
+
+def test_deleted_documents_are_workspace_excluded_and_can_be_restored(api_main, monkeypatch):
+    monkeypatch.setattr(api_main, "auth_admins", set())
+    data = _seed_private_content()
+    client_a, csrf_a = _login(api_main, "apa")
+    client_b, csrf_b = _login(api_main, "anya")
+    deleted_vectors = []
+    import teacher_common.qdrant_store as qdrant_store
+
+    monkeypatch.setattr(
+        qdrant_store,
+        "delete_points_for_source",
+        lambda path, workspace_id=None: deleted_vectors.append((path, workspace_id)),
+    )
+
+    deleted = client_a.delete(f"/sources/{data['doc_a_id']}", headers={"X-CSRF-Token": csrf_a})
+
+    assert deleted.status_code == 204
+    assert deleted_vectors == [(data["path_a"], data["workspace_a"])]
+    excluded = client_a.get("/sources/excluded").json()
+    tombstone = next(row for row in excluded if row["source_path"] == data["path_a"])
+    assert data["path_a"] not in {row["source_path"] for row in client_b.get("/sources/excluded").json()}
+    excluded_id = tombstone["id"]
+    assert client_b.post(
+        f"/sources/excluded/{excluded_id}/restore", headers={"X-CSRF-Token": csrf_b}
+    ).status_code == 404
+
+    restored = client_a.post(
+        f"/sources/excluded/{excluded_id}/restore", headers={"X-CSRF-Token": csrf_a}
+    )
+
+    assert restored.status_code == 204
+    assert data["path_a"] not in {
+        row["source_path"] for row in client_a.get("/sources/excluded").json()
+    }
+    assert data["path_a"] not in {row["source_path"] for row in client_a.get("/sources").json()}
 
 
 def test_regular_users_cannot_read_admin_ingestion_status_but_admins_can(api_main, monkeypatch):

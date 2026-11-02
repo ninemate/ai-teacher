@@ -3,8 +3,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Smallest explicit Document Intelligence window: the numbered line around a chunk's text costs up to a few hundred.
+MIN_DOCINTEL_WINDOW = 800
 
 
 class Settings(BaseSettings):
@@ -41,6 +44,9 @@ class Settings(BaseSettings):
         alias="TEACHER_PROMPT_PATH",
     )
     retrieval_top_k: int = Field(default=6, alias="RETRIEVAL_TOP_K")
+    # Measured with multilingual-e5-base on the Hungarian trial fixtures: unrelated top hits maxed at 0.716.
+    # Keep this below retrieval_weak_score so borderline hits remain visible with a weak-match warning.
+    retrieval_min_score: float = Field(default=0.74, ge=0, le=1, alias="RETRIEVAL_MIN_SCORE")
     # Below this cosine score a retrieved chunk is flagged as a weak match (tuned for multilingual-e5).
     retrieval_weak_score: float = Field(default=0.8, alias="RETRIEVAL_WEAK_SCORE")
     # Below this mean Tesseract word confidence (0-100) OCR'd text is flagged as uncertain.
@@ -48,12 +54,26 @@ class Settings(BaseSettings):
     max_context_chars: int = Field(default=18000, alias="MAX_CONTEXT_CHARS")
     study_top_k: int = Field(default=10, alias="STUDY_TOP_K")
     study_max_attempts: int = Field(default=2, alias="STUDY_MAX_ATTEMPTS")
+    # Document Intelligence (whole-document jobs). 0 for the window sizes = derive from MAX_CONTEXT_CHARS. A set value
+    # must leave room for the numbered source line around the text, so a window can always be kept within it.
+    docintel_window_chars: int = Field(default=0, alias="DOCINTEL_WINDOW_CHARS")
+    docintel_translate_chars: int = Field(default=0, alias="DOCINTEL_TRANSLATE_CHARS")
+    # Tries per model call; 2 = one retry with feedback, then the step counts as failed.
+    docintel_max_attempts: int = Field(default=2, ge=1, le=5, alias="DOCINTEL_MAX_ATTEMPTS")
+    docintel_max_queued_jobs: int = Field(default=10, ge=1, alias="DOCINTEL_MAX_QUEUED_JOBS")
+    # One model call of a job may take this long (a small model on the CPU is slow); chat keeps its own limit.
+    docintel_llm_timeout_seconds: float = Field(default=1800, gt=0, alias="DOCINTEL_LLM_TIMEOUT_SECONDS")
     ingest_schedule_seconds: int = Field(default=0, alias="INGEST_SCHEDULE_SECONDS")
     ingest_config_path: str = Field(
         default="/app/config/ingestion/ingestion.yml",
         alias="INGEST_CONFIG_PATH",
     )
     ingest_remove_missing: bool = Field(default=True, alias="INGEST_REMOVE_MISSING")
+    # A file that must exist inside the library (e.g. ".teacher-library") for it to count as mounted.
+    # Empty disables the check; the watched folders must exist either way.
+    library_sentinel: str = Field(default="", alias="LIBRARY_SENTINEL")
+    # A run holding back more than this share of the live documents (and at least 5) needs confirmation.
+    ingest_max_removal_fraction: float = Field(default=0.5, ge=0, le=1, alias="INGEST_MAX_REMOVAL_FRACTION")
     ingest_scan_extensions: str = Field(
         default=".pdf,.epub,.txt,.md,.docx,.mobi,.azw,.azw3",
         alias="INGEST_SCAN_EXTENSIONS",
@@ -76,6 +96,10 @@ class Settings(BaseSettings):
     voice_base_url: str = Field(default="http://voice:8090", alias="VOICE_BASE_URL")
     voice_max_upload_mb: float = Field(default=15, gt=0, alias="VOICE_MAX_UPLOAD_MB")
     voice_timeout_seconds: float = Field(default=300, gt=0, alias="VOICE_TIMEOUT_SECONDS")
+    # Listening: synthesized segments are cached here (never in the read-only library) up to this many MB.
+    listen_cache_dir: str = Field(default="/data/metadata/listen_cache", alias="LISTEN_CACHE_DIR")
+    listen_cache_max_mb: float = Field(default=500, ge=1, alias="LISTEN_CACHE_MAX_MB")
+    listen_segment_chars: int = Field(default=300, ge=80, le=2000, alias="LISTEN_SEGMENT_CHARS")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
     ocr_dpi: int = Field(default=300, alias="OCR_DPI")
     ocr_language: str = Field(default="hun+eng", alias="OCR_LANGUAGE")
@@ -83,6 +107,23 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = Field(default=900, alias="OCR_TIMEOUT_SECONDS")
     ocr_max_pages: int = Field(default=0, alias="OCR_MAX_PAGES")
     ocr_cache_dir: str = Field(default="/data/metadata/ocr_cache", alias="OCR_CACHE_DIR")
+
+    @field_validator("docintel_window_chars", "docintel_translate_chars")
+    @classmethod
+    def _window_is_unset_or_usable(cls, value: int) -> int:
+        if value != 0 and value < MIN_DOCINTEL_WINDOW:
+            raise ValueError(f"must be 0 (derive it) or at least {MIN_DOCINTEL_WINDOW} characters")
+        return value
+
+    @property
+    def docintel_window(self) -> int:
+        """Characters of document text per model call: half the chat context, the rest is prompt and answer."""
+        return self.docintel_window_chars or max(2000, self.max_context_chars // 2)
+
+    @property
+    def docintel_translate_window(self) -> int:
+        """Translation output is as long as its input, so its windows are smaller."""
+        return self.docintel_translate_chars or max(1200, self.docintel_window // 3)
 
     @property
     def scan_extensions(self) -> list[str]:

@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
-from teacher_common import study_store
+from teacher_common import docintel_store, listen_store, study_store
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.documents import (
@@ -20,7 +20,7 @@ from teacher_common.documents import (
 )
 from teacher_common.ebooks import DrmProtectedError
 from teacher_common.embeddings import embed_passages, warmup_embeddings
-from teacher_common.models import ChunkRecord, DocumentRecord, IngestRun, OcrRecord, Workspace
+from teacher_common.models import ChunkRecord, DocumentRecord, ExcludedDocument, IngestRun, OcrRecord, Workspace
 from teacher_common.ocr import record_ocr, resumable
 from teacher_common.qdrant_store import (
     build_points,
@@ -34,6 +34,7 @@ from teacher_common.watch import ScanReport, scan_watched_files
 
 logger = logging.getLogger("teacher.ingestion")
 MAX_REPORTED_ERRORS = 20
+MIN_GUARDED_REMOVALS = 5  # smaller clean-ups never need confirmation
 
 settings = get_settings()
 app = FastAPI(title="teacher-agent-ingestion", version="0.1.0")
@@ -52,6 +53,8 @@ last_run: dict = {}
 class ReindexRequest(BaseModel):
     full_reindex: bool = False
     remove_missing: bool = True
+    # Allow removing more than INGEST_MAX_REMOVAL_FRACTION of the documents in one run.
+    confirm_removal: bool = False
 
 
 def require_ingest_token(authorization: str = Header(default="")) -> None:
@@ -110,6 +113,7 @@ def reindex(payload: ReindexRequest):
         kwargs={
             "full_reindex": payload.full_reindex,
             "remove_missing": payload.remove_missing,
+            "confirm_removal": payload.confirm_removal,
             "trigger": "manual",
         },
         daemon=True,
@@ -180,15 +184,19 @@ def close_interrupted_runs() -> int:
     return len(rows)
 
 
-def run_indexing(full_reindex: bool, remove_missing: bool, trigger: str = "scheduled") -> bool:
+def run_indexing(
+    full_reindex: bool, remove_missing: bool, trigger: str = "scheduled", confirm_removal: bool = False
+) -> bool:
     """Run synchronously if no other run holds the lock; returns False when it declined."""
     if not index_lock.acquire(blocking=False):
         return False
-    execute_run(full_reindex=full_reindex, remove_missing=remove_missing, trigger=trigger)
+    execute_run(
+        full_reindex=full_reindex, remove_missing=remove_missing, trigger=trigger, confirm_removal=confirm_removal
+    )
     return True
 
 
-def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
+def execute_run(full_reindex: bool, remove_missing: bool, trigger: str, confirm_removal: bool = False) -> None:
     """Run indexing. The caller must hold ``index_lock``; it is released here."""
     current_state["running"] = True
     current_state["current_file"] = None
@@ -210,6 +218,14 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
             raise RuntimeError(f"Library path not found: {library_root}")
 
         watch = ingest_config.watch
+        unavailable = library_unavailable(library_root, watch)
+        if unavailable:
+            # An unmounted share looks like a library whose files were all deleted. Touch nothing.
+            message = f"Run skipped, index untouched: {unavailable}"
+            logger.warning(message)
+            update_run(run_id=run_id, status="skipped", message=message)
+            last_run.update(status="skipped", message=message, finished_at=datetime.now(UTC).isoformat())
+            return
         workspace_ids = {folder.workspace for folder in watch.active_folders}
         if workspace_ids:
             with session_scope() as session:
@@ -233,6 +249,7 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
                 for row in rows:
                     delete_points_for_source(row.source_path)
                     study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+                    listen_store.delete_for_document(session, row.id)
                     session.query(OcrRecord).filter(OcrRecord.source_path == row.source_path).delete()
                     session.delete(row)
 
@@ -245,6 +262,7 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
             message = "No watched folders configured; nothing to index"
             remove_missing = False
         known = load_known_documents()
+        excluded = load_excluded_documents()
         reprocess = load_reprocess_paths()
 
         for file_path in scan_watched_files(library_root, watch, settings.scan_extensions, report):
@@ -253,6 +271,9 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
             seen_paths.add(str(file_path))
             try:
                 workspace_id = workspace_for_path(file_path, library_root, watch)
+                if (workspace_id, str(file_path)) in excluded:
+                    skipped += 1
+                    continue
                 outcome = index_one_document(
                     file_path,
                     full_reindex=full_reindex,
@@ -261,7 +282,11 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
                     workspace_id=workspace_id,
                 )
                 if outcome == "indexed":
-                    indexed += 1
+                    if is_excluded_document(workspace_id, str(file_path)):
+                        remove_excluded_document_from_index(workspace_id, str(file_path))
+                        skipped += 1
+                    else:
+                        indexed += 1
                 elif outcome == "skipped":
                     skipped += 1
             except Exception as exc:  # noqa: BLE001 - one broken file must not abort the run
@@ -282,7 +307,9 @@ def execute_run(full_reindex: bool, remove_missing: bool, trigger: str) -> None:
         mark_vanished_folders(library_root, watch, known, report, errors)
 
         if remove_missing:
-            deleted = remove_deleted_documents(seen_paths, report, workspace_ids=workspace_ids)
+            deleted = remove_deleted_documents(
+                seen_paths, report, workspace_ids=workspace_ids, confirmed=confirm_removal, errors=errors
+            )
 
         update_run(
             run_id=run_id,
@@ -326,6 +353,17 @@ def split_message(stored: str | None) -> tuple[str | None, list[str]]:
         return stored, []
     head, *errors = stored.split("\n")
     return head, errors
+
+
+def library_unavailable(library_root: Path, watch) -> str | None:
+    """Why the library looks absent or unmounted (so a scan proves nothing about deletions), or None."""
+    sentinel = settings.library_sentinel.strip()
+    if sentinel and not (library_root / sentinel).exists():
+        return f"library sentinel {sentinel!r} not found (share not mounted?)"
+    missing = [folder.path for folder in watch.active_folders if not (library_root / folder.path).is_dir()]
+    if missing:
+        return "watched folder(s) not found (share not mounted?): " + ", ".join(missing)
+    return None
 
 
 def full_reindex_blocker(library_root: Path) -> str | None:
@@ -418,6 +456,42 @@ def load_known_documents() -> dict[str, tuple[int, int, str]]:
             )
         ).all()
     return {path: (size, mtime, workspace_id) for path, size, mtime, workspace_id in rows}
+
+
+def load_excluded_documents() -> set[tuple[str, str]]:
+    """Workspace and source path are the exclusion identity; file contents do not change it."""
+    with session_scope() as session:
+        return set(session.execute(select(ExcludedDocument.workspace_id, ExcludedDocument.source_path)).all())
+
+
+def is_excluded_document(workspace_id: str, source_path: str) -> bool:
+    with session_scope() as session:
+        return session.execute(
+            select(ExcludedDocument.id).where(
+                ExcludedDocument.workspace_id == workspace_id,
+                ExcludedDocument.source_path == source_path,
+            )
+        ).first() is not None
+
+
+def remove_excluded_document_from_index(workspace_id: str, source_path: str) -> None:
+    """Close the race where a deletion happens while a file is being indexed."""
+    delete_points_for_source(source_path, workspace_id=workspace_id)
+    with session_scope() as session:
+        row = session.execute(
+            select(DocumentRecord).where(
+                DocumentRecord.workspace_id == workspace_id,
+                DocumentRecord.source_path == source_path,
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return
+        study_store.delete_derived_items_for_source(session, source_path, workspace_id)
+        session.query(OcrRecord).filter(
+            OcrRecord.workspace_id == workspace_id,
+            OcrRecord.source_path == source_path,
+        ).delete()
+        session.delete(row)
 
 
 def load_reprocess_paths() -> set[str]:
@@ -601,8 +675,14 @@ def remove_deleted_documents(
     seen_paths: set[str],
     report: ScanReport | None = None,
     workspace_ids: set[str] | None = None,
+    confirmed: bool = False,
+    errors: list[str] | None = None,
 ) -> int:
-    """Mark documents that were not seen as deleted, except under paths the scan could not read."""
+    """Mark documents that were not seen as deleted, except under paths the scan could not read.
+
+    Removing a large share of the index in one go is more likely a lost share than a clean-up, so it
+    needs ``confirmed`` (the manual ``confirm_removal`` flag); otherwise nothing is removed.
+    """
     deleted = 0
     with session_scope() as session:
         query = select(DocumentRecord).where(DocumentRecord.deleted.is_(False))
@@ -610,17 +690,37 @@ def remove_deleted_documents(
             if not workspace_ids:
                 return 0
             query = query.where(DocumentRecord.workspace_id.in_(workspace_ids))
-        rows = session.execute(query).scalars()
-        for row in rows:
-            if row.source_path not in seen_paths and not (report and report.is_unreliable(row.source_path)):
-                delete_points_for_source(row.source_path)
-                session.query(ChunkRecord).filter(ChunkRecord.document_id == row.id).delete()
-                session.query(OcrRecord).filter(OcrRecord.source_path == row.source_path).delete()
-                study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
-                row.deleted = True
-                row.status = "deleted"
-                row.last_indexed_at = datetime.now(UTC)
-                deleted += 1
+        live = session.execute(query).scalars().all()
+        doomed = [
+            row for row in live
+            if row.source_path not in seen_paths and not (report and report.is_unreliable(row.source_path))
+        ]
+        if (
+            doomed
+            and not confirmed
+            and len(doomed) >= MIN_GUARDED_REMOVALS
+            and len(doomed) > settings.ingest_max_removal_fraction * len(live)
+        ):
+            add_error(
+                errors if errors is not None else [],
+                f"Not removing {len(doomed)} of {len(live)} documents that went missing; "
+                "if that is intended, run a manual reindex with confirm_removal",
+            )
+            return 0
+        for row in doomed:
+            delete_points_for_source(row.source_path)
+            session.query(ChunkRecord).filter(ChunkRecord.document_id == row.id).delete()
+            session.query(OcrRecord).filter(OcrRecord.source_path == row.source_path).delete()
+            study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
+            # Same rule as deleting a document in the API: results stay but are stale, unfinished jobs stop.
+            docintel_store.mark_stale_for_source(session, row.source_path)
+            # Listening lists and positions go now; the API removes the cached audio (it cannot be played
+            # meanwhile: every audio route refuses a deleted document).
+            listen_store.delete_for_document(session, row.id)
+            row.deleted = True
+            row.status = "deleted"
+            row.last_indexed_at = datetime.now(UTC)
+            deleted += 1
     return deleted
 
 

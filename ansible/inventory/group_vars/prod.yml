@@ -5,7 +5,7 @@ teacher_enable_reverse_proxy: false
 teacher_auth_users: ""
 teacher_cookie_secure: "true"
 share_type: cifs
-share_server: 192.168.1.10
+share_server: nas.example.lan
 share_path: /ebooks
 teacher_share_credentials_username: shareuser
 teacher_share_credentials_password: change-me-with-vault

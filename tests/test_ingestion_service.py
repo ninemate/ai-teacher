@@ -187,6 +187,62 @@ def test_changed_file_is_reindexed(svc):
     assert svc.hashed == ["a.txt", "a.txt"]
 
 
+def test_tombstoned_path_stays_excluded_until_restored_even_after_full_reindex(svc):
+    import hashlib
+
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+    from teacher_common.models import ExcludedDocument
+
+    path = svc.library / "watched" / "a.txt"
+    svc.hash_file = lambda file_path: hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+    with session_scope() as session:
+        session.add(ExcludedDocument(workspace_id="legacy", source_path=str(path)))
+
+    assert svc.run_indexing(False, True, trigger="manual")
+    assert svc.last_run["scanned"] == svc.last_run["skipped"] == 1
+    assert svc.last_run["indexed"] == 0 and live_paths(svc) == []
+    assert svc.hashed == []
+
+    path.write_text("changed content at the same path")
+    assert svc.run_indexing(True, True, trigger="manual")
+    assert svc.last_run["scanned"] == svc.last_run["skipped"] == 1
+    assert svc.last_run["indexed"] == 0 and live_paths(svc) == []
+    assert svc.hashed == []
+    with session_scope() as session:
+        exclusion = session.execute(select(ExcludedDocument)).scalar_one()
+        session.delete(exclusion)
+
+    assert svc.run_indexing(False, True, trigger="manual")
+    assert live_paths(svc) == ["watched/a.txt"]
+    with session_scope() as session:
+        row = session.execute(select(svc.DocumentRecord)).scalar_one()
+        assert row.source_hash == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_tombstone_in_another_workspace_does_not_exclude_the_same_path(svc):
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+    from teacher_common.models import ExcludedDocument, Workspace
+
+    path = svc.library / "watched" / "a.txt"
+    svc.ingest_config.watch = WatchConfig(
+        folders=[WatchFolder(path="watched", workspace="user:anya")]
+    )
+    with session_scope() as session:
+        session.add_all([
+            Workspace(id="user:anya", name="Anya", owner_username="anya"),
+            Workspace(id="user:apa", name="Apa", owner_username="apa"),
+            ExcludedDocument(workspace_id="user:apa", source_path=str(path)),
+        ])
+
+    assert svc.run_indexing(False, True)
+    with session_scope() as session:
+        row = session.execute(select(svc.DocumentRecord)).scalar_one()
+        assert row.workspace_id == "user:anya"
+    assert live_paths(svc) == ["watched/a.txt"]
+
+
 def test_vanished_documents_are_removed(svc):
     (svc.library / "watched" / "keep.txt").write_text("k")
     svc.run_indexing(False, True)
@@ -194,6 +250,36 @@ def test_vanished_documents_are_removed(svc):
     svc.run_indexing(False, True)
     assert live_paths(svc) == ["watched/keep.txt"]
     assert svc.last_run["deleted"] == 1
+
+
+def test_documents_removed_by_a_scan_mark_document_intelligence_results_stale_and_stop_unfinished_jobs(svc):
+    from teacher_common import docintel_store
+    from teacher_common.db import session_scope
+    from teacher_common.docintel_models import DocIntelJob
+
+    (svc.library / "watched" / "keep.txt").write_text("k")  # a watched folder that turns empty is assumed lost
+    svc.run_indexing(False, True)
+    source = str(svc.library / "watched" / "a.txt")
+    jobs = {}
+    with session_scope() as session:
+        for name in ("done", "running", "waiting", "elsewhere"):
+            path = source if name != "elsewhere" else str(svc.library / "other" / "b.txt")
+            jobs[name] = docintel_store.create_job(
+                session, workspace_id="legacy", username="legacy", kind="summary", title=name,
+                sources=[{"source_path": path, "file_name": "a.txt"}], options={}, model=None,
+            )["id"]
+        for name, status in (("done", "succeeded"), ("running", "running")):
+            session.get(DocIntelJob, jobs[name]).status = status
+
+    (svc.library / "watched" / "a.txt").unlink()
+    svc.run_indexing(False, True)
+
+    with session_scope() as session:
+        done, running, waiting, elsewhere = (session.get(DocIntelJob, jobs[n]) for n in ("done", "running", "waiting", "elsewhere"))
+        assert done.stale and done.status == "succeeded"  # kept for the person to export, marked stale
+        assert running.cancel_requested  # the worker stops it before its next step
+        assert waiting.status == "cancelled"
+        assert not elsewhere.stale and elsewhere.status == "queued"
 
 
 def test_remove_missing_false_keeps_documents(svc):
@@ -209,7 +295,7 @@ def test_unreachable_watched_folder_does_not_delete_its_documents(svc):
     (svc.library / "watched").rmdir()  # e.g. share went away
     svc.run_indexing(False, True)
     assert live_paths(svc) == ["watched/a.txt"]
-    assert any("not found" in e for e in svc.last_run["errors"])
+    assert svc.last_run["status"] == "skipped" and "watched" in svc.last_run["message"]
 
 
 def test_no_watched_folders_indexes_and_removes_nothing(svc):
@@ -343,7 +429,7 @@ def test_full_reindex_with_missing_folder_keeps_the_index(svc):
     svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path="watched"), WatchFolder(path="gone")])
     svc.run_indexing(True, True)
     assert live_paths(svc) == ["watched/a.txt"]
-    assert svc.last_run["status"] == "failed"
+    assert svc.last_run["status"] == "skipped"
 
 
 def test_full_reindex_rebuilds_when_scope_is_scannable(svc):
@@ -372,12 +458,13 @@ def test_errors_survive_a_restart(svc):
     svc.run_indexing(False, True)
     (svc.library / "watched").rename(svc.library / "moved")
     svc.run_indexing(False, True)
-    assert svc.last_run["errors"]
+    assert svc.last_run["status"] == "skipped"
     svc.last_run.clear()  # new process: only the database is left
     body = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"}).get("/ingest/schedule").json()
-    assert body["last_run"]["errors"]
-    assert any("not found" in e for e in body["last_run"]["errors"])
-    assert "\n" not in body["last_run"]["message"]
+    assert body["last_run"]["status"] == "skipped"
+    assert "not found" in body["last_run"]["message"]
+    status = TestClient(svc.app, headers={"Authorization": "Bearer test-ingest-token"}).get("/ingest/status").json()
+    assert status["status"] == "skipped" and "not found" in status["message"]
 
 
 def test_full_reindex_with_emptied_mount_point_keeps_the_index(svc):
@@ -508,3 +595,96 @@ def test_unchanged_file_that_fails_keeps_its_chunks(svc):
     svc.store_error_record(svc.library / "watched" / "a.txt", "boom")
     assert svc.store.deleted_sources == []
     assert len(_chunks(svc)) == 1
+
+
+def last_run_row(svc):
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+
+    with session_scope() as session:
+        row = session.execute(select(svc.IngestRun).order_by(svc.IngestRun.id.desc())).scalars().first()
+        return row.status, row.message, row.deleted
+
+
+def test_missing_watched_folder_skips_the_run_and_says_so(svc):
+    svc.run_indexing(False, True)
+    svc.ingest_config.watch = WatchConfig(folders=[WatchFolder(path="watched"), WatchFolder(path="gone")])
+    (svc.library / "watched" / "new.txt").write_text("n")
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "skipped"
+    assert "gone" in svc.last_run["message"]
+    assert live_paths(svc) == ["watched/a.txt"]  # nothing indexed or removed during a skipped run
+    status, message, deleted = last_run_row(svc)
+    assert status == "skipped" and "gone" in message and deleted == 0
+
+
+def test_empty_mount_point_removes_nothing(svc):
+    svc.run_indexing(False, True)
+    for child in list(svc.library.rglob("*"))[::-1]:  # the share went away: an empty folder is left behind
+        child.unlink() if child.is_file() else child.rmdir()
+    svc.store.deleted_sources.clear()
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "skipped"
+    assert svc.store.deleted_sources == []
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+
+    with session_scope() as session:
+        assert session.execute(select(svc.DocumentRecord).where(svc.DocumentRecord.deleted.is_(False))).scalars().all()
+
+
+def test_missing_sentinel_skips_even_when_watched_folder_exists(svc, monkeypatch):
+    monkeypatch.setattr(svc.settings, "library_sentinel", ".mounted")
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "skipped"
+    assert ".mounted" in svc.last_run["message"]
+    assert live_paths(svc) == []
+    (svc.library / ".mounted").write_text("")
+    svc.run_indexing(False, True)
+    assert svc.last_run["status"] == "completed"
+    assert live_paths(svc) == ["watched/a.txt"]
+
+
+def test_missing_sentinel_refuses_full_reindex_before_wiping(svc, monkeypatch):
+    svc.run_indexing(False, True)
+    monkeypatch.setattr(svc.settings, "library_sentinel", ".mounted")
+    svc.store.deleted_workspaces.clear()
+    svc.run_indexing(True, True)
+    assert svc.last_run["status"] == "skipped"
+    assert svc.store.deleted_workspaces == []
+    assert live_paths(svc) == ["watched/a.txt"]
+
+
+def fill_watched(svc, count=10):
+    for i in range(count):
+        (svc.library / "watched" / f"f{i}.txt").write_text(f"content {i}")
+    svc.run_indexing(False, True)
+    assert svc.last_run["failed"] == 0
+
+
+def test_implausibly_large_removal_is_held_back(svc):
+    fill_watched(svc)
+    for i in range(8):
+        (svc.library / "watched" / f"f{i}.txt").unlink()
+    svc.run_indexing(False, True)
+    assert svc.last_run["deleted"] == 0
+    assert len(live_paths(svc)) == 11
+    assert any("confirm" in e for e in svc.last_run["errors"])
+    assert "confirm" in last_run_row(svc)[1]
+
+
+def test_large_removal_goes_ahead_when_confirmed(svc):
+    fill_watched(svc)
+    for i in range(8):
+        (svc.library / "watched" / f"f{i}.txt").unlink()
+    svc.run_indexing(False, True, confirm_removal=True)
+    assert svc.last_run["deleted"] == 8
+    assert len(live_paths(svc)) == 3
+
+
+def test_small_removal_does_not_need_confirmation(svc):
+    fill_watched(svc)
+    for i in range(3):
+        (svc.library / "watched" / f"f{i}.txt").unlink()
+    svc.run_indexing(False, True)
+    assert svc.last_run["deleted"] == 3

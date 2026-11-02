@@ -49,6 +49,21 @@ Points indexed before this change have none of the new fields. Citations then fa
 3. The prompt (`teacher_common.citations.CITATION_RULES`, added to every task so a custom `TEACHER_PROMPT_PATH` keeps it) tells the model to put `[n]` after each statement taken from source n, to mark its own statements with `[forrás nélkül]`, and to say when a source it used is uncertain.
 4. `citations.assess` reads the markers back from the answer. Numbers the model invented are ignored.
 
+### Minimum retrieval score
+
+`RETRIEVAL_MIN_SCORE` defaults to `0.74`. Chat and summary discard lower-scoring hits before building model context or citations. If every hit falls below the floor, they use the normal no-source answer. The value is a cosine score for the configured embedding model; it is separate from `RETRIEVAL_WEAK_SCORE`, which defaults to `0.8` and marks retained hits below that score as uncertain. Keeping the floor below the weak-score threshold leaves a band where a borderline source can still help while the answer warns about it. Explicitly selected documents for saved quizzes and flashcards bypass this floor.
+
+The default was measured with `intfloat/multilingual-e5-base` on the Hungarian end-to-end fixtures. Each list is the top six scores before a floor was enabled:
+
+| Question | Cosine scores, highest first |
+| --- | --- |
+| Scanned telescope PDF | 0.926, 0.790, 0.756, 0.749, 0.739, 0.718 |
+| Watermill PDF | 0.891, 0.765, 0.764, 0.745, 0.718, 0.716 |
+| Fish EPUB | 0.905, 0.818, 0.777, 0.772, 0.747, 0.745 |
+| Unrelated football question | 0.716, 0.707, 0.703, 0.700, 0.681, 0.679 |
+
+The unrelated maximum was `0.716`; the correct top chunks for the three answerable questions were `0.891`–`0.926`. A `0.74` floor clears that measured unrelated maximum while retaining the `0.745` borderline candidates, which remain marked weak under the `0.8` warning threshold. Some lower candidates are discarded, and this small fixture set cannot establish which borderline chunks are useful in a real library. **Calibrate the default on representative material before relying on it:** temporarily set `RETRIEVAL_MIN_SCORE=0` and run the end-to-end trial to record the unfiltered top-k scores and inspect their source text; the unrelated-question no-source assertion is expected to fail during this diagnostic run. Choose a floor above irrelevant hits that still keeps useful borderline passages, restore it, and rerun the acceptance trial. Repeat after changing the embedding model or library domain.
+
 ### Response
 
 ```json
@@ -90,6 +105,10 @@ Stored quizzes and flashcards keep `file_id`, `file_name`, `page` and `chapter` 
 - Qdrant is simple, maintained, and purpose-built for vectors.
 - SQLite keeps metadata local without another service.
 - This is smaller and easier to migrate than a full Postgres stack for the MVP.
+
+## Whole-Document Jobs
+
+Chat answers come from the few chunks retrieved for a question. Summaries, extraction, comparison, tasks and translation of a whole document read every chunk instead, in reading order, as map-reduce jobs with the same citation numbers and `assess` rating. See [document-intelligence.md](document-intelligence.md).
 
 ## Stored Study Material
 

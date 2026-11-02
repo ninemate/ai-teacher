@@ -40,6 +40,7 @@ export INGEST_CONFIG_PATH="$repo/config/ingestion/e2e.yml"
 export INGESTION_BASE_URL="http://127.0.0.1:$ingestion_port"
 export VOICE_BASE_URL="http://127.0.0.1:$voice_port"
 export OCR_CACHE_DIR="$data/metadata/ocr_cache"
+export LISTEN_CACHE_DIR="$data/metadata/listen_cache"
 export PYTHONPATH="$repo/services/common"
 if [ -n "${E2E_TESSERACT:-}" ]; then
     export PATH="$E2E_TESSERACT/usr/bin:$PATH"

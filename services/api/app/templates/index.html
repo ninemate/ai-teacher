@@ -7,6 +7,8 @@
     <meta name="csrf-token" content="{{ csrf_token }}" />
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="stylesheet" href="/static/study.css" />
+    <link rel="stylesheet" href="/static/docintel.css" />
+    <link rel="stylesheet" href="/static/listen.css" />
   </head>
   <body>
     <main class="shell">
@@ -70,6 +72,15 @@
         <h2>Tanulás</h2>
         <p class="lead">Mentett kvízek és villámkártyák a könyvtárból. A kártyák az ismétlési ütemezés szerint jönnek elő.</p>
 
+        <details class="excluded-documents">
+          <summary>Kizárt dokumentumok</summary>
+          <p class="muted-text">A visszaállított fájl a következő indexelési futáskor kerül vissza.</p>
+          <ul id="excluded-documents-list" class="excluded-list" aria-live="polite">
+            <li>Betöltés...</li>
+          </ul>
+          <p id="excluded-documents-status" class="status" role="status"></p>
+        </details>
+
         <label for="study-topic">Téma (nem kötelező, ha választasz dokumentumot)</label>
         <input id="study-topic" type="text" placeholder="Például: a sejt felépítése" />
 
@@ -94,11 +105,145 @@
         <div id="study-list"></div>
         <div id="study-session"></div>
       </section>
+
+      <section class="panel docintel" id="docintel">
+        <h2>Dokumentumelemzés</h2>
+        <p class="lead">
+          Egy egész dokumentum feldolgozása a háttérben: összefoglaló, kigyűjtés, összehasonlítás, teendők, fordítás.
+          Minden eredmény a forrásfájlt és az oldalt vagy fejezetet is megmutatja. Helyi modellen fut, ezért percekig
+          vagy órákig is eltarthat; közben a kérdezés használható marad.
+        </p>
+
+        <label for="di-kind">Feladat</label>
+        <select id="di-kind">
+          <option value="summary">Összefoglaló (egész dokumentum)</option>
+          <option value="extract">Kigyűjtés táblázatba</option>
+          <option value="compare">Összehasonlítás és hiányelemzés</option>
+          <option value="tasks">Teendők és megoldási javaslatok</option>
+          <option value="translate">Fordítás (magyar ↔ angol)</option>
+        </select>
+
+        <label for="di-doc-a" id="di-doc-a-label">Dokumentum</label>
+        <select id="di-doc-a"></select>
+
+        <div id="di-doc-b-row" hidden>
+          <label for="di-doc-b">Összevetett dokumentum (B)</label>
+          <select id="di-doc-b"></select>
+        </div>
+
+        <div data-for="summary">
+          <label for="di-granularity">Részletesség</label>
+          <select id="di-granularity">
+            <option value="document">Az egész dokumentum egy összefoglalóban</option>
+            <option value="chapter">Fejezetenként (vagy oldaltartományonként)</option>
+          </select>
+        </div>
+
+        <fieldset data-for="extract" hidden>
+          <legend>Mit gyűjtsek ki?</legend>
+          <label class="check"><input type="checkbox" name="di-type" value="concept" checked /> Fogalmak</label>
+          <label class="check"><input type="checkbox" name="di-type" value="requirement" checked /> Követelmények</label>
+          <label class="check"><input type="checkbox" name="di-type" value="deadline" checked /> Határidők</label>
+          <label class="check"><input type="checkbox" name="di-type" value="obligation" checked /> Kötelezettségek</label>
+          <label class="check"><input type="checkbox" name="di-type" value="table" checked /> Táblázatok</label>
+        </fieldset>
+
+        <div data-for="compare" hidden>
+          <label for="di-mode">Mit keressek?</label>
+          <select id="di-mode">
+            <option value="diff">Eltérések a két dokumentum (verzió) között</option>
+            <option value="gap">Az A követelményei közül mi hiányzik a B-ből</option>
+          </select>
+        </div>
+
+        <div data-for="translate" hidden>
+          <label for="di-direction">Irány</label>
+          <select id="di-direction">
+            <option value="hu-en">Magyarról angolra</option>
+            <option value="en-hu">Angolról magyarra</option>
+          </select>
+          <p class="hint">A fordítás külön eredményként tárolódik, nem kerül a keresési indexbe. Kis modellel a minőség gyenge lehet.</p>
+        </div>
+
+        <div class="actions">
+          <button id="di-start" type="button" class="primary">Indítás</button>
+        </div>
+        <p id="di-status" class="status" role="status"></p>
+
+        <h3>Feladatok</h3>
+        <ul id="di-jobs" class="items"></ul>
+
+        <div id="di-result" class="di-result" hidden></div>
+      </section>
+
+      <section class="panel listen" id="listen">
+        <h2>Hallgatás</h2>
+        <p class="lead">A könyvtár dokumentumai felolvasva, szakaszonként. A hely mentődik, így bármelyik eszközön folytathatod.</p>
+        <p id="listen-voice-off" class="notice" role="status" hidden>
+          A felolvasás most nem elérhető: a hangszolgáltatás nincs bekapcsolva. A dokumentumok szövegét így is olvashatod itt, a többi funkció működik.
+        </p>
+
+        <div id="listen-library-view">
+          <ul id="listen-library" class="listen-library"></ul>
+          <details>
+            <summary>Dokumentum hozzáadása a listához</summary>
+            <label for="listen-doc-select">Dokumentum</label>
+            <select id="listen-doc-select"></select>
+            <button id="listen-add" type="button" class="primary">Hozzáadás</button>
+          </details>
+        </div>
+
+        <div id="listen-player" hidden>
+          <button id="listen-back" type="button" class="secondary">← Vissza a listához</button>
+          <h3 id="listen-title"></h3>
+          <p id="listen-ocr-note" class="notice" hidden></p>
+
+          <label for="listen-section">Szakasz</label>
+          <select id="listen-section"></select>
+
+          <div class="listen-controls">
+            <button id="listen-prev-section" type="button" class="secondary" aria-label="Előző szakasz">⏮</button>
+            <button id="listen-prev" type="button" class="secondary" aria-label="Előző részlet">⏪</button>
+            <button id="listen-play" type="button" class="primary" aria-label="Lejátszás">▶</button>
+            <button id="listen-next" type="button" class="secondary" aria-label="Következő részlet">⏩</button>
+            <button id="listen-next-section" type="button" class="secondary" aria-label="Következő szakasz">⏭</button>
+          </div>
+
+          <div class="listen-options">
+            <div>
+              <label for="listen-speed">Sebesség</label>
+              <select id="listen-speed">
+                <option value="0.75">0,75×</option>
+                <option value="1" selected>1×</option>
+                <option value="1.25">1,25×</option>
+                <option value="1.5">1,5×</option>
+                <option value="1.75">1,75×</option>
+                <option value="2">2×</option>
+              </select>
+            </div>
+            <div>
+              <label for="listen-voice">Hang</label>
+              <select id="listen-voice"></select>
+            </div>
+          </div>
+          <label class="check"><input id="listen-skip-low" type="checkbox" /> Bizonytalan OCR-szöveg kihagyása</label>
+          <p id="listen-status" class="voice-status" role="status"></p>
+          <progress id="listen-progress" max="1" value="0" aria-label="Haladás a szakaszban"></progress>
+
+          <div id="listen-text" class="listen-text" aria-live="off"></div>
+
+          <button id="listen-bookmark" type="button" class="secondary">🔖 Könyvjelző ide</button>
+          <ul id="listen-bookmarks" class="listen-bookmarks"></ul>
+          <audio id="listen-audio" preload="auto" hidden></audio>
+        </div>
+      </section>
     </main>
 
     <script src="/static/app.js" defer></script>
     <script src="/static/study.js" defer></script>
+    <script src="/static/docintel.js" defer></script>
     <script src="/static/voice.js" defer></script>
+    <script src="/static/listen.js" defer></script>
   </body>
 </html>
 
