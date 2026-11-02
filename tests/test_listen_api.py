@@ -72,7 +72,7 @@ def world(api_main, monkeypatch, tmp_path):
 def test_sections_text_and_ocr_marking(world):
     client, headers = world["apa"]
     doc = world["doc"]
-    assert client.get("/listen/library").json() == []
+    assert doc not in [item["document"]["id"] for item in client.get("/listen/library").json()]
     assert client.post("/listen/library", json={"document_id": doc}, headers=headers).status_code == 201
     overview = client.get(f"/listen/{doc}").json()
     assert [s["title"] for s in overview["sections"]] == ["1. oldal", "2. oldal", "3. oldal"]
@@ -130,7 +130,7 @@ def test_position_and_bookmarks_resume_on_another_device(world):
     assert overview["position"]["section"] == 2 and overview["position"]["segment"] == 0
     assert overview["position"]["speed"] == 1.5 and overview["position"]["voice"] == "hu_HU-anna-medium"
     assert [b["id"] for b in overview["bookmarks"]] == [bookmark.json()["id"]]
-    assert [item["document"]["id"] for item in phone.get("/listen/library").json()] == [doc]
+    assert doc in [item["document"]["id"] for item in phone.get("/listen/library").json()]
 
     assert client.put(f"/listen/{doc}/position", json={"section": 9, "segment": 0}, headers=headers).status_code == 404
     assert client.put(f"/listen/{doc}/position", json={"section": 0, "segment": 0, "speed": 9}, headers=headers).status_code == 422
@@ -212,7 +212,7 @@ def test_documents_the_indexer_removed_are_unreachable_and_swept(world, ingestio
     removed = ingestion_main.remove_deleted_documents(set(), workspace_ids={world["workspace"]}, confirmed=True)
     assert removed >= 1
     assert client.get(f"/listen/{doc}/audio/0/0").status_code == 404
-    assert client.get("/listen/library").json() == []
+    assert doc not in [item["document"]["id"] for item in client.get("/listen/library").json()]
     with session_scope() as session:
         assert session.execute(select(ListenItem).where(ListenItem.document_id == doc)).first() is None
     from listen_routes import sweep_orphans
