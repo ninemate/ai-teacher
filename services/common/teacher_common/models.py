@@ -38,6 +38,18 @@ class DocumentRecord(Base):
     chunks = relationship("ChunkRecord", back_populates="document", cascade="all, delete-orphan")
 
 
+class ExcludedDocument(Base):
+    """A workspace-scoped path exclusion that survives indexing runs and process restarts."""
+
+    __tablename__ = "excluded_documents"
+    __table_args__ = (UniqueConstraint("workspace_id", "source_path", name="uq_excluded_workspace_path"),)
+
+    id = Column(Integer, primary_key=True)
+    workspace_id = Column(String(128), ForeignKey("workspaces.id"), nullable=False, index=True)
+    source_path = Column(String(2048), nullable=False)
+    excluded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class ChunkRecord(Base):
     __tablename__ = "chunks"
 

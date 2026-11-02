@@ -20,7 +20,7 @@ from teacher_common import citations, study_store
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.embeddings import embed_query, warmup_embeddings
-from teacher_common.models import DocumentRecord, IngestRun, OcrRecord, Workspace, WorkspaceShare
+from teacher_common.models import DocumentRecord, ExcludedDocument, IngestRun, OcrRecord, Workspace, WorkspaceShare
 from teacher_common.qdrant_store import ensure_collection, search
 from teacher_common.workspaces import accessible_workspace_ids, ensure_personal_workspace
 
@@ -322,6 +322,46 @@ def list_sources(request: Request):
         ]
 
 
+@app.get("/sources/excluded")
+def list_excluded_sources(request: Request):
+    with session_scope() as session:
+        # Only show exclusions this user can restore (owned workspaces or write shares).
+        workspace_ids = _workspace_ids(request, session, write=True)
+        if not workspace_ids:
+            return []
+        rows = session.execute(
+            select(ExcludedDocument)
+            .where(ExcludedDocument.workspace_id.in_(workspace_ids))
+            .order_by(ExcludedDocument.excluded_at.desc(), ExcludedDocument.id.desc())
+        ).scalars()
+        return [
+            {
+                "id": row.id,
+                "workspace_id": row.workspace_id,
+                "source_path": row.source_path,
+                "file_name": Path(row.source_path).name,
+                "excluded_at": row.excluded_at.isoformat() if row.excluded_at else None,
+            }
+            for row in rows
+        ]
+
+
+@app.post("/sources/excluded/{excluded_id}/restore", status_code=204)
+def restore_excluded_source(excluded_id: int, request: Request):
+    with session_scope() as session:
+        workspace_ids = _workspace_ids(request, session, write=True)
+        row = session.execute(
+            select(ExcludedDocument).where(
+                ExcludedDocument.id == excluded_id,
+                ExcludedDocument.workspace_id.in_(workspace_ids),
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="A kizárt dokumentum nem található.")
+        session.delete(row)
+    return Response(status_code=204)
+
+
 @app.delete("/sources/{document_id}", status_code=204)
 def delete_source(document_id: int, request: Request):
     from teacher_common.qdrant_store import delete_points_for_source
@@ -336,7 +376,15 @@ def delete_source(document_id: int, request: Request):
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="A dokumentum nem található.")
-        delete_points_for_source(row.source_path)
+        excluded = session.execute(
+            select(ExcludedDocument).where(
+                ExcludedDocument.workspace_id == row.workspace_id,
+                ExcludedDocument.source_path == row.source_path,
+            )
+        ).scalar_one_or_none()
+        if excluded is None:
+            session.add(ExcludedDocument(workspace_id=row.workspace_id, source_path=row.source_path))
+        delete_points_for_source(row.source_path, workspace_id=row.workspace_id)
         study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
         session.query(OcrRecord).filter(
             OcrRecord.source_path == row.source_path,

@@ -187,6 +187,62 @@ def test_changed_file_is_reindexed(svc):
     assert svc.hashed == ["a.txt", "a.txt"]
 
 
+def test_tombstoned_path_stays_excluded_until_restored_even_after_full_reindex(svc):
+    import hashlib
+
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+    from teacher_common.models import ExcludedDocument
+
+    path = svc.library / "watched" / "a.txt"
+    svc.hash_file = lambda file_path: hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+    with session_scope() as session:
+        session.add(ExcludedDocument(workspace_id="legacy", source_path=str(path)))
+
+    assert svc.run_indexing(False, True, trigger="manual")
+    assert svc.last_run["scanned"] == svc.last_run["skipped"] == 1
+    assert svc.last_run["indexed"] == 0 and live_paths(svc) == []
+    assert svc.hashed == []
+
+    path.write_text("changed content at the same path")
+    assert svc.run_indexing(True, True, trigger="manual")
+    assert svc.last_run["scanned"] == svc.last_run["skipped"] == 1
+    assert svc.last_run["indexed"] == 0 and live_paths(svc) == []
+    assert svc.hashed == []
+    with session_scope() as session:
+        exclusion = session.execute(select(ExcludedDocument)).scalar_one()
+        session.delete(exclusion)
+
+    assert svc.run_indexing(False, True, trigger="manual")
+    assert live_paths(svc) == ["watched/a.txt"]
+    with session_scope() as session:
+        row = session.execute(select(svc.DocumentRecord)).scalar_one()
+        assert row.source_hash == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_tombstone_in_another_workspace_does_not_exclude_the_same_path(svc):
+    from sqlalchemy import select
+    from teacher_common.db import session_scope
+    from teacher_common.models import ExcludedDocument, Workspace
+
+    path = svc.library / "watched" / "a.txt"
+    svc.ingest_config.watch = WatchConfig(
+        folders=[WatchFolder(path="watched", workspace="user:anya")]
+    )
+    with session_scope() as session:
+        session.add_all([
+            Workspace(id="user:anya", name="Anya", owner_username="anya"),
+            Workspace(id="user:apa", name="Apa", owner_username="apa"),
+            ExcludedDocument(workspace_id="user:apa", source_path=str(path)),
+        ])
+
+    assert svc.run_indexing(False, True)
+    with session_scope() as session:
+        row = session.execute(select(svc.DocumentRecord)).scalar_one()
+        assert row.workspace_id == "user:anya"
+    assert live_paths(svc) == ["watched/a.txt"]
+
+
 def test_vanished_documents_are_removed(svc):
     (svc.library / "watched" / "keep.txt").write_text("k")
     svc.run_indexing(False, True)
