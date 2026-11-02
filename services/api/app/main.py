@@ -15,13 +15,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from listen_routes import build_router as build_listen_router
+from listen_routes import sweep_orphans
 from study_routes import build_router as build_study_router
-from teacher_common import citations, study_store
+from teacher_common import citations, listen_store, study_store
+from teacher_common.audio_cache import AudioCache
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.embeddings import embed_query, warmup_embeddings
 from teacher_common.models import DocumentRecord, IngestRun, OcrRecord, Workspace, WorkspaceShare
-from teacher_common.qdrant_store import ensure_collection, search
+from teacher_common.qdrant_store import ensure_collection, scroll_document, search
 from teacher_common.workspaces import accessible_workspace_ids, ensure_personal_workspace
 
 APP_DIR = Path(__file__).resolve().parent
@@ -40,6 +43,7 @@ login_limiter = auth.LoginRateLimiter(settings.teacher_login_max_attempts, setti
 app = FastAPI(title="teacher-agent-api", version="0.1.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
+listen_cache = AudioCache(settings.listen_cache_dir, int(settings.listen_cache_max_mb * 1024 * 1024))
 
 
 class ChatRequest(BaseModel):
@@ -143,6 +147,7 @@ def startup_event() -> None:
     ensure_collection()
     warmup_embeddings()
     _check_ollama_model()
+    sweep_orphans(listen_cache)
 
 
 def _ensure_account_workspaces() -> None:
@@ -342,6 +347,8 @@ def delete_source(document_id: int, request: Request):
             OcrRecord.source_path == row.source_path,
             OcrRecord.workspace_id == row.workspace_id,
         ).delete()
+        listen_store.delete_for_document(session, row.id)
+        listen_cache.remove_document(row.id)
         session.delete(row)
     return Response(status_code=204)
 
@@ -705,5 +712,20 @@ app.include_router(
             query, top_k, source_paths, workspace_ids
         ),
         llm=lambda prompt, json_mode: call_ollama(prompt, json_mode=json_mode),
+    ),
+)
+
+
+# Listening to library documents (/listen/...): text rebuilt from the stored chunks, audio made per segment on demand.
+app.include_router(
+    build_listen_router(
+        fetch_chunks=lambda source_path: scroll_document(source_path),
+        speak=lambda text, voice: _voice_request(
+            "POST",
+            "/voice/speak",
+            timeout=settings.voice_timeout_seconds,
+            json={"text": text, "voice": voice, "format": "mp3"},
+        ).content,
+        cache=listen_cache,
     ),
 )
