@@ -67,6 +67,7 @@ def load_chunks(
 LINE_OVERHEAD = 160
 
 
+# Piece size when the numbered line's own overhead already exceeds the budget (an absurdly long title or file name).
 MIN_PIECE = 200
 
 
@@ -95,7 +96,9 @@ def split_oversized(chunks: Sequence[dict], max_chars: int) -> list[dict]:
         if chunk_cost(chunk) <= max_chars:
             out.append(chunk)
             continue
-        room = max(MIN_PIECE, max_chars - (chunk_cost(chunk) - len(chunk["text"])))
+        # Text room left by the numbered line's overhead. Only when the title and file name alone fill the budget is a
+        # fit impossible; then pieces of MIN_PIECE keep the split finite.
+        room = max(1, max_chars - (chunk_cost(chunk) - len(chunk["text"]))) if chunk_cost(chunk) - len(chunk["text"]) < max_chars else MIN_PIECE
         text, number = chunk["text"], 0
         while text:
             cut = len(text) if len(text) <= room else _cut_point(text[:room])

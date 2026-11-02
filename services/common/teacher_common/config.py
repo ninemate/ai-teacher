@@ -3,8 +3,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Smallest explicit Document Intelligence window: the numbered line around a chunk's text costs up to a few hundred.
+MIN_DOCINTEL_WINDOW = 800
 
 
 class Settings(BaseSettings):
@@ -48,9 +51,10 @@ class Settings(BaseSettings):
     max_context_chars: int = Field(default=18000, alias="MAX_CONTEXT_CHARS")
     study_top_k: int = Field(default=10, alias="STUDY_TOP_K")
     study_max_attempts: int = Field(default=2, alias="STUDY_MAX_ATTEMPTS")
-    # Document Intelligence (whole-document jobs). 0 for the window sizes = derive from MAX_CONTEXT_CHARS.
-    docintel_window_chars: int = Field(default=0, ge=0, alias="DOCINTEL_WINDOW_CHARS")
-    docintel_translate_chars: int = Field(default=0, ge=0, alias="DOCINTEL_TRANSLATE_CHARS")
+    # Document Intelligence (whole-document jobs). 0 for the window sizes = derive from MAX_CONTEXT_CHARS. A set value
+    # must leave room for the numbered source line around the text, so a window can always be kept within it.
+    docintel_window_chars: int = Field(default=0, alias="DOCINTEL_WINDOW_CHARS")
+    docintel_translate_chars: int = Field(default=0, alias="DOCINTEL_TRANSLATE_CHARS")
     # Tries per model call; 2 = one retry with feedback, then the step counts as failed.
     docintel_max_attempts: int = Field(default=2, ge=1, le=5, alias="DOCINTEL_MAX_ATTEMPTS")
     docintel_max_queued_jobs: int = Field(default=10, ge=1, alias="DOCINTEL_MAX_QUEUED_JOBS")
@@ -96,6 +100,13 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = Field(default=900, alias="OCR_TIMEOUT_SECONDS")
     ocr_max_pages: int = Field(default=0, alias="OCR_MAX_PAGES")
     ocr_cache_dir: str = Field(default="/data/metadata/ocr_cache", alias="OCR_CACHE_DIR")
+
+    @field_validator("docintel_window_chars", "docintel_translate_chars")
+    @classmethod
+    def _window_is_unset_or_usable(cls, value: int) -> int:
+        if value != 0 and value < MIN_DOCINTEL_WINDOW:
+            raise ValueError(f"must be 0 (derive it) or at least {MIN_DOCINTEL_WINDOW} characters")
+        return value
 
     @property
     def docintel_window(self) -> int:

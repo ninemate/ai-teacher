@@ -336,13 +336,18 @@ def map_windows(
 
 
 def _dedupe(items: list[dict]) -> list[dict]:
-    """Merge items saying the same thing (the chunk overlap and repeated headers produce them); keep all sources."""
+    """Merge items saying the same thing (the chunk overlap and repeated headers produce them); keep all sources.
+
+    Same type, text and detail (and cells, for a table) is the same item; a different detail is a different item.
+    """
     merged: dict[tuple, dict] = {}
     for item in items:
         text = re.sub(r"\W+", " ", item["text"].casefold()).strip()
         # Two tables under the same caption are two tables unless their cells are the same too.
         table = item.get("table") or {} if item.get("type") == "table" else {}
-        key: tuple = (item.get("type"), text, json.dumps([table.get("columns"), table.get("rows")], ensure_ascii=False).casefold())
+        detail = re.sub(r"\W+", " ", str(item.get("detail") or "").casefold()).strip()  # date, party, measure
+        cells = json.dumps([table.get("columns"), table.get("rows")], ensure_ascii=False).casefold()
+        key: tuple = (item.get("type"), text, detail, cells)
         if key in merged:
             merged[key]["src"] = list(dict.fromkeys(merged[key]["src"] + item["src"]))
         else:

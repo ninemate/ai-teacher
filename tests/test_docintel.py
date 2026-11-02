@@ -59,10 +59,25 @@ def test_a_chunk_larger_than_the_window_budget_is_cut_into_pieces_that_fit_and_k
     assert " ".join(" ".join(p["text"].split()) for p in pieces) == " ".join(" ".join(c["text"].split()) for c in document["chunks"])
     assert [p["page"] for p in pieces] == sorted(p["page"] for p in pieces)
     assert {p["page"] for p in pieces} == {1, 2, 3}
+    # a budget just above the numbered line's overhead still gets pieces that fit, however short
+    for tight in (doc_text.LINE_OVERHEAD + 120, 800):
+        tiny = doc_text.split_oversized(document["chunks"], tight)
+        assert all(doc_text.chunk_cost(p) <= tight for p in tiny), tight
     # a budget the chunks already fit leaves them as they are
     assert doc_text.split_oversized(document["chunks"], 10_000) == document["chunks"]
     # and the windows made from the pieces respect the budget
     assert all(sum(doc_text.chunk_cost(c) for c in w) <= budget for w in doc_text.make_windows(pieces, budget))
+
+
+def test_a_window_setting_too_small_for_the_numbered_line_is_rejected():
+    from pydantic import ValidationError
+    from teacher_common.config import MIN_DOCINTEL_WINDOW, Settings
+
+    for name in ("DOCINTEL_WINDOW_CHARS", "DOCINTEL_TRANSLATE_CHARS"):
+        with pytest.raises(ValidationError):
+            Settings(**{name: MIN_DOCINTEL_WINDOW - 1})
+        assert Settings(**{name: MIN_DOCINTEL_WINDOW})
+        assert Settings(**{name: 0})  # unset: derived from the context size
 
 
 # --- summary -------------------------------------------------------------------------------------------------------
@@ -190,6 +205,24 @@ def test_tables_under_the_same_caption_are_not_merged_unless_their_cells_are_the
     assert [t["table"]["rows"] for t in tables] == [[["Tagdíj", "1000"]], [["Belépő", "500"], ["Kaució", "200"]]]
     first = tables[0]
     assert len(first["sources"]) == 2  # the identical table seen twice is one table citing both pages
+
+
+def test_requirements_with_the_same_text_but_different_details_stay_apart_and_equal_ones_merge():
+    document = make_doc("szabaly.pdf", ["Első oldal.", "Második oldal.", "Harmadik oldal."])
+
+    def requirement(detail, source=1):
+        return {"type": "requirement", "text": "A tagok beszámolót adnak.", "detail": detail, "sources": [source]}
+
+    model = FakeModel()
+    model.script = [
+        json.dumps({"items": [requirement("határidő: március 15.")]}),
+        json.dumps({"items": [requirement("határidő: június 30.")]}),
+        json.dumps({"items": [requirement("Határidő:  március 15!")]}),  # same detail, other case and punctuation
+    ]
+    result, _, _ = run("extract", [document], model, options={"types": ["requirement"]}, window_chars=30)
+    details = [row["detail"] for row in result["rows"]]
+    assert details == ["határidő: március 15.", "határidő: június 30."]
+    assert len(result["rows"][0]["sources"]) == 2 and len(result["rows"][1]["sources"]) == 1
 
 
 def test_a_table_with_rows_of_the_wrong_width_is_unusable_output_and_asked_for_again():

@@ -23,7 +23,8 @@ Ingestion keeps the chunk text only in the vector store (SQLite holds a short pr
 page or chapter and OCR confidence. A job rebuilds the document from there in reading order
 (`teacher_common/doc_text.py`: `load_chunks`, `trim_overlap`, `make_windows`; the chunker's overlap is trimmed so
 sentences are not doubled). The chunks are cut into windows that fit the context: `DOCINTEL_WINDOW_CHARS`, by default
-half of `MAX_CONTEXT_CHARS`, and a third of that for translation, whose answer is as long as its input. A chunk that is
+half of `MAX_CONTEXT_CHARS`, and a third of that for translation, whose answer is as long as its input. A set window must be at least 800 characters (smaller values are rejected at start-up, so a window can always hold
+its numbered source line). A chunk that is
 larger than the window (the setting was lowered after indexing) is cut into pieces at sentence or word boundaries, each
 keeping the page or chapter; the budget holds, and nothing is dropped.
 
@@ -33,7 +34,8 @@ Map-reduce:
    numbers.
 2. **Reduce** (summary, tasks): the points so far are numbered and merged by further calls, level by level, until they
    fit one call. A merged point cites the numbered points it is made from and inherits their sources.
-   Extraction needs no model reduce: rows are merged by equal text, keeping all sources (a table is merged only with an
+   Extraction needs no model reduce: rows are merged by equal type, text and detail, keeping all sources (the same requirement with another date or
+   party is another row; a table is merged only with an
    identical table, so two tables under one caption stay two). A table whose rows are not as wide as its header is
    unusable output and is asked for again.
 3. **Compare**: both documents are extracted the same way, then statements are paired deterministically by word-stem
