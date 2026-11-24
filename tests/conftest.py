@@ -93,7 +93,7 @@ def voice_main():
 
 @pytest.fixture
 def session():
-    from teacher_common import docintel_models, listen_models, models, study_models  # noqa: F401
+    from teacher_common import docintel_models, listen_models, media_models, models, study_models  # noqa: F401
     from teacher_common.db import Base
 
     engine = create_engine("sqlite://", future=True)

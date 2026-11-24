@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="stylesheet" href="/static/study.css" />
     <link rel="stylesheet" href="/static/docintel.css" />
+    <link rel="stylesheet" href="/static/media.css" />
     <link rel="stylesheet" href="/static/listen.css" />
   </head>
   <body>
@@ -176,6 +177,8 @@
         <div id="di-result" class="di-result" hidden></div>
       </section>
 
+      {% include "sections/media.html" %}
+
       <section class="panel listen" id="listen">
         <h2>Hallgatás</h2>
         <p class="lead">A könyvtár dokumentumai felolvasva, szakaszonként. A hely mentődik, így bármelyik eszközön folytathatod.</p>
@@ -242,6 +245,7 @@
     <script src="/static/app.js" defer></script>
     <script src="/static/study.js" defer></script>
     <script src="/static/docintel.js" defer></script>
+    <script src="/static/media.js" defer></script>
     <script src="/static/voice.js" defer></script>
     <script src="/static/listen.js" defer></script>
   </body>
