@@ -100,6 +100,13 @@ class Settings(BaseSettings):
     listen_cache_dir: str = Field(default="/data/metadata/listen_cache", alias="LISTEN_CACHE_DIR")
     listen_cache_max_mb: float = Field(default=500, ge=1, alias="LISTEN_CACHE_MAX_MB")
     listen_segment_chars: int = Field(default=300, ge=80, le=2000, alias="LISTEN_SEGMENT_CHARS")
+    # Tolmács (live interpreter): per-mode models and options, and the latency log (one JSON line per utterance).
+    interpreter_config_path: str = Field(
+        default="/app/config/models/interpreter.json", alias="INTERPRETER_CONFIG_PATH"
+    )
+    interpreter_latency_log: str = Field(
+        default="/data/metadata/interpreter_latency.jsonl", alias="INTERPRETER_LATENCY_LOG"
+    )
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
     ocr_dpi: int = Field(default=300, alias="OCR_DPI")
     ocr_language: str = Field(default="hun+eng", alias="OCR_LANGUAGE")

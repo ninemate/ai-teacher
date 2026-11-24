@@ -34,6 +34,7 @@ class Transcript:
     duration: float
     elapsed: float
     device: str
+    language: str = "hu"
 
 
 def _whisper_model(model_name: str, device: str, compute_type: str, cpu_threads: int) -> Any:
@@ -106,7 +107,8 @@ class Transcriber:
                     raise
                 logger.warning("Loading STT model on %s failed, falling back to CPU: %s", device, exc)
 
-    def transcribe(self, audio_path: Path) -> Transcript:
+    def transcribe(self, audio_path: Path, language: str | None = "hu", beam_size: int | None = None) -> Transcript:
+        """``language`` None lets the model detect it; the detected language is returned either way."""
         with self._lock:
             if self._model is None:
                 self._load()
@@ -114,9 +116,9 @@ class Transcriber:
             try:
                 segments, info = self._model.transcribe(
                     str(audio_path),
-                    language="hu",
+                    language=language,
                     task="transcribe",
-                    beam_size=self.settings.stt_beam_size,
+                    beam_size=beam_size or self.settings.stt_beam_size,
                     vad_filter=True,
                     condition_on_previous_text=False,
                 )
@@ -129,7 +131,10 @@ class Transcriber:
             text = " ".join(segment.text.strip() for segment in segments).strip()
             elapsed = time.perf_counter() - started
         self._schedule_unload()
-        return Transcript(text=text, duration=float(info.duration), elapsed=elapsed, device=self._device)
+        detected = getattr(info, "language", None) or language or "hu"
+        return Transcript(
+            text=text, duration=float(info.duration), elapsed=elapsed, device=self._device, language=detected
+        )
 
     def _schedule_unload(self) -> None:
         if self.settings.stt_idle_unload_seconds <= 0:

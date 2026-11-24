@@ -1,0 +1,29 @@
+{
+  "_comment": "Tolmács (live interpreter) settings per mode. An empty model means the stack's chat model (OLLAMA_MODEL). Put a smaller model name in fast.model to cut latency; the model must already be installed in the local runtime. See docs/interpreter.md.",
+  "modes": {
+    "fast": {
+      "label": "Gyors",
+      "model": "",
+      "prompt_prefix": "interpreter_fast",
+      "temperature": 0.0,
+      "num_ctx": 2048,
+      "num_predict": 256,
+      "stt_beam_size": 1,
+      "use_glossary": false
+    },
+    "professional": {
+      "label": "Pontos",
+      "model": "",
+      "prompt_prefix": "interpreter_pro",
+      "temperature": 0.1,
+      "num_ctx": 4096,
+      "num_predict": 768,
+      "stt_beam_size": 5,
+      "use_glossary": true
+    }
+  },
+  "tts_voices": {
+    "hu": "",
+    "en": ""
+  }
+}

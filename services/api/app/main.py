@@ -14,12 +14,13 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from interpreter_routes import build_router as build_interpreter_router
 from listen_routes import build_router as build_listen_router
 from listen_routes import start_periodic_sweep, sweep_orphans
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
-from teacher_common import citations, docintel_store, listen_store, study_store
+from teacher_common import citations, docintel_store, interpreter, listen_store, study_store
 from teacher_common.audio_cache import AudioCache
 from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
@@ -747,21 +748,32 @@ def retrieve_sources(
 chat_priority = ChatPriority()
 
 
-def call_ollama(prompt: str, json_mode: bool = False, *, background: bool = False) -> str:
-    """One model call. ``background`` is for Document Intelligence jobs: they yield to chat and may take longer."""
+def call_ollama(
+    prompt: str,
+    json_mode: bool = False,
+    *,
+    background: bool = False,
+    model: str = "",
+    options: dict | None = None,
+    timeout: float | None = None,
+) -> str:
+    """One model call. ``background`` is for Document Intelligence jobs: they yield to chat and may take longer.
+
+    ``model`` and ``options`` override the configured chat model and generation options for one call (Tolmács)."""
     payload: dict = {
-        "model": settings.ollama_model,
+        "model": model or settings.ollama_model,
         "prompt": prompt,
         "stream": False,
         "options": {
             "temperature": 0.2,
             "num_ctx": 8192,
             "num_predict": settings.ollama_num_predict,
+            **(options or {}),
         },
     }
     if json_mode:
         payload["format"] = "json"
-    timeout = settings.docintel_llm_timeout_seconds if background else 180.0
+    timeout = timeout or (settings.docintel_llm_timeout_seconds if background else 180.0)
     with chat_priority.background() if background else chat_priority.interactive():
         with httpx.Client(timeout=timeout) as client:
             response = client.post(f"{settings.ollama_base_url}/api/generate", json=payload)
@@ -811,3 +823,38 @@ app.include_router(
         cache=listen_cache,
     ),
 )
+
+
+# Tolmács (/interpreter/...): push-to-talk HU<->EN as speech-to-text, translation and speech, one utterance per call.
+def _interpreter_transcribe(content: bytes, filename: str, content_type: str, language: str, beam_size: int) -> dict:
+    return _voice_request(
+        "POST",
+        "/voice/transcribe",
+        timeout=settings.voice_timeout_seconds,
+        files={"audio": (filename, content, content_type)},
+        data={"language": language, "beam_size": str(beam_size)},
+    ).json()
+
+
+def _interpreter_voices() -> list[str]:
+    try:
+        return _voice_request("GET", "/health", timeout=3.0, quiet=True).json().get("tts", {}).get("voices") or []
+    except HTTPException:
+        return []
+
+
+interpreter_engine = interpreter.Interpreter(
+    config=interpreter.load_config(settings.interpreter_config_path),
+    prompt_dir=Path(settings.teacher_prompt_path).parent,
+    transcribe=_interpreter_transcribe,
+    translate=lambda prompt, model, options: call_ollama(prompt, model=model, options=options, timeout=120.0),
+    speak=lambda text, voice: _voice_request(
+        "POST",
+        "/voice/speak",
+        timeout=settings.voice_timeout_seconds,
+        json={"text": text, "voice": voice, "format": "mp3"},
+    ).content,
+    available_voices=_interpreter_voices,
+)
+interpreter_log = interpreter.LatencyLog(settings.interpreter_latency_log)
+app.include_router(build_interpreter_router(interpreter_engine, interpreter_log, auth_admins))

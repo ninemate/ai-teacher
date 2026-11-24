@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/static/study.css" />
     <link rel="stylesheet" href="/static/docintel.css" />
     <link rel="stylesheet" href="/static/listen.css" />
+    <link rel="stylesheet" href="/static/interpreter.css" />
   </head>
   <body>
     <main class="shell">
@@ -237,6 +238,68 @@
           <audio id="listen-audio" preload="auto" hidden></audio>
         </div>
       </section>
+      <section class="panel interpreter" id="interpreter">
+        <h2>Tolmács</h2>
+        <p class="lead">
+          Nyomd meg a nyelved gombját, beszélj, és a fordítást a másik nyelven felolvassuk. Minden mondat után
+          látod, mennyi ideig tartott.
+        </p>
+        <p id="ip-voice-off" class="notice" role="status" hidden>
+          A hangszolgáltatás nem érhető el: beszéd helyett gépelhetsz, a felolvasás nem működik.
+        </p>
+
+        <div class="ip-modes" role="radiogroup" aria-label="Mód" id="ip-modes"></div>
+        <details class="ip-glossary" id="ip-glossary-box">
+          <summary>Szószedet (Pontos módhoz)</summary>
+          <label for="ip-glossary">Soronként: forrás = fordítás</label>
+          <textarea id="ip-glossary" rows="4" placeholder="kuratórium = board of trustees"></textarea>
+        </details>
+
+        <div class="ip-talk">
+          <button id="ip-talk-hu" type="button" class="ip-talk-button" data-side="hu" aria-pressed="false">
+            <span class="ip-flag">HU</span> Magyar
+          </button>
+          <button id="ip-talk-en" type="button" class="ip-talk-button" data-side="en" aria-pressed="false">
+            <span class="ip-flag">EN</span> English
+          </button>
+          <button id="ip-talk-auto" type="button" class="ip-talk-button secondary" data-side="auto" aria-pressed="false">
+            Auto
+          </button>
+        </div>
+        <p id="ip-status" class="voice-status" role="status"></p>
+
+        <div class="ip-columns" aria-hidden="true"><span>Magyar</span><span>English</span></div>
+        <div id="ip-transcript" class="ip-transcript" aria-live="polite"></div>
+
+        <form id="ip-type" class="ip-type">
+          <label for="ip-text" class="ip-sr">Beírt szöveg</label>
+          <input id="ip-text" type="text" maxlength="1000" placeholder="Vagy írd be, és válaszd a nyelvet" autocomplete="off" />
+          <button type="button" id="ip-type-hu" class="secondary" data-side="hu">HU →</button>
+          <button type="button" id="ip-type-en" class="secondary" data-side="en">EN →</button>
+        </form>
+        <audio id="ip-audio" hidden></audio>
+
+        <div class="ip-session">
+          <label for="ip-title" class="ip-sr">Munkamenet neve</label>
+          <input id="ip-title" type="text" maxlength="200" placeholder="Munkamenet neve" />
+          <div class="ip-actions">
+            <button id="ip-save" type="button">Mentés</button>
+            <button id="ip-new" type="button" class="secondary">Új</button>
+            <button id="ip-export" type="button" class="secondary" disabled>Exportálás</button>
+            <button id="ip-delete" type="button" class="secondary" disabled>Törlés</button>
+          </div>
+          <label for="ip-saved">Mentett munkamenetek</label>
+          <select id="ip-saved"></select>
+          <p id="ip-session-status" class="voice-status" role="status"></p>
+        </div>
+
+        <details id="ip-latency-box">
+          <summary>Késleltetés (p50 / p95)</summary>
+          <p class="lead">A saját mondataid mért idői, módonként. Ezt a mért gép adja, nem becslés.</p>
+          <div id="ip-latency"></div>
+        </details>
+      </section>
+
     </main>
 
     <script src="/static/app.js" defer></script>
@@ -244,6 +307,7 @@
     <script src="/static/docintel.js" defer></script>
     <script src="/static/voice.js" defer></script>
     <script src="/static/listen.js" defer></script>
+    <script src="/static/interpreter.js" defer></script>
   </body>
 </html>
 
