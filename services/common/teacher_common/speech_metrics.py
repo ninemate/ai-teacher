@@ -51,12 +51,15 @@ STOPWORDS: dict[str, frozenset[str]] = {
     "hu": frozenset(
         "a az egy és is de hogy nem van volt lesz meg már még csak mint ha mert vagy ez ezt azt itt ott én te ő mi"
         " ti ők engem téged neki nekem neked nagyon igen sem se pedig akkor most amit ami aki ahol amikor mikor"
-        " lett vagyok vagyunk vannak volna lehet kell majd olyan ilyen így úgy minden mind sok kicsit".split()
+        " lett vagyok vagyunk vannak volna lehet kell majd olyan ilyen így úgy minden mind sok kicsit"
+        # greetings and goodbyes: returning one is not picking up the partner's topic
+        " szia sziasztok helló hello szervusz üdv jó napot reggelt estét viszlát viszontlátásra köszi köszönöm".split()
     ),
     "en": frozenset(
         "a an the and or but if so of to in on at for with by from as is are was were be been being am i you he"
         " she it we they me him her us them my your our their this that these those there here not no yes do does"
-        " did have has had will would can could should just very really also then than too about".split()
+        " did have has had will would can could should just very really also then than too about"
+        " hi hello hey bye goodbye thanks thank morning evening".split()
     ),
 }
 
@@ -318,13 +321,17 @@ def analyze(
 # --- conversations ----------------------------------------------------------------------------------------------
 
 
-def conversation_metrics(turns: Sequence[Mapping], *, language: str = "hu", speaker: str = "user") -> dict:
+def conversation_metrics(
+    turns: Sequence[Mapping], *, language: str = "hu", speaker: str = "user", topic_words: Iterable[str] = ()
+) -> dict:
     """Structure of a conversation from the ``speaker``'s side. ``turns`` are ``{"role", "text"}`` in order.
 
     - question ratio: the speaker's turns that contain a question; open questions among their questions
     - monologues: turns longer than ``MONOLOGUE_WORDS`` words; talk share: the speaker's words of all words
     - active listening: replies that pick up a content word of the partner's previous turn
     - repetition: content three-grams the speaker repeated across the conversation
+    - staying on topic: of the speaker's replies that carry content words, the share that pick up the partner's
+      previous turn or one of ``topic_words`` (the situation's words); greetings and goodbyes do not count
     """
     language = norm_language(language)
     own = [turn for turn in turns if turn.get("role") == speaker]
@@ -338,7 +345,8 @@ def conversation_metrics(turns: Sequence[Mapping], *, language: str = "hu", spea
         questions += len(asked)
         open_questions += sum(1 for part in asked if is_open_question(part, language))
         with_question += bool(asked)
-    references = replies = 0
+    references = replies = on_topic = topical_replies = 0
+    scenario = {stem(word) for word in content_words(" ".join(topic_words), language)}
     previous_other: str | None = None
     for turn in turns:
         if turn.get("role") != speaker:
@@ -349,6 +357,9 @@ def conversation_metrics(turns: Sequence[Mapping], *, language: str = "hu", spea
             theirs = {stem(word) for word in content_words(previous_other, language)}
             mine = {stem(word) for word in content_words(str(turn.get("text") or ""), language)}
             references += bool(theirs & mine)
+            if mine:
+                topical_replies += 1
+                on_topic += bool((theirs | scenario) & mine)
             previous_other = None
     filler_total = sum(count_fillers(own_text, language).values())
     return {
@@ -365,6 +376,8 @@ def conversation_metrics(turns: Sequence[Mapping], *, language: str = "hu", spea
         "listening_replies": replies,
         "listening_references": references,
         "listening_ratio": round(references / replies, 3) if replies else 0.0,
+        "on_topic_replies": topical_replies,
+        "on_topic_ratio": round(on_topic / topical_replies, 3) if topical_replies else None,
         "repetition": repetition_ratio(own_text, language),
         "repeated_words": repeated_words(own_text, language),
         "fillers": filler_total,

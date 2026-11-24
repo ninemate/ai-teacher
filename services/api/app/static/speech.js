@@ -8,12 +8,12 @@
   let voice = {};
   const labels = {
     question_turn_ratio: "Kérdést tartalmazó megszólalások", longest_turn_words: "Leghosszabb megszólalás (szó)",
-    monologues: "Hosszú monológok", repetition: "Ismétlődő szókapcsolatok", listening_ratio: "Partner szavait átvevő válaszok",
+    monologues: "Hosszú monológok", repetition: "Ismétlődő szókapcsolatok", listening_ratio: "Partner szavait átvevő válaszok", on_topic_ratio: "Témánál maradó válaszok",
     time: "Időkeret", pace: "Tempó", fluency: "Folyamatosság", concision: "Tömörség", structure: "Felépítés",
     key_messages: "Kulcsüzenetek", overall: "Összesített pontszám", opening: "Nyitás", value: "Értékajánlat",
     evidence: "Bizonyíték", close: "Zárás"
   };
-  const ratios = ["question_turn_ratio", "repetition", "listening_ratio"];
+  const ratios = ["question_turn_ratio", "repetition", "listening_ratio", "on_topic_ratio"];
   const value = (key, n) => n == null ? "—" : ratios.includes(key) ? Math.round(n * 100) + "%" : String(n);
   const node = (tag, text) => Object.assign(document.createElement(tag), {textContent: text});
   const line = (text, tag = "p") => $("result").append(node(tag, text));
@@ -92,7 +92,7 @@
       }
       if (!current.metrics) return;
       line("Beszélgetés szerkezete", "h4");
-      const keys = ["question_turn_ratio", "monologues", "longest_turn_words", "repetition", "listening_ratio"];
+      const keys = ["question_turn_ratio", "monologues", "longest_turn_words", "repetition", "listening_ratio", "on_topic_ratio"];
       sheet(keys.map(k => [labels[k], value(k, current.metrics[k])]));
       for (const item of current.feedback.observations) line(options.skills[item.skill] + " · " + item.note + (item.quote ? " „" + item.quote + "”" : ""));
       line(current.feedback.tip);

@@ -96,6 +96,22 @@ def test_conversation_structure_from_fixed_turns():
     assert result["monologues"] == 1 and result["longest_turn_words"] == 80
     assert result["listening_replies"] == 3 and result["listening_references"] == 1
     assert result["fillers"] == 2
+    assert result["on_topic_replies"] == 3 and result["on_topic_ratio"] == pytest.approx(1 / 3, abs=0.001)
+
+
+def test_staying_on_topic_uses_partner_turn_and_situation_words():
+    turns = [
+        {"role": "partner", "text": "Szia, most költöztem be a harmadikra."},
+        {"role": "user", "text": "Szia! Hogy tetszik a környék?"},
+        {"role": "partner", "text": "Még nem ismerem."},
+        {"role": "user", "text": "A park nagyon szép, és van egy jó bolt is a sarkon."},
+        {"role": "partner", "text": "Köszi!"},
+        {"role": "user", "text": "Tegnap láttam egy jó filmet a moziban."},
+    ]
+    situation = sm.conversation_metrics(turns, language="hu", topic_words=["környék", "bolt", "park"])
+    assert situation["on_topic_replies"] == 3 and situation["on_topic_ratio"] == pytest.approx(2 / 3, abs=0.001)
+    assert sm.conversation_metrics(turns, language="hu")["on_topic_ratio"] == 0
+    assert sm.conversation_metrics(turns[:1], language="hu")["on_topic_ratio"] is None
 
 
 def test_hungarian_fillers_and_key_messages():

@@ -107,7 +107,7 @@ def build_router(llm: Callable, transcribe: Callable) -> APIRouter:
         data = store.serialize_talk(row)
         prior = store.get_talk(session, row.username, row.retry_of) if row.retry_of else store.previous_finished_talk(session, row)
         data["comparison"] = metrics.compare(row.metrics or {}, prior.metrics if prior else None,
-            ["question_turn_ratio", "longest_turn_words", "monologues", "repetition", "listening_ratio"])
+            ["question_turn_ratio", "longest_turn_words", "monologues", "repetition", "listening_ratio", "on_topic_ratio"])
         return data
 
     def take_detail(session, row):
@@ -164,9 +164,11 @@ def build_router(llm: Callable, transcribe: Callable) -> APIRouter:
                 own = "\n".join(t["text"] for t in row.turns if t["role"] == "user")
                 if not own:
                     raise HTTPException(422, "Előbb szólj hozzá a beszélgetéshez.")
-                summary = metrics.conversation_metrics(row.turns, language=row.language)
+                scenario = practice.talk_scenario(row.scenario)
+                summary = metrics.conversation_metrics(row.turns, language=row.language,
+                                                       topic_words=[*scenario.topics, scenario.setting])
                 feedback = generate("talk_feedback", lambda obj: practice.parse_talk_feedback(obj, own, summary),
-                    setting=practice.talk_scenario(row.scenario).setting, style=practice.TALK_STYLES[row.style]["label"],
+                    setting=scenario.setting, style=practice.TALK_STYLES[row.style]["label"],
                     focus=practice.TALK_SKILLS.get(row.focus, "általános"), metrics=json.dumps(summary, ensure_ascii=False),
                     transcript=practice.transcript_lines(row.turns))
                 store.finish_talk(row, summary, feedback)

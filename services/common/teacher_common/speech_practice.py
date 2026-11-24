@@ -128,7 +128,8 @@ def suggest_focus(metrics: Mapping) -> str:
     choice is missing or unusable)."""
     if metrics.get("turns", 0) == 0:
         return "opening"
-    if metrics.get("monologues", 0) > 0 or metrics.get("talk_share", 0) > 0.7:
+    on_topic = metrics.get("on_topic_ratio")
+    if metrics.get("monologues", 0) > 0 or metrics.get("talk_share", 0) > 0.7 or (on_topic is not None and on_topic < 0.5):
         return "sustaining"
     if metrics.get("questions", 0) == 0 or metrics.get("question_turn_ratio", 0) < 0.25:
         return "open_questions"
