@@ -327,6 +327,7 @@
       return;
     }
     openJobId = jobId;
+    window.history.replaceState(null, "", `#meeting=${jobId}`);
     const segments = job.segments || [];
     const times = new Map(segments.map((segment) => [segment.id, clock(segment.start)]));
     const exports = el("div", { class: "exports" });
@@ -353,4 +354,7 @@
   $("mt-upload").addEventListener("click", upload);
   loadFormats();
   refreshJobs();
+  // A link such as /#meeting=<id> opens that meeting's result directly.
+  const linked = window.location.hash.match(/^#meeting=([0-9a-f]{32})$/);
+  if (linked) openJob(linked[1]);
 })();

@@ -141,7 +141,10 @@ def export_transcript(segments: list[dict], *, srt: bool) -> str:
 
 
 def _markdown_text(value: str) -> str:
-    return re.sub(r"([\\`*_{}\[\]()#+.!|>~<-])", r"\\\1", " ".join(value.split()))
+    # Inline syntax anywhere, and block syntax at the start ("# x", "1. x" would nest inside the list item).
+    text = re.sub(r"([\\`*_\[\]<>|~])", r"\\\1", " ".join(value.split()))
+    text = re.sub(r"^(\d+)([.)])", r"\1\\\2", text)
+    return re.sub(r"^([#+-])", r"\\\1", text)
 
 
 def export_notes(filename: str, segments: list[dict], notes: dict) -> str:

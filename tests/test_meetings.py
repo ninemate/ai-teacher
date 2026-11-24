@@ -139,11 +139,14 @@ def test_exports_transcript_as_text_and_srt_and_notes_as_markdown():
                     {"text": "Küldés", "segments": [1], "assignee": None}],
     }
     markdown = meeting_notes.export_notes("heti_megbeszélés.m4a", SEGMENTS, notes)
-    assert markdown.startswith("# heti\\_megbeszélés\\.m4a\n")
+    assert markdown.startswith("# heti\\_megbeszélés.m4a\n")
     assert "- Jelentés \\*péntekig\\* (00:00:00.500)" in markdown
     assert "- Jóváhagyás — Felelős: Kiss \\[Anna\\] (01:02:05.250)" in markdown
     assert "- Küldés (00:00:00.500)" in markdown
     assert "## Döntések\n\nNincs ilyen bejegyzés." in markdown
+    # Model text cannot turn into a heading, a nested list or a link inside the list.
+    assert meeting_notes._markdown_text("# 1. [x](y)") == "\\# 1. \\[x\\](y)"
+    assert meeting_notes._markdown_text("1. pont") == "1\\. pont"
 
 
 # --- audio chunking -------------------------------------------------------------------------------------------------
