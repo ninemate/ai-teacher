@@ -32,6 +32,10 @@ class PitchTake(Base):
 
     __tablename__ = "pitch_takes"
 
+    # Answers to follow-up questions rewrite ``followups``; two at once must not drop one silently (409 instead).
+    revision = Column(Integer, nullable=False)
+    __mapper_args__ = {"version_id_col": revision}
+
     id = Column(Integer, primary_key=True)
     username = Column(String(64), nullable=False, index=True)
     scenario = Column(String(64), nullable=False, index=True)

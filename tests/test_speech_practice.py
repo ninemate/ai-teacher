@@ -40,7 +40,11 @@ def practice(tmp_path, monkeypatch):
         assert (content, mime, language) == (b"audio", "audio/webm", "en")
         return {"text": "We save time.", "duration": 34, "segments": [{"start": 1, "end": 2}, {"start": 30, "end": 33}]}
 
-    app.include_router(build_router(lambda prompt, structured: replies.pop(0), transcribe))
+    def llm(prompt, structured):
+        reply = replies.pop(0)
+        return reply() if callable(reply) else reply
+
+    app.include_router(build_router(llm, transcribe))
     return TestClient(app), replies
 
 
@@ -152,3 +156,41 @@ def test_followup_answer_is_scored_and_private(practice):
     assert first["answer"] == "About an hour a day." and first["feedback"]["answered"]
     assert "answer" not in second
     assert c.get(f"/speech/takes/{take['id']}").json()["followups"]["questions"][0]["feedback"]["tip"] == "Mondj számot."
+
+
+def test_concurrent_followup_answer_is_refused_not_lost(practice):
+    from teacher_common import speech_store
+    from teacher_common.db import session_scope
+
+    c, replies = practice
+    replies.extend([json.dumps({"tip": "Adj példát."}), '{"questions":["How much time?","Who uses it?"]}'])
+    take_id = c.post("/speech/takes", data={"scenario": "client", "target": 30, "text": "We save time."}).json()["id"]
+
+    def answered_elsewhere_meanwhile():
+        with session_scope() as session:  # another tab answers question 1 while the model thinks
+            row = speech_store.get_take(session, "speaker", take_id)
+            questions = [dict(q) for q in row.followups["questions"]]
+            questions[1]["answer"] = "Logistics teams."
+            row.followups = {**row.followups, "questions": questions}
+        return json.dumps({"answered": True, "note": "Tömör.", "tip": "Mondj számot."})
+
+    replies.append(answered_elsewhere_meanwhile)
+    response = c.post(f"/speech/takes/{take_id}/answer", data={"index": 0, "text": "An hour a day."})
+    assert response.status_code == 409
+    questions = c.get(f"/speech/takes/{take_id}").json()["followups"]["questions"]
+    assert questions[1]["answer"] == "Logistics teams." and "answer" not in questions[0]
+
+
+def test_talk_turn_by_voice_uses_the_talk_language_and_timestamps(practice):
+    c, replies = practice
+    talk = c.post("/speech/talks", json={"scenario": "neighbour", "language": "en"}).json()
+    replies.append("Nice to meet you.")
+    turns = c.post(f"/speech/talks/{talk['id']}/turn",
+                   files={"audio": ("a.webm", b"audio", "audio/webm")}).json()["turns"]
+    mine = [t for t in turns if t["role"] == "user"][-1]
+    assert mine["text"] == "We save time."
+    assert mine["metrics"]["duration_source"] == "timestamps" and mine["metrics"]["pauses"]["long_count"] == 1
+    assert mine["metrics"]["words_per_minute"] is not None
+    both = c.post(f"/speech/talks/{talk['id']}/turn", data={"text": "Hi"},
+                  files={"audio": ("a.webm", b"audio", "audio/webm")})
+    assert both.status_code == 422
