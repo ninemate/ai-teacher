@@ -129,3 +129,32 @@ def test_session_validation(api_main, rig):
     bad = {**SAVED, "turns": [{**SAVED["turns"][0], "source_lang": "de"}]}
     assert client.post("/interpreter/sessions", json=bad, headers=headers).status_code == 422
     assert client.post("/interpreter/sessions", json=SAVED).status_code in (401, 403), "CSRF protected"
+
+
+def test_csv_export_neutralises_formula_cells(api_main, rig):
+    client, headers = login(api_main, "apa")
+    turns = [{"source_lang": "hu", "target_lang": "en", "source_text": "=HYPERLINK(\"http://x\")", "translation": "@SUM(1)"},
+             {"source_lang": "hu", "target_lang": "en", "source_text": "+1", "translation": "-2"}]
+    sid = client.post("/interpreter/sessions", json={**SAVED, "turns": turns}, headers=headers).json()["id"]
+    import csv
+    import io
+    rows = list(csv.reader(io.StringIO(client.get(f"/interpreter/sessions/{sid}/export?format=csv").text)))
+    assert [r[2] for r in rows[1:]] == ["'=HYPERLINK(\"http://x\")", "'+1"] and [r[4] for r in rows[1:]] == ["'@SUM(1)", "'-2"]
+    assert client.get(f"/interpreter/sessions/{sid}/export?format=json").json()["turns"][0]["source_text"].startswith("=")
+
+
+def test_truncated_translation_is_refused_not_spoken(api_main, monkeypatch):
+    def cut(prompt, **kwargs):
+        kwargs["meta"]["done_reason"] = "length"
+        return "half a sentence"
+
+    monkeypatch.setattr(api_main, "call_ollama", cut)
+    with pytest.raises(api_main.interpreter.InterpreterError, match="túl hosszú"):
+        api_main._interpreter_translate("p", "", {})
+
+    def whole(prompt, **kwargs):
+        kwargs["meta"]["done_reason"] = "stop"
+        return "ok"
+
+    monkeypatch.setattr(api_main, "call_ollama", whole)
+    assert api_main._interpreter_translate("p", "", {}) == "ok"

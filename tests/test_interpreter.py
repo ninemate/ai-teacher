@@ -208,3 +208,29 @@ def test_latency_cli_prints_table_and_json(tmp_path, capsys):
     assert cli.main([str(path), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["fast"]["count"] == 1
     assert cli.main([str(tmp_path / "missing")]) == 2
+
+
+def test_missing_target_voice_means_text_only_never_a_default_voice(clock):
+    engine, fakes = make(clock)
+    engine._available_voices = lambda: ["hu_HU-imre-medium"]  # the voice overlay without an English voice
+    turn = engine.run("fast", "hu", audio=AUDIO)
+    assert turn.audio is None and "angol" in turn.tts_error and turn.translation == "Good afternoon"
+    assert not any(c[0] == "tts" for c in fakes.calls), "no request may reach the voice service without a voice"
+
+
+def test_english_text_skips_hungarian_abbreviations_in_the_synthesizer(voice_main):
+    import tts
+    from voice_settings import VoiceSettings
+
+    spoken = []
+
+    class Voice:
+        def synthesize(self, text, wav, scale):
+            spoken.append(text)
+            wav.setnchannels(1), wav.setsampwidth(2), wav.setframerate(8000), wav.writeframes(b"\0\0")
+
+    settings = VoiceSettings(tts_voices=["hu_HU-imre-medium", "en_US-lessac-medium"])
+    synth = tts.Synthesizer(settings, voice_loader=lambda path: Voice(), encode_mp3=lambda wav: b"mp3")
+    synth.synthesize("Noise of 70 dB", "en_US-lessac-medium")
+    synth.synthesize("70 dB", "hu_HU-imre-medium")
+    assert spoken[0] == "Noise of 70 dB." and "darab" in spoken[1]

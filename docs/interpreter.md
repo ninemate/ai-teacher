@@ -46,8 +46,10 @@ already be installed in the local runtime; no model is downloaded or named in co
 defaults (same as the shipped file) are used. `tts_voices` can pin a voice per language; otherwise the first
 installed voice whose name starts with the language code (`hu_`, `en_`) is used.
 
-English speech needs an English voice installed next to the Hungarian ones (`VOICE_TTS_VOICES`, see
-[voice-hungarian.md](voice-hungarian.md)); without one, English output is shown as text only and the row says so.
+English speech needs an English voice next to the Hungarian ones. The shipped voice image and Compose defaults include one
+(`VOICE_TTS_VOICES`, see [voice-hungarian.md](voice-hungarian.md)); if the target language has no installed voice, the
+row shows the text with a notice and no audio is requested (the voice service is never allowed to substitute its
+default Hungarian voice). Hungarian abbreviation expansion is applied only to Hungarian voices.
 The speech recogniser is multilingual, so no extra model is needed for English or auto-detection.
 
 ## What is measured
@@ -81,6 +83,8 @@ for live conversation.
 
 ## Limits
 
+- A translation cut off by the model's reply limit is refused with a request to speak in shorter parts, never shown or spoken as if complete.
+- CSV export prefixes transcript cells that start with `=`, `+`, `-` or `@` with an apostrophe so spreadsheets read them as text; Markdown, text and JSON keep the original.
 - One utterance per request; recordings are capped at 60 seconds in the UI and by the voice service limit.
 - Typed text up to 1000 characters in the UI (4000 on the API); glossary up to 4000 characters.
 - At most 500 turns per saved session and 200 saved sessions per account.

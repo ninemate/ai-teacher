@@ -74,7 +74,7 @@ Local:
 make dev-up-voice   # dev stack + compose/docker-compose.voice.example.yml
 ```
 
-The first build downloads Whisper `large-v3-turbo` (about 1.6 GB) and the three Piper voices (about 190 MB) into the image.
+The first build downloads Whisper `large-v3-turbo` (about 1.6 GB) and the three Piper voices (about 190 MB) and one English Piper voice for the interpreter (about 60 MB) into the image.
 
 Ansible: set `teacher_enable_voice: true` (and optionally `teacher_voice_gpu_enabled: true`) in the inventory's group vars.
 
@@ -100,7 +100,7 @@ docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-c
 | `VOICE_STT_MAX_SECONDS` | `120` | longer recordings are refused (`413`) |
 | `VOICE_STT_GPU_IDLE_UNLOAD_SECONDS` | `300` | GPU overlay only |
 | `VOICE_TTS_BACKEND` | `piper` | `disabled` turns read-aloud off |
-| `VOICE_TTS_VOICES` | `hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium` | baked in at build time; the first is the default |
+| `VOICE_TTS_VOICES` | `hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium,en_US-lessac-medium` | baked in at build time; the first is the default |
 | `VOICE_TTS_LENGTH_SCALE` | `1.0` | above 1 speaks slower, e.g. `1.15` for slower listening |
 | `VOICE_TTS_MAX_CHARS` | `6000` | longer text is refused (`413`) |
 | `VOICE_MAX_UPLOAD_MB` | `15` | upload limit, enforced by both the API and the voice service |

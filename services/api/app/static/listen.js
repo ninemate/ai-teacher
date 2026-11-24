@@ -69,6 +69,8 @@
   async function loadVoice() {
     try {
       voice = await api("/voice/status");
+      voice.voices = (voice.voices || []).filter((name) => name.startsWith("hu_")); // English is for the interpreter
+      if (!voice.voices.includes(voice.default_voice)) voice.default_voice = voice.voices[0] || null;
     } catch {
       voice = { tts: false, voices: [], default_voice: null };
     }

@@ -72,7 +72,7 @@ teacher_voice_stt_cpu_threads: 0
 teacher_voice_stt_max_seconds: 120
 teacher_voice_stt_gpu_idle_unload_seconds: 300
 teacher_voice_tts_backend: piper
-teacher_voice_tts_voices: hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium
+teacher_voice_tts_voices: hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium,en_US-lessac-medium
 teacher_voice_tts_length_scale: 1.0
 
 teacher_ocr_enabled: true

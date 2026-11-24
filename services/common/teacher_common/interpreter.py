@@ -226,11 +226,17 @@ class Interpreter:
                     models={"translate": mode.get("model") or "default"})
         if speak:
             stage = time.perf_counter()
-            try:
-                turn.audio = self._speak(translation, self.voice_for(target))
-            except Exception as exc:  # noqa: BLE001 - the translation is still worth showing without its audio
-                turn.tts_error = getattr(exc, "detail", None) or "A felolvasás nem sikerült."
-                logger.warning("Interpreter TTS failed: %s", exc)
+            voice = self.voice_for(target)
+            if voice is None:
+                # Never let the voice service fall back to its default (Hungarian) voice for English text.
+                name = "angol" if target == "en" else "magyar"
+                turn.tts_error = f"Nincs telepített {name} hang, a fordítás csak szövegként jelenik meg."
+            else:
+                try:
+                    turn.audio = self._speak(translation, voice)
+                except Exception as exc:  # noqa: BLE001 - the translation is still worth showing without its audio
+                    turn.tts_error = getattr(exc, "detail", None) or "A felolvasás nem sikerült."
+                    logger.warning("Interpreter TTS failed: %s", exc)
             latency.tts_ms = _ms(stage)
         latency.total_ms = _ms(started)
         return turn

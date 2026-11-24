@@ -756,6 +756,7 @@ def call_ollama(
     model: str = "",
     options: dict | None = None,
     timeout: float | None = None,
+    meta: dict | None = None,
 ) -> str:
     """One model call. ``background`` is for Document Intelligence jobs: they yield to chat and may take longer.
 
@@ -779,6 +780,8 @@ def call_ollama(
             response = client.post(f"{settings.ollama_base_url}/api/generate", json=payload)
             response.raise_for_status()
     data = response.json()
+    if meta is not None:
+        meta["done_reason"] = data.get("done_reason")
     return data.get("response", "").strip()
 
 
@@ -843,11 +846,20 @@ def _interpreter_voices() -> list[str]:
         return []
 
 
+def _interpreter_translate(prompt: str, model: str, options: dict) -> str:
+    """A translation cut off by the reply limit would be spoken as if complete: refuse it instead."""
+    meta: dict = {}
+    text = call_ollama(prompt, model=model, options=options, timeout=120.0, meta=meta)
+    if meta.get("done_reason") == "length":
+        raise interpreter.InterpreterError("A mondat túl hosszú a fordításhoz. Mondd rövidebben, több részletben.")
+    return text
+
+
 interpreter_engine = interpreter.Interpreter(
     config=interpreter.load_config(settings.interpreter_config_path),
     prompt_dir=Path(settings.teacher_prompt_path).parent,
     transcribe=_interpreter_transcribe,
-    translate=lambda prompt, model, options: call_ollama(prompt, model=model, options=options, timeout=120.0),
+    translate=lambda prompt, model, options: _interpreter_translate(prompt, model, options),
     speak=lambda text, voice: _voice_request(
         "POST",
         "/voice/speak",

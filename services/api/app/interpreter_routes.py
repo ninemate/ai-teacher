@@ -63,7 +63,7 @@ def render_export(row: dict, fmt: str) -> str:
         for i, t in enumerate(turns, 1):
             lat = t.get("latency") or {}
             writer.writerow(
-                [i, t["source_lang"], t["source_text"], t["target_lang"], t["translation"]]
+                [i, t["source_lang"], _csv_text(t["source_text"]), t["target_lang"], _csv_text(t["translation"])]
                 + [lat.get(k) for k in interpreter.STAGES]
             )
         return out.getvalue()
@@ -79,6 +79,11 @@ def render_export(row: dict, fmt: str) -> str:
     for t in turns:
         lines += [f"[{LANG_NAMES[t['source_lang']]}] {t['source_text']}", f"[{LANG_NAMES[t['target_lang']]}] {t['translation']}", ""]
     return "\n".join(lines)
+
+
+def _csv_text(value: str) -> str:
+    """Keep spreadsheet applications from evaluating a transcript cell: a leading apostrophe makes it literal text."""
+    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r", "\n") else value
 
 
 def build_router(engine: interpreter.Interpreter, log: interpreter.LatencyLog, admins: set[str]) -> APIRouter:

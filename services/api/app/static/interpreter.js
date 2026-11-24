@@ -20,7 +20,10 @@
   let recorder = null;
   let recordingSide = null;
   let recordTimer = null;
-  let busy = false;
+  let busy = false; // an utterance is being interpreted
+  let starting = false; // the microphone is being opened (one capture is reserved before the permission prompt)
+  let saving = false; // a save or open is in flight
+  let epoch = 0; // bumped whenever the active session changes, so late answers cannot land in another one
 
   function el(tag, props = {}, children = []) {
     const node = document.createElement(tag);
@@ -104,14 +107,16 @@
     if (!turns.length) box.append(el("p", { class: "empty" }, "Még nincs mondat."));
     turns.forEach((turn) => box.append(renderTurn(turn)));
     box.scrollTop = box.scrollHeight;
-    $("ip-export").disabled = !sessionId;
-    $("ip-delete").disabled = !sessionId;
+    // Export links name one session id: never leave them standing after the active session changed.
+    document.querySelector(".ip-export-links")?.remove();
+    updateButtons();
   }
 
   // --- One utterance ---------------------------------------------------------
 
   async function interpret(fields, audio) {
     busy = true;
+    const startedIn = epoch;
     updateButtons();
     setStatus("Tolmácsolás...");
     const form = new FormData();
@@ -121,6 +126,7 @@
     if (audio) form.append("audio", audio.blob, audio.filename);
     try {
       const turn = await api("/interpreter/turn", { method: "POST", body: form });
+      if (startedIn !== epoch) return; // the session changed meanwhile; the answer belongs to the old one
       turns.push(turn);
       renderTranscript();
       setStatus(turn.tts_error ? turn.tts_error : "");
@@ -141,33 +147,62 @@
       const active = recorder && recordingSide === button.dataset.side;
       button.classList.toggle("recording", Boolean(active));
       button.setAttribute("aria-pressed", active ? "true" : "false");
-      button.disabled = !voice.stt || (busy && !active) || Boolean(recorder && !active);
+      button.disabled = !voice.stt || (busy && !active) || saving || Boolean(recorder && !active);
     });
-    ["ip-type-hu", "ip-type-en"].forEach((id) => ($(id).disabled = busy));
+    ["ip-type-hu", "ip-type-en"].forEach((id) => ($(id).disabled = busy || saving));
+    // Moving between sessions while a recording, an utterance or a save is pending would mix transcripts.
+    const locked = busy || starting || saving || Boolean(recorder);
+    ["ip-new", "ip-saved", "ip-save"].forEach((id) => ($(id).disabled = locked));
+    $("ip-export").disabled = !sessionId || locked;
+    $("ip-delete").disabled = !sessionId || locked;
   }
 
   function stopRecording() {
     if (recorder && recorder.state === "recording") recorder.stop();
   }
 
-  async function startRecording(side) {
+  // `press` is shared with the pointer handlers: if the person lets go of a hold before the microphone is open,
+  // nothing is recorded (and the stream is closed at once).
+  async function startRecording(side, press = { abandoned: false }) {
+    if (recorder || starting || busy || saving) return false;
+    starting = true;
+    updateButtons();
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
+      starting = false;
+      updateButtons();
       setStatus("A mikrofon nem érhető el. Engedélyezd a böngészőben.", true);
       return false;
     }
-    const mimeType = RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+    starting = false;
+    const closeStream = () => stream.getTracks().forEach((track) => track.stop());
+    if (press.abandoned) {
+      closeStream();
+      updateButtons();
+      setStatus("");
+      return false;
+    }
     const chunks = [];
     const startedAt = Date.now();
-    const current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    let current;
+    try {
+      const mimeType = RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      current.start();
+    } catch {
+      closeStream();
+      updateButtons();
+      setStatus("A felvétel ebben a böngészőben nem indítható.", true);
+      return false;
+    }
     recorder = current;
     recordingSide = side;
     current.addEventListener("dataavailable", (event) => event.data.size && chunks.push(event.data));
     current.addEventListener("stop", () => {
       clearInterval(recordTimer);
-      stream.getTracks().forEach((track) => track.stop());
+      closeStream();
       const type = current.mimeType || "audio/webm";
       const extension = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
       recorder = null;
@@ -176,7 +211,6 @@
       updateButtons();
       if (chunks.length) interpret({ side: spokenSide }, { blob: new Blob(chunks, { type }), filename: `felvetel.${extension}` });
     });
-    current.start();
     updateButtons();
     recordTimer = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startedAt) / 1000);
@@ -188,27 +222,34 @@
 
   // Hold the button and release to send, or tap once to start and tap again to stop.
   function wireTalkButton(button) {
-    let pressedAt = 0;
-    let wasRecording = false;
-    button.addEventListener("pointerdown", async (event) => {
-      if (button.disabled && !(recorder && recordingSide === button.dataset.side)) return;
+    let press = null; // {pointerId, at, abandoned, wasRecording}
+    button.addEventListener("pointerdown", (event) => {
+      if (press) return; // one pointer at a time
+      const mine = recorder && recordingSide === button.dataset.side;
+      if (button.disabled && !mine) return;
       event.preventDefault();
-      pressedAt = Date.now();
-      wasRecording = Boolean(recorder);
-      if (wasRecording) {
-        stopRecording();
-        return;
-      }
-      await startRecording(button.dataset.side);
+      // Capture the pointer so a release outside the button still reaches this button.
+      try {
+        button.setPointerCapture(event.pointerId);
+      } catch {}
+      press = { pointerId: event.pointerId, at: Date.now(), abandoned: false, wasRecording: Boolean(recorder) };
+      if (press.wasRecording) return stopRecording();
+      startRecording(button.dataset.side, press);
     });
-    const release = () => {
-      if (!pressedAt) return;
-      const held = Date.now() - pressedAt;
-      pressedAt = 0;
-      if (!wasRecording && held > HOLD_MS) stopRecording();
+    const release = (event) => {
+      if (!press || event.pointerId !== press.pointerId) return;
+      const finished = press;
+      press = null;
+      if (finished.wasRecording) return;
+      const held = Date.now() - finished.at;
+      if (event.type === "pointercancel" || held > HOLD_MS) {
+        finished.abandoned = true; // still opening the microphone: record nothing
+        stopRecording();
+      }
     };
     button.addEventListener("pointerup", release);
     button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
     button.addEventListener("contextmenu", (event) => event.preventDefault());
     // Keyboard: Enter or Space toggles.
     button.addEventListener("keydown", (event) => {
@@ -267,6 +308,8 @@
   async function save() {
     if (!turns.length) return setSessionStatus("Még nincs mit menteni.", true);
     const body = JSON.stringify({ title: $("ip-title").value, mode, turns: turns.map(stripped) });
+    saving = true;
+    updateButtons();
     try {
       const saved = sessionId
         ? await api(`/interpreter/sessions/${sessionId}`, { method: "PUT", body })
@@ -278,13 +321,19 @@
       setSessionStatus("Mentve.");
     } catch (error) {
       setSessionStatus(error.message, true);
+    } finally {
+      saving = false;
+      updateButtons();
     }
   }
 
   async function open(id) {
-    if (!id) return;
+    if (!id || busy || starting || saving || recorder) return;
+    saving = true;
+    updateButtons();
     try {
       const data = await api(`/interpreter/sessions/${id}`);
+      epoch += 1;
       turns = data.turns;
       sessionId = data.id;
       $("ip-title").value = data.title;
@@ -296,6 +345,10 @@
       setSessionStatus("");
     } catch (error) {
       setSessionStatus(error.message, true);
+      $("ip-saved").value = sessionId || "";
+    } finally {
+      saving = false;
+      updateButtons();
     }
   }
 
@@ -364,6 +417,7 @@
     $("ip-type").addEventListener("submit", (event) => event.preventDefault());
     $("ip-save").addEventListener("click", save);
     $("ip-new").addEventListener("click", () => {
+      epoch += 1;
       turns = [];
       sessionId = null;
       $("ip-title").value = "";
