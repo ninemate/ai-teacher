@@ -207,7 +207,7 @@ The UI section "Tanulás" on the main page (`static/study.js`, `study.css`) list
 
 ## Speaking Practice (Smart Talk, Elevator Speech)
 
-Two speaking modules share one metrics module, `teacher_common/speech_metrics.py`: pace (words per minute), pauses and their total from the speech-to-text segment timestamps (where there are any), filler words and phrases (Hungarian and English), duration, question ratio and open questions, repetition, key-message coverage, and the structure of a conversation (monologues, talk share, replies that pick up the partner's words). Typed text gets the same metrics except the timed ones: its duration is an estimate and is labelled as one.
+Two speaking modules share one metrics module, `teacher_common/speech_metrics.py`: pace (words per minute), pauses and their total from the speech-to-text segment timestamps (where there are any), filler words and phrases (Hungarian and English), duration, question ratio and open questions, repetition, key-message coverage, and the structure of a conversation (monologues, talk share, replies that pick up the partner's words, replies that stay on the partner's or the situation's topic). Pitch time and overrun count from the first word to the last, so silence at either end of a recording does not count. Typed text gets the same metrics except the timed ones: its duration is an estimate and is labelled as one.
 
 ```mermaid
 flowchart LR
