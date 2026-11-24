@@ -6,6 +6,7 @@
     <title>Teacher Agent</title>
     <meta name="csrf-token" content="{{ csrf_token }}" />
     <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/admin.css" />
     <link rel="stylesheet" href="/static/study.css" />
     <link rel="stylesheet" href="/static/docintel.css" />
     <link rel="stylesheet" href="/static/listen.css" />
@@ -237,8 +238,11 @@
           <audio id="listen-audio" preload="auto" hidden></audio>
         </div>
       </section>
+      {% if username %}{% include "sections/account_sessions.html" %}{% endif %}
+      {% if role == "admin" %}{% include "sections/admin.html" %}{% endif %}
     </main>
 
+    <script src="/static/admin.js" defer></script>
     <script src="/static/app.js" defer></script>
     <script src="/static/study.js" defer></script>
     <script src="/static/docintel.js" defer></script>
