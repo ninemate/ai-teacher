@@ -106,7 +106,7 @@ class Transcriber:
                     raise
                 logger.warning("Loading STT model on %s failed, falling back to CPU: %s", device, exc)
 
-    def transcribe(self, audio_path: Path) -> Transcript:
+    def transcribe(self, audio_path: Path, language: str = "hu") -> Transcript:
         with self._lock:
             if self._model is None:
                 self._load()
@@ -114,7 +114,7 @@ class Transcriber:
             try:
                 segments, info = self._model.transcribe(
                     str(audio_path),
-                    language="hu",
+                    language=language,
                     task="transcribe",
                     beam_size=self.settings.stt_beam_size,
                     vad_filter=True,

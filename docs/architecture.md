@@ -205,6 +205,25 @@ API (all under `/study`):
 
 The UI section "Tanulás" on the main page (`static/study.js`, `study.css`) lists stored items and runs card and quiz sessions.
 
+## Speaking Practice (Smart Talk, Elevator Speech)
+
+Two speaking modules share one metrics module, `teacher_common/speech_metrics.py`: pace (words per minute), pauses and their total from the speech-to-text segment timestamps (where there are any), filler words and phrases (Hungarian and English), duration, question ratio and open questions, repetition, key-message coverage, and the structure of a conversation (monologues, talk share, replies that pick up the partner's words). Typed text gets the same metrics except the timed ones: its duration is an estimate and is labelled as one.
+
+```mermaid
+flowchart LR
+  Input[Typed text or recording] -->|audio| STT["/voice/transcribe (hu or en)"]
+  STT --> Metrics[speech_metrics]
+  Input -->|text| Metrics
+  Metrics --> LLM[Local model: partner reply, feedback, follow-up questions]
+  LLM --> Check[Validation: quotes must appear in what was said]
+  Check --> Store[(talk_sessions, pitch_takes, per-user audio folder)]
+```
+
+- **Smart Talk**: everyday, professional and social scenarios with partners of different styles, in Hungarian or English. The local model plays the partner. When you close the conversation it gets metrics and feedback drawn only from what was said and how the conversation was built: one short tip, observations tied to quotes, and a focus for a targeted retry. Each retry is compared with the previous attempt. The prompts forbid remarks about personality, and any observation whose quote was not said is dropped.
+- **Elevator Speech**: timed 30, 60 or 90 second takes for a job interview, a management meeting or a client introduction. Each take gets a scoring sheet that uses the same formula every time (time frame, pace, fluency, concision, structure of opening, value, evidence and close, key messages), rewording suggestions, and follow-up questions from a simulated listener at the chosen level of interest. The follow-up questions can be answered by text or voice, and each answer gets its own short feedback. Takes are compared with the previous take of the same scenario and language.
+- Attempts are stored per user. Recordings are kept per user under `SPEECH_AUDIO_DIR` (the newest `SPEECH_AUDIO_KEEP` each, `0` keeps none) and are served only to their owner.
+- API under `/speech`: `options`, `history`, `talks` (start, `turn`, `finish`, `retry`), `takes` (create, read, `answer`, `audio`). The prompts are `config/prompts/smarttalk_*` and `pitch_*`.
+
 ## Mobile Access Flow
 
 ```mermaid

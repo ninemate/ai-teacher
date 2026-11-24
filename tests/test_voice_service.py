@@ -107,6 +107,18 @@ def test_transcribe_forces_hungarian_and_joins_segments(voice):
     assert voice.client.get("/health").json()["stt"]["loaded"] is True
 
 
+def test_transcribe_accepts_english_and_refuses_other_languages(voice):
+    response = voice.client.post(
+        "/voice/transcribe", files={"audio": ("a.webm", b"opus", "audio/webm")}, data={"language": "en"}
+    )
+    assert response.status_code == 200 and response.json()["language"] == "en"
+    assert voice.models[0].calls[-1]["language"] == "en"
+    refused = voice.client.post(
+        "/voice/transcribe", files={"audio": ("a.webm", b"opus", "audio/webm")}, data={"language": "it"}
+    )
+    assert refused.status_code == 422
+
+
 def test_transcribe_never_uses_the_client_file_name_as_path(voice):
     response = voice.client.post("/voice/transcribe", files={"audio": ("../../etc/passwd", b"x", "audio/wav")})
     assert response.status_code == 200

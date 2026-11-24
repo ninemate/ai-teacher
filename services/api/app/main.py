@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from listen_routes import build_router as build_listen_router
 from listen_routes import start_periodic_sweep, sweep_orphans
 from pydantic import BaseModel, Field
+from speech_routes import build_router as build_speech_router
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
 from teacher_common import citations, docintel_store, listen_store, study_store
@@ -811,3 +812,12 @@ app.include_router(
         cache=listen_cache,
     ),
 )
+
+
+app.include_router(build_speech_router(
+    llm=lambda prompt, structured: call_ollama(prompt, json_mode=structured),
+    transcribe=lambda content, mime, language: _voice_request(
+        "POST", "/voice/transcribe", timeout=settings.voice_timeout_seconds,
+        files={"audio": ("recording", content, mime)}, data={"language": language},
+    ).json(),
+))

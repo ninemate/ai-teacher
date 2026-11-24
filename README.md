@@ -156,6 +156,7 @@ Implemented now:
 - MOBI/AZW/AZW3 ingestion (pure-Python unpack to EPUB/HTML; DRM-protected books are skipped with a logged reason)
 - Optional offline Hungarian voice service: Piper TTS (three Hungarian voices) and faster-whisper STT, wired into the API and UI
 - Listening to library documents (PDF, DOCX, EPUB, MOBI, OCR text) with sections, speed, bookmarks and resume across devices; audio is made per segment on demand and cached with a size bound (see `docs/voice-hungarian.md`)
+- Speaking practice: Smart Talk (conversation skills with virtual partners, in Hungarian or English) and Elevator Speech (timed 30/60/90 s pitches with a scoring sheet, follow-up questions and replay). Shared speech metrics include pace, pauses, filler words and question ratio; attempts and recordings are stored per user (see `docs/architecture.md`)
 
 Not implemented yet:
 
