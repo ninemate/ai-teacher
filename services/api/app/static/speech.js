@@ -108,7 +108,8 @@
         $("result").append(player);
       }
       line("Mérések", "h4");
-      sheet([[m.duration_source === "estimated" ? "Becsült idő" : "Felvétel ideje", m.duration_seconds + " / " + current.target_seconds + " mp"],
+      const timeLabel = m.duration_source === "estimated" ? "Becsült idő" : m.speaking_seconds != null ? "Beszédidő (első szótól az utolsóig)" : "Felvétel ideje";
+      sheet([[timeLabel, (m.speaking_seconds ?? m.duration_seconds) + " / " + current.target_seconds + " mp"],
         ["Túllépés (mp)", value("", m.overrun_seconds)], ["Szó/perc", value("", m.words_per_minute)], ["Szavak", m.word_count],
         ["Szünetek (időbélyegek alapján)", value("", m.pauses?.count)], ["Töltelékszavak", m.filler_count]]);
       line("Értékelőlap · 0–100 pont", "h4");

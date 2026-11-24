@@ -28,7 +28,16 @@ def voice(voice_main):
             if data == b"garbage":
                 raise ValueError("Invalid data found when processing input")
             duration = 600.0 if data == b"long" else 3.2
-            segments = iter([SimpleNamespace(text=" Mi a fotoszintézis?"), SimpleNamespace(text=" Magyarázd el! ")])
+            timed = kwargs.get("word_timestamps")
+            segments = iter([
+                SimpleNamespace(text=" Mi a fotoszintézis?", start=0.4, end=1.6,
+                                words=[SimpleNamespace(word=" Mi", start=0.4, end=0.6),
+                                       SimpleNamespace(word=" a", start=0.6, end=0.7),
+                                       SimpleNamespace(word=" fotoszintézis?", start=0.7, end=1.6)] if timed else None),
+                SimpleNamespace(text=" Magyarázd el! ", start=2.5, end=3.0,
+                                words=[SimpleNamespace(word=" Magyarázd", start=2.5, end=2.8),
+                                       SimpleNamespace(word=" el!", start=2.8, end=3.0)] if timed else None),
+            ])
             return segments, SimpleNamespace(duration=duration)
 
     class FakeSpeaker:
@@ -117,6 +126,24 @@ def test_transcribe_accepts_english_and_refuses_other_languages(voice):
         "/voice/transcribe", files={"audio": ("a.webm", b"opus", "audio/webm")}, data={"language": "it"}
     )
     assert refused.status_code == 422
+
+
+def test_transcribe_returns_timed_segments_and_words_on_request(voice):
+    plain = voice.client.post("/voice/transcribe", files={"audio": ("a.webm", b"opus", "audio/webm")}).json()
+    assert plain["text"] == "Mi a fotoszintézis? Magyarázd el!"
+    assert [(s["start"], s["end"], s["text"]) for s in plain["segments"]] == [
+        (0.4, 1.6, "Mi a fotoszintézis?"), (2.5, 3.0, "Magyarázd el!")]
+    assert plain["segments"][0]["words"] == [] and voice.models[0].calls[-1]["word_timestamps"] is False
+    timed = voice.client.post(
+        "/voice/transcribe", files={"audio": ("a.webm", b"opus", "audio/webm")}, data={"words": "true"}
+    ).json()
+    assert voice.models[0].calls[-1]["word_timestamps"] is True
+    assert [w["word"] for s in timed["segments"] for w in s["words"]] == ["Mi", "a", "fotoszintézis?", "Magyarázd", "el!"]
+
+    from teacher_common import speech_metrics
+
+    measured = speech_metrics.analyze(timed["text"], language="hu", stt=timed)
+    assert measured.pauses.count == 1 and measured.duration_source != "estimated"
 
 
 def test_transcribe_never_uses_the_client_file_name_as_path(voice):

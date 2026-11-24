@@ -77,7 +77,7 @@ async def _save_upload(audio: UploadFile, target: Path) -> None:
 
 
 @app.post("/voice/transcribe")
-async def transcribe_audio(audio: UploadFile = File(...), language: str = Form("hu")):
+async def transcribe_audio(audio: UploadFile = File(...), language: str = Form("hu"), words: bool = Form(False)):
     if not settings.stt_enabled:
         raise HTTPException(status_code=503, detail="A beszédfelismerés ki van kapcsolva.")
     if language not in TRANSCRIBE_LANGUAGES:
@@ -89,7 +89,7 @@ async def transcribe_audio(audio: UploadFile = File(...), language: str = Form("
         path = Path(tmp) / f"upload{suffix}"
         await _save_upload(audio, path)
         try:
-            result = await run_in_threadpool(transcriber.transcribe, path, language)
+            result = await run_in_threadpool(transcriber.transcribe, path, language, words)
         except AudioUnreadable as exc:
             raise HTTPException(status_code=422, detail="Nem sikerült beolvasni a hangfelvételt.") from exc
         except AudioTooLong as exc:
@@ -102,6 +102,8 @@ async def transcribe_audio(audio: UploadFile = File(...), language: str = Form("
         "duration": round(result.duration, 2),
         "elapsed": round(result.elapsed, 2),
         "model": settings.stt_model,
+        # Timed segments (and per-word times when asked for) for pace and pause measurements.
+        "segments": result.segments,
     }
 
 

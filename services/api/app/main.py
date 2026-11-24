@@ -818,6 +818,6 @@ app.include_router(build_speech_router(
     llm=lambda prompt, structured: call_ollama(prompt, json_mode=structured),
     transcribe=lambda content, mime, language: _voice_request(
         "POST", "/voice/transcribe", timeout=settings.voice_timeout_seconds,
-        files={"audio": ("recording", content, mime)}, data={"language": language},
+        files={"audio": ("recording", content, mime)}, data={"language": language, "words": "true"},
     ).json(),
 ))

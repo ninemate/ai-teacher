@@ -248,7 +248,7 @@ def pitch_scores(metrics: Mapping, *, target: int, structure: Mapping | None, co
         - (over_words / budget * 100 if budget else 0)
     )
     scores: dict[str, int | None] = {
-        "time": time_score(metrics.get("duration_seconds"), target) if metrics.get("duration_source") != "estimated" else None,
+        "time": time_score(spoken_seconds(metrics), target) if metrics.get("duration_source") != "estimated" else None,
         "pace": pace_score(metrics.get("words_per_minute"), language),
         "fluency": _clamp(fluency),
         "concision": _clamp(concision),
@@ -260,6 +260,13 @@ def pitch_scores(metrics: Mapping, *, target: int, structure: Mapping | None, co
     present = [value for value in scores.values() if value is not None]
     scores["overall"] = _clamp(sum(present) / len(present)) if present else None
     return scores
+
+
+def spoken_seconds(metrics: Mapping) -> float | None:
+    """How long the take lasted, first word to last where timestamps exist, so silence at either end of the
+    recording does not count against the time frame."""
+    speaking = metrics.get("speaking_seconds")
+    return speaking if speaking is not None else metrics.get("duration_seconds")
 
 
 def overrun_seconds(duration: float | None, target: int) -> float:

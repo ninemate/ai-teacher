@@ -38,7 +38,7 @@ def practice(tmp_path, monkeypatch):
 
     def transcribe(content, mime, language):
         assert (content, mime, language) == (b"audio", "audio/webm", "en")
-        return {"text": "We save time.", "duration": 32, "segments": [{"start": 1, "end": 4}]}
+        return {"text": "We save time.", "duration": 34, "segments": [{"start": 1, "end": 2}, {"start": 30, "end": 33}]}
 
     app.include_router(build_router(lambda prompt, structured: replies.pop(0), transcribe))
     return TestClient(app), replies
@@ -70,7 +70,9 @@ def test_pitch_audio_comparison_and_isolation(practice):
         assert result.status_code == 200, result.text
     take = result.json()
     assert take["feedback"]["structure"]["value"]["present"]
+    # 1-33 s spoken in a 34 s file: silence at the ends is not overrun, the 28 s gap is a long pause
     assert take["comparison"] and take["metrics"]["overrun_seconds"] == 2
+    assert take["metrics"]["pauses"]["long_count"] == 1
     path = f"/speech/takes/{take['id']}"
     assert c.get(path + "/audio").content == b"audio"
     other = {"x-test-user": "other"}

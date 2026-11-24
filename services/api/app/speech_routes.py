@@ -195,7 +195,7 @@ def build_router(llm: Callable, transcribe: Callable) -> APIRouter:
         text, stt, content, mime = speech_input(text, audio, language, practice.MAX_PITCH_CHARS)
         sheet = metrics.analyze(text, language=language, stt=stt).as_dict()
         measured = sheet["duration_source"] != "estimated"
-        sheet["overrun_seconds"] = practice.overrun_seconds(sheet["duration_seconds"], target) if measured else None
+        sheet["overrun_seconds"] = practice.overrun_seconds(practice.spoken_seconds(sheet), target) if measured else None
         coverage = metrics.key_message_coverage(text, keys, language)
         context = dict(transcript=text, listener=situation.listener, language_name=practice.LANGUAGE_NAMES[language])
         feedback = generate("pitch_feedback", lambda obj: practice.parse_pitch_feedback(obj, text),
