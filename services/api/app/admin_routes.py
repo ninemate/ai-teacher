@@ -13,7 +13,7 @@ from sqlalchemy import and_, or_, select
 from teacher_common.db import session_scope
 from teacher_common.models import AuditEvent, AuthSession, ExcludedDocument, IngestRun, Workspace, WorkspaceShare
 
-OWN_SESSION_EVENTS = ["login.success", "login.failure", "logout", "session.expired", "session.revoked"]
+OWN_SESSION_EVENTS = ["login.success", "login.failure", "login.throttled", "logout", "session.expired", "session.revoked"]
 
 
 def build_router(settings, users, get_admins, require_admin):
@@ -110,7 +110,7 @@ def build_router(settings, users, get_admins, require_admin):
             row = db.get(ExcludedDocument, excluded_id)
             if row is None:
                 raise HTTPException(404, "A kizárás nem található.")
-            audit.record(db, "admin.exclusion_restore", request.state.session.username, f"{row.workspace_id}#{row.id}", audit.client_ip(request))
+            audit.record(db, "admin.exclusion_restore", request.state.session.username, f"{row.workspace_id}:excl:{row.id}", audit.client_ip(request))
             db.delete(row)
         return {"status": "restored"}
 

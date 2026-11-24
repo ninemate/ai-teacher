@@ -189,12 +189,16 @@ def test_workspace_and_document_events(api_main, roles, monkeypatch):
 
     events = _events(start)
     assert _one(events, "workspace.create")[1:3] == ("anya", workspace)
-    assert _one(events, "workspace.share")[1:3] == ("anya", workspace)
-    assert _one(events, "workspace.unshare")[1:3] == ("anya", workspace)
-    assert _one(events, "document.delete")[1:3] == ("anya", str(second_id))
-    assert _one(events, "document.exclude")[1] == "anya"
-    assert _one(events, "document.restore")[1:3] == ("anya", str(excluded))
-    assert _one(events, "admin.exclusion_restore")[1] == "apa"
+    assert _one(events, "workspace.share")[1:3] == ("anya", f"{workspace}:apa:read")  # grantee and permission
+    assert _one(events, "workspace.unshare")[1:3] == ("anya", f"{workspace}:apa")
+    assert _one(events, "document.delete")[1:3] == ("anya", f"{workspace}:doc:{second_id}")
+    # Exclude and restore share one identifier, so a restore can be tied to the exclusion it undoes.
+    excludes = [e for e in events if e[0] == "document.exclude"]
+    assert [e[1] for e in excludes] == ["anya", "anya"]
+    assert excludes[0][2] == f"{workspace}:excl:{excluded}"
+    assert _one(events, "document.restore")[1:3] == ("anya", excludes[0][2])
+    assert _one(events, "admin.exclusion_restore")[1:3] == ("apa", excludes[1][2])
+    assert not any(e[0] == "admin.workspace_override" for e in events)  # nobody acted outside their own access
     assert _one(events, "admin.reindex")[1] == "apa"
     dump = repr(events)
     assert title not in dump and path not in dump and "Titkos projekt" not in dump
@@ -202,6 +206,43 @@ def test_workspace_and_document_events(api_main, roles, monkeypatch):
         db.query(DocumentRecord).filter(DocumentRecord.workspace_id == workspace).delete()
         db.query(ExcludedDocument).filter(ExcludedDocument.workspace_id == workspace).delete()
         db.delete(db.get(Workspace, workspace))
+
+
+def test_admin_acting_in_another_users_workspace_is_tagged(api_main, roles):
+    owner, headers, _ = _login(api_main, "anya")
+    admin, admin_headers, _ = _login(api_main, "apa")
+    workspace = owner.post("/workspaces", json={"name": "Masik"}, headers=headers).json()["id"]
+    with session_scope() as db:
+        doc = DocumentRecord(workspace_id=workspace, source_path=f"/library/{uuid.uuid4().hex}.pdf", source_hash="x",
+                             file_type="pdf", size_bytes=1, modified_timestamp=1, title="t")
+        db.add(doc)
+        db.flush()
+        document_id = doc.id
+    start = _mark()
+    assert admin.delete(f"/sources/{document_id}", headers=admin_headers).status_code == 204
+    events = _events(start)
+    assert _one(events, "document.delete")[1] == "apa"
+    overrides = [e for e in events if e[0] == "admin.workspace_override"]
+    assert {e[2].split()[0] for e in overrides} == {"document.exclude", "document.delete"}
+    assert all(e[1] == "apa" for e in overrides)
+    with session_scope() as db:
+        db.query(ExcludedDocument).filter(ExcludedDocument.workspace_id == workspace).delete()
+        db.delete(db.get(Workspace, workspace))
+
+
+def test_throttled_logins_do_not_grow_the_log(api_main, roles, monkeypatch):
+    import audit
+
+    monkeypatch.setattr(audit, "_windows", {})
+    api_main.login_limiter.reset()
+    monkeypatch.setattr(api_main.login_limiter, "acquire", lambda keys: 120)
+    client = _client(api_main)
+    start = _mark()
+    for _ in range(25):
+        form = re.search(r'name="csrf_token" value="([^"]+)"', client.get("/login").text).group(1)
+        assert client.post("/login", data={"username": "anya", "password": "x", "csrf_token": form}).status_code == 429
+    events = _events(start)
+    assert [e[0] for e in events] == ["login.throttled"]
 
 
 def test_admin_views_list_state(api_main, roles):

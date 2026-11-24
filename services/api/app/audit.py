@@ -40,6 +40,22 @@ def _maybe_prune(db) -> None:
     prune(db)
 
 
+_windows: dict[str, float] = {}
+
+
+def first_in_window(key: str, seconds: int = 60) -> bool:
+    """True once per key per window: rate-limits audit writes that unauthenticated clients can trigger."""
+    now = time.monotonic()
+    with _prune_lock:
+        if len(_windows) > 10_000:
+            _windows.clear()
+        last = _windows.get(key)
+        if last is not None and now - last < seconds:
+            return False
+        _windows[key] = now
+        return True
+
+
 def client_ip(request) -> str | None:
     """The directly connected peer; forwarded headers are not trusted."""
     return request.client.host[:64] if request.client else None

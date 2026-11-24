@@ -100,6 +100,15 @@ def _workspace_ids(request: Request, db, *, write: bool = False) -> set[str]:
     return accessible_workspace_ids(db, username, admin=role == "admin", write=write)
 
 
+def _audit_workspace(session, request: Request, event: str, workspace_id: str, target: str) -> None:
+    """Record a workspace event; an admin acting where only the admin role grants access also gets an admin.* entry."""
+    username, role = _identity(request)
+    ip = audit.client_ip(request)
+    audit.record(session, event, username, target, ip)
+    if role == "admin" and workspace_id not in accessible_workspace_ids(session, username, admin=False, write=True):
+        audit.record(session, "admin.workspace_override", username, f"{event} {target}", ip)
+
+
 def _require_admin(request: Request) -> None:
     username, role = _identity(request)
     if role != "admin":
@@ -264,8 +273,11 @@ def login(
     limit_keys = [client_key] + ([f"user:{username}"] if username in auth_users else [])
     retry_after = login_limiter.acquire(limit_keys)
     if retry_after:
-        with session_scope() as db:
-            audit.record(db, "login.failure", username if username in auth_users else None, ip=audit.client_ip(request))
+        # Refused attempts are logged once a minute per address, so the log is no unauthenticated write path.
+        if audit.first_in_window(client_key):
+            with session_scope() as db:
+                audit.record(db, "login.throttled", username if username in auth_users else None,
+                             ip=audit.client_ip(request))
         minutes = math.ceil(retry_after / 60)
         response = _render_login(
             request,
@@ -383,7 +395,7 @@ def restore_excluded_source(excluded_id: int, request: Request):
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="A kizárt dokumentum nem található.")
-        audit.record(session, "document.restore", _identity(request)[0], str(excluded_id), audit.client_ip(request))
+        _audit_workspace(session, request, "document.restore", row.workspace_id, f"{row.workspace_id}:excl:{row.id}")
         session.delete(row)
     return Response(status_code=204)
 
@@ -409,8 +421,11 @@ def delete_source(document_id: int, request: Request):
             )
         ).scalar_one_or_none()
         if excluded is None:
-            session.add(ExcludedDocument(workspace_id=row.workspace_id, source_path=row.source_path))
-            audit.record(session, "document.exclude", _identity(request)[0], str(document_id), audit.client_ip(request))
+            excluded = ExcludedDocument(workspace_id=row.workspace_id, source_path=row.source_path)
+            session.add(excluded)
+            session.flush()
+            _audit_workspace(session, request, "document.exclude", row.workspace_id,
+                             f"{row.workspace_id}:excl:{excluded.id}")
         delete_points_for_source(row.source_path, workspace_id=row.workspace_id)
         study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
         # Document Intelligence results are kept but marked stale (the person deletes them); unfinished jobs stop.
@@ -421,7 +436,7 @@ def delete_source(document_id: int, request: Request):
         ).delete()
         listen_store.delete_for_document(session, row.id)
         listen_cache.remove_document(row.id)
-        audit.record(session, "document.delete", _identity(request)[0], str(document_id), audit.client_ip(request))
+        _audit_workspace(session, request, "document.delete", row.workspace_id, f"{row.workspace_id}:doc:{document_id}")
         session.delete(row)
     return Response(status_code=204)
 
@@ -487,7 +502,8 @@ def share_workspace(workspace_id: str, payload: WorkspaceShareRequest, request: 
             share = WorkspaceShare(workspace_id=workspace_id, username=payload.username)
             session.add(share)
         share.permission = payload.permission
-        audit.record(session, "workspace.share", username, workspace_id, audit.client_ip(request))
+        _audit_workspace(session, request, "workspace.share", workspace_id,
+                         f"{workspace_id}:{payload.username}:{share.permission}")
         return {"workspace_id": workspace_id, "username": payload.username, "permission": share.permission}
 
 
@@ -506,7 +522,7 @@ def unshare_workspace(workspace_id: str, share_username: str, request: Request):
         ).scalar_one_or_none()
         if share is None:
             raise HTTPException(status_code=404, detail="A megosztás nem található.")
-        audit.record(session, "workspace.unshare", username, workspace_id, audit.client_ip(request))
+        _audit_workspace(session, request, "workspace.unshare", workspace_id, f"{workspace_id}:{share_username}")
         session.delete(share)
     return Response(status_code=204)
 
