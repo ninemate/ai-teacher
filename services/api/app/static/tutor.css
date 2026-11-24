@@ -31,6 +31,7 @@
 .tutor-turn button { width: auto; }
 .tutor-turn ul { padding-left: 1.2rem; }
 .tutor-turn li { margin-bottom: .45rem; }
+.tutor-turn li p { font-style: italic; color: var(--accent-strong); }
 .tutor-voice { padding: 1rem; background: #f4efe6; border-radius: 12px; }
 .tutor-voice p { margin: .55rem 0 0; line-height: 1.4; font-size: .92rem; }
 .tutor-voice .tutor-columns { gap: .5rem; }
