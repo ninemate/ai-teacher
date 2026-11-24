@@ -8,7 +8,7 @@ this table yet; new sections should use ``{{ t("key") }}`` for what they add.
 
 HU: dict[str, str] = {
     "app.title": "Teacher Agent",
-    "app.eyebrow": "Self-hosted teacher agent",
+    "app.eyebrow": "Saját tanulósegéd",
     "home.title": "Magyar tanulósegéd a saját könyvtáradból",
     "home.lead": "Válassz, mit szeretnél csinálni.",
     "nav.home": "Főoldal",
@@ -40,7 +40,18 @@ HU: dict[str, str] = {
     "mode.library.title": "Könyvtár",
     "mode.library.summary": "Hallgatás, kizárt dokumentumok.",
     "mode.admin.title": "Admin",
-    "mode.admin.summary": "Felhasználók, naplók, rendszer.",
+    "mode.admin.summary": "A könyvtár indexelésének állapota.",
+    "index.title": "Könyvtár indexelése",
+    "index.loading": "Állapot lekérése…",
+    "index.unavailable": "Az állapot most nem érhető el.",
+    "index.idle": "Még nem indult indexelés.",
+    "index.completed": "Az indexelés befejeződött.",
+    "index.failed": "Az indexelés sikertelen.",
+    "index.interrupted": "Az indexelés megszakadt.",
+    "index.skipped": "Az indexelés kimaradt.",
+    "index.started": "Kezdés",
+    "index.total": "Átvizsgált fájlok",
+    "index.indexed": "Indexelt fájlok",
 }
 
 LANGUAGES: dict[str, dict[str, str]] = {"hu": HU}
@@ -53,7 +64,7 @@ def t(key: str, lang: str = DEFAULT_LANGUAGE) -> str:
 
 
 # The subset shell.js needs in the browser (it never builds markup from anything else).
-SHELL_KEYS = ("nav.home", "activity.resume", "activity.indexing", "activity.docintel", "activity.listen")
+SHELL_KEYS = ("nav.home", "activity.resume", "activity.indexing", *(key for key in HU if key.startswith("index.")))
 
 
 def shell_strings(lang: str = DEFAULT_LANGUAGE) -> dict[str, str]:

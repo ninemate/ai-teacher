@@ -41,7 +41,7 @@
       ...options,
     });
     if (response.status === 401) {
-      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`);
       throw new Error("Lejárt a bejelentkezés.");
     }
     if (response.status === 204) return null;
@@ -171,7 +171,7 @@
     const anyActive = jobs.some((job) => job.status === "queued" || job.status === "running");
     if (window.Teacher) {
       const active = jobs.filter((job) => job.status === "queued" || job.status === "running").length;
-      window.Teacher.activity.set("docintel", active ? { label: `Dokumentumelemzés: ${active} feladat fut`, href: "#/docs/docintel" } : null);
+      window.Teacher.activity.set("docintel", active ? { label: `Dokumentumelemzés: ${active} feladat fut`, href: "#/docs/di-jobs" } : null);
     }
     if (anyActive && !timer) timer = window.setInterval(refresh, POLL_MS);
     if (!anyActive && timer) {
@@ -305,6 +305,10 @@
   loadDocuments().catch((error) => setStatus(error.message, true));
   refresh();
   // A link like /#di-job=7 opens that result straight away.
-  const linked = /^#di-job=(\d+)$/.exec(window.location.hash);
-  if (linked) openResult(Number(linked[1]));
+  function openLinkedResult() {
+    const linked = /^#di-job=(\d+)$/.exec(window.location.hash);
+    if (linked) openResult(Number(linked[1]));
+  }
+  window.addEventListener("hashchange", openLinkedResult);
+  openLinkedResult();
 })();

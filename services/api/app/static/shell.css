@@ -40,7 +40,8 @@ body[data-view="home"] .modebar { display: none; }
   display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: var(--tap); padding: 8px 14px;
   border-radius: 14px; background: #e3f1ee; border: 1px solid var(--accent); color: var(--accent-strong); text-decoration: none; font-weight: 600;
 }
-.activity-resume { font-size: 0.85rem; white-space: nowrap; text-decoration: underline; }
+.activity-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.activity-resume { flex: none; font-size: 0.85rem; white-space: nowrap; text-decoration: underline; }
 
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
 .tile {
@@ -81,3 +82,5 @@ body[data-view="home"] .modebar { display: none; }
 @media (min-width: 720px) {
   .modebar { flex-wrap: wrap; overflow: visible; margin: 0; padding-left: 0; padding-right: 0; }
 }
+
+#listen-title, .listen-library strong { overflow-wrap: anywhere; }

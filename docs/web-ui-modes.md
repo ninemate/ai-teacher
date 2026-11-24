@@ -7,6 +7,8 @@ button work:
 - `#/` home
 - `#/<mode>` a mode, for example `#/docs`
 - `#/<mode>/<section id>` a mode scrolled to one section, for example `#/library/listen`
+- Existing `#di-job=<id>` and `#listen-<id>` links open the result or document in its mode.
+  The sign-in form carries the requested fragment through authentication.
 
 Modes: `chat` (Beszélgetés), `study` (Tanulás és beszéd), `docs` (Dokumentumok), `media` (Média), `interpreter`
 (Tolmács), `meetings` (Meetingek), `library` (Könyvtár), `admin` (Admin, admin role only). A mode without a section
@@ -21,7 +23,8 @@ library itself, while Média is kept for audio and image material that is not a 
 Modes are hidden, not unloaded, so a running job, an audio player or a half-filled form carries on when you open
 another mode. The bar under the header lists running work on every screen with a one-tap link back
 (`Teacher.activity.set(key, {label, href})`): Document Intelligence jobs, the open listening document (playing or
-paused, resumes at the saved position), and indexing (admin only).
+paused, resumes at the saved position), and indexing (admin only). The indexing link opens `#/admin/indexing`, where an admin can see
+the start time and status of the latest run. File counts are available after the run finishes.
 
 ## Adding a feature
 

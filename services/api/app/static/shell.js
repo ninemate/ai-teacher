@@ -1,6 +1,8 @@
 // Application shell: hash routing between the home screen and the modes, and the cross-mode activity bar.
 //
 // Routes:  #/ (home)   #/<mode>   #/<mode>/<section id> (deep link, scrolls to the section)
+// Older links a feature script reads itself (its own hash shape) are listed in LEGACY: the shell shows their
+// mode and leaves the hash untouched, so the script still finds its id in location.hash.
 // Every mode stays in the DOM and is only hidden, so a running job, an audio element or a half-typed form in a
 // mode keeps going while another mode is open. Sections may rely on that.
 //
@@ -12,14 +14,19 @@
 (() => {
   const strings = JSON.parse(document.getElementById("shell-strings").textContent);
   const appTitle = document.body.dataset.appTitle || document.title;
-  const isAdmin = document.body.dataset.role === "admin";
   const views = new Map([...document.querySelectorAll("[data-view]")].map((node) => [node.dataset.view, node]));
   const showHooks = new Map();
   const activityEl = document.getElementById("activity");
   const activities = new Map();
   let current = null;
+  const LEGACY = [
+    [/^#di-job=\d+$/, "docs", "docintel"],
+    [/^#listen-\d+$/, "library", "listen"],
+  ];
 
   function parse(hash) {
+    const legacy = LEGACY.find(([pattern]) => pattern.test(hash));
+    if (legacy && views.has(legacy[1])) return { mode: legacy[1], section: legacy[2] };
     const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
     const mode = parts[0] || "home";
     return views.has(mode) ? { mode, section: parts[1] || "" } : { mode: "home", section: "", invalid: Boolean(parts[0]) };
@@ -95,22 +102,6 @@
       if (current === modeId) fn();
     },
   };
-
-  // Indexing runs in another service for minutes to hours; only the admin may read its state.
-  if (isAdmin) {
-    const poll = async () => {
-      try {
-        const response = await fetch("/ingest/status");
-        const data = response.ok ? await response.json() : null;
-        const running = data && data.status === "running";
-        window.Teacher.activity.set("indexing", running
-          ? { label: `${strings["activity.indexing"]}: ${data.indexed || 0}/${data.scanned || 0}`, href: "#/library" }
-          : null);
-      } catch { /* the next poll tries again */ }
-    };
-    poll();
-    window.setInterval(poll, 15000);
-  }
 
   window.addEventListener("hashchange", route);
   route();

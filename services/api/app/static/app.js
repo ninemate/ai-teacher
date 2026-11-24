@@ -11,7 +11,7 @@ const noticeEl = document.getElementById("grounding-notice");
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
 function goToLogin() {
-  window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+  window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`);
 }
 
 function postJson(path, payload) {

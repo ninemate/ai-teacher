@@ -26,12 +26,16 @@ def test_user_sees_every_mode_but_admin(api_main, client, monkeypatch):
     assert view_ids(html) == [m for m in MODE_IDS if m != "admin"]
     assert "Admin" not in re.findall(r'class="tile-title">([^<]+)', html)
     assert "#/admin" not in html
+    assert 'id="indexing"' not in html
+    assert "/static/indexing.js" not in html
 
 
 def test_admin_sees_admin_mode(api_main, client, monkeypatch):
     html = page_for(client, api_main, monkeypatch, "apa", admins={"apa"})
     assert view_ids(html) == MODE_IDS
     assert 'data-role="admin"' in html
+    assert 'id="indexing"' in html
+    assert "/static/indexing.js" in html
 
 
 def test_existing_panels_live_in_their_modes(api_main, client, monkeypatch):

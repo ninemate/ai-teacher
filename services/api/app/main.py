@@ -7,8 +7,8 @@ from typing import Literal
 from urllib.parse import quote
 
 import auth
-import ui_strings
 import httpx
+import ui_strings
 from docintel_routes import build_router as build_docintel_router
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -16,9 +16,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from listen_routes import build_router as build_listen_router
+from listen_routes import start_periodic_sweep, sweep_orphans
 from modes import assets as mode_assets
 from modes import visible_modes
-from listen_routes import start_periodic_sweep, sweep_orphans
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
