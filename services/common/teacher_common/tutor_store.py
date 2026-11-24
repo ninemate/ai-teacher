@@ -76,10 +76,6 @@ def record_answer(db: Session, row: TutorSession, profile: LearnerProfile, text:
     row.revision += 1
     if text:
         errors = [item["type"] for item in feedback["corrections"]]
-        counts = Counter(profile.error_counts)
-        counts.update(errors)
-        profile.error_counts = dict(counts)
-        profile.graded_turns += 1
         if profile.auto_level and (row.language, row.level) == (profile.language, profile.level):
             profile.window_turns += 1
             profile.window_clean += int(not errors)
@@ -98,12 +94,19 @@ def progress(db: Session, profile: LearnerProfile) -> dict:
         .order_by(TutorLevelChange.id.desc())
         .limit(100)
     )
+    # Sessions, answers and errors describe the current target language only; level history keeps every language.
+    own = (TutorSession.workspace_id == profile.workspace_id, TutorSession.language == profile.language)
+    answers = db.scalars(
+        select(TutorTurn.feedback)
+        .join(TutorSession, TutorTurn.session_id == TutorSession.id)
+        .where(*own, TutorTurn.learner != "")
+    ).all()
+    errors = Counter(item["type"] for feedback in answers for item in feedback.get("corrections", []))
     return {
-        "sessions": db.scalar(
-            select(func.count(TutorSession.id)).where(TutorSession.workspace_id == profile.workspace_id)
-        ),
-        "turns": profile.graded_turns,
-        "errors": profile.error_counts,
+        "language": profile.language,
+        "sessions": db.scalar(select(func.count(TutorSession.id)).where(*own)),
+        "turns": len(answers),
+        "errors": dict(errors),
         "levels": [
             {
                 "language": c.language,

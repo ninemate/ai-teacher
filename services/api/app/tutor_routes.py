@@ -3,11 +3,11 @@
 import json
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, StringConstraints, ValidationError
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import select, text
 from teacher_common import tutor_store as store
 from teacher_common.config import get_settings
@@ -42,10 +42,27 @@ class Answer(BaseModel):
     revision: int | None = Field(default=None, ge=1)
 
 
+ErrorType = Literal["grammar", "spelling", "vocabulary", "comprehension", "other"]
+# Local models drift from the prompt's four types; keep the correction and file it under the nearest one.
+TYPE_ALIASES = {
+    "usage": "vocabulary",
+    "word_choice": "vocabulary",
+    "lexical": "vocabulary",
+    "word_order": "grammar",
+    "syntax": "grammar",
+    "tense": "grammar",
+    "punctuation": "spelling",
+    "orthography": "spelling",
+    "listening": "comprehension",
+    "understanding": "comprehension",
+}
+LIST_LIMIT = 6
+
+
 class Correction(BaseModel):
-    type: Literal["grammar", "spelling", "vocabulary", "comprehension"]
+    type: ErrorType
     explanation: Phrase
-    example: Phrase
+    example: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
 
 
 class Word(BaseModel):
@@ -59,8 +76,39 @@ class Card(Word):
 
 class Feedback(BaseModel):
     reply: Message
-    corrections: list[Correction] = Field(max_length=6)
-    vocabulary: list[Word] = Field(max_length=6)
+    corrections: list[Correction] = Field(default_factory=list, max_length=LIST_LIMIT)
+    vocabulary: list[Word] = Field(default_factory=list, max_length=LIST_LIMIT)
+
+
+def _text(value, limit: int) -> str:
+    return value.strip()[:limit] if isinstance(value, str) else ""
+
+
+def parse_feedback(raw: str) -> dict:
+    """Keep a usable reply even when the model bends the structure; only a missing reply is an error."""
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("not an object")
+    corrections = []
+    for item in data.get("corrections") if isinstance(data.get("corrections"), list) else []:
+        if not isinstance(item, dict) or not _text(item.get("explanation"), 500):
+            continue
+        kind = _text(item.get("type"), 40).lower().replace(" ", "_").replace("-", "_")
+        kind = TYPE_ALIASES.get(kind, kind)
+        corrections.append(
+            {
+                "type": kind if kind in get_args(ErrorType) else "other",
+                "explanation": _text(item["explanation"], 500),
+                "example": _text(item.get("example"), 500),
+            }
+        )
+    vocabulary = [
+        {"front": _text(item.get("front"), 500), "back": _text(item.get("back"), 500)}
+        for item in (data.get("vocabulary") if isinstance(data.get("vocabulary"), list) else [])
+        if isinstance(item, dict) and _text(item.get("front"), 500) and _text(item.get("back"), 500)
+    ]
+    reply = _text(data.get("reply"), 4000)
+    return Feedback(reply=reply, corrections=corrections[:LIST_LIMIT], vocabulary=vocabulary[:LIST_LIMIT]).model_dump()
 
 
 def build_router(retrieve, llm) -> APIRouter:
@@ -96,8 +144,8 @@ def build_router(retrieve, llm) -> APIRouter:
         instruction = (Path(settings.teacher_prompt_path).parent / "tutor_conversation.md").read_text(encoding="utf-8")
         prompt = instruction + "\n" + json.dumps({**context, "history": history, "learner": answer}, ensure_ascii=False)
         try:
-            return Feedback.model_validate_json(llm(prompt, True)).model_dump()
-        except (ValidationError, httpx.HTTPError) as exc:
+            return parse_feedback(llm(prompt, True))
+        except (ValueError, httpx.HTTPError) as exc:
             raise HTTPException(502, "A tutor válasza nem elérhető. Próbáld újra.") from exc
 
     @router.get("/profile")

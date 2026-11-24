@@ -134,9 +134,11 @@ class Transcriber:
             if measure:
                 words = [word for segment in decoded for word in (segment.words or [])]
                 acoustics = {"duration": round(info.duration, 2)}
-                if words and info.duration > 0:
+                # Pace over the speech itself: leading waits and the trailing end-of-speech silence don't count.
+                span = words[-1].end - words[0].start if words else 0
+                if span > 0:
                     acoustics.update({
-                        "words_per_minute": round(60 * len(words) / info.duration),
+                        "words_per_minute": round(60 * len(words) / span),
                         "pause_count": sum(b.start - a.end >= 0.5 for a, b in zip(words, words[1:], strict=False)),
                         "mean_word_probability": round(sum(word.probability for word in words) / len(words), 3),
                     })

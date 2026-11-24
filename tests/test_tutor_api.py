@@ -130,3 +130,46 @@ def test_listening_exercise_keeps_context(learners, model):
     ok(client.post(f"/tutor/sessions/{created['id']}/turns", json={"text": "At seven."}))
     assert "The train leaves at seven" in prompts[-1]
     assert "At seven." in prompts[-1]
+
+
+def test_loosely_shaped_model_reply_is_kept(learners, model, monkeypatch, api_main):
+    client, _ = learners
+    created = ok(client.post("/tutor/sessions", json={"mode": "writing"}))
+    path = f"/tutor/sessions/{created['id']}"
+    loose = {
+        "reply": "Good. Try another sentence.",
+        "corrections": [
+            {"type": "Word order", "explanation": "A határozó a mondat végére kerül.", "example": "I go there often."},
+            {"type": "tone", "explanation": "Udvariasabb a 'could'.", "example": ""},
+            {"type": "grammar", "explanation": "", "example": "dropped: no explanation"},
+            "not an object",
+        ]
+        + [{"type": "spelling", "explanation": f"Hiba {n}", "example": "x"} for n in range(8)],
+    }  # no "vocabulary" key at all
+    monkeypatch.setattr(api_main, "call_ollama", lambda prompt, json_mode=False: json.dumps(loose))
+    last = ok(client.post(path + "/turns", json={"text": "I go often there."}))["turns"][-1]
+    assert [c["type"] for c in last["corrections"][:2]] == ["grammar", "other"]
+    assert last["corrections"][1]["example"] == ""
+    assert len(last["corrections"]) == 6
+    assert last["vocabulary"] == []
+
+    monkeypatch.setattr(api_main, "call_ollama", lambda prompt, json_mode=False: json.dumps({"corrections": []}))
+    assert client.post(path + "/turns", json={"text": "Again."}).status_code == 502
+
+
+def test_progress_counts_only_the_current_language(learners, model):
+    client, _ = learners
+    _, reply = model
+    reply["corrections"] = [CORRECTION]
+    ok(client.put("/tutor/profile", json={"language": "en", "level": "B2", "goal": "", "auto_level": False}))
+    english = ok(client.get("/tutor/progress"))
+    created = ok(client.post("/tutor/sessions", json={"mode": "conversation"}))
+    ok(client.post(f"/tutor/sessions/{created['id']}/turns", json={"text": "She work here."}))
+    after = ok(client.get("/tutor/progress"))
+    assert after["turns"] == english["turns"] + 1
+    assert after["errors"]["grammar"] == english["errors"].get("grammar", 0) + 1
+
+    ok(client.put("/tutor/profile", json={"language": "hu", "level": "B1", "goal": "", "auto_level": False}))
+    hungarian = ok(client.get("/tutor/progress"))
+    assert hungarian["language"] == "hu"
+    assert hungarian["turns"] == 0 and hungarian["errors"] == {} and hungarian["sessions"] == 0

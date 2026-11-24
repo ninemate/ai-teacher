@@ -5,7 +5,7 @@
   const $ = (name) => root.querySelector("#tutor-" + name);
   const languages = { en: "Angol", hu: "Magyar" };
   const modes = { conversation: "Beszélgetés", roleplay: "Szerepjáték", listening: "Hallásértés", writing: "Írásbeli javítás" };
-  const errorNames = { grammar: "Nyelvtan", vocabulary: "Szókincs", spelling: "Helyesírás", usage: "Szóhasználat", word_order: "Szórend", comprehension: "Szövegértés", other: "Egyéb" };
+  const errorNames = { grammar: "Nyelvtan", vocabulary: "Szókincs", spelling: "Helyesírás", comprehension: "Szövegértés", other: "Egyéb" };
   const csrf = document.querySelector('meta[name="csrf-token"]').content;
   let session = null;
   let profile;
@@ -135,7 +135,7 @@
       const list = node("ul");
       for (const c of turn.corrections) {
         const li = node("li", (errorNames[c.type] || c.type) + " · " + c.explanation);
-        li.append(node("p", c.example));
+        if (c.example) li.append(node("p", c.example));
         list.append(li);
       }
       box.append(list);
@@ -207,7 +207,7 @@
   async function loadProgress() {
     const p = await api("/tutor/progress");
     const box = $("stats");
-    box.replaceChildren(node("p", p.sessions + " gyakorlás · " + p.turns + " válasz"));
+    box.replaceChildren(node("p", languages[p.language] + " · " + p.sessions + " gyakorlás · " + p.turns + " válasz"));
     const list = node("ul");
     for (const [type, count] of Object.entries(p.errors)) list.append(node("li", (errorNames[type] || type) + ": " + count));
     if (list.childElementCount) box.append(node("h4", "Hibák típus szerint"), list);

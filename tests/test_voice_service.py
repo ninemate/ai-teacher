@@ -286,5 +286,5 @@ def test_tutor_voice_returns_measured_feedback(voice):
     assert voice.models[0].calls[0]["language"] == "en"
     assert voice.models[0].calls[0]["word_timestamps"]
     assert response.json()["acoustics"] == {
-        "duration": 3.2, "words_per_minute": 94, "pause_count": 1, "mean_word_probability": 0.8
+        "duration": 3.2, "words_per_minute": 115, "pause_count": 1, "mean_word_probability": 0.8
     }

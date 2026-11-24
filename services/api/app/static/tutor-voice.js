@@ -5,8 +5,10 @@ window.createTutorVoice = function ({language, onTurn, status}) {
   const handsfree = document.getElementById("tutor-handsfree");
   const feedback = document.getElementById("tutor-acoustics");
   const csrf = document.querySelector('meta[name="csrf-token"]').content;
+  const wakeNote = document.getElementById("tutor-wake-note");
   const idleLabel = handsfree.textContent;
   let operation = null;
+  let wakeLock = null;
   let context = null;
   let source = null;
   let playbackRequest = null;
@@ -28,10 +30,46 @@ window.createTutorVoice = function ({language, onTurn, status}) {
     }
   }
 
+  // Hands-free must survive the phone's auto-lock: a locked screen hides the page and ends the session.
+  async function keepScreenOn() {
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      if (!operation?.auto) releaseScreen();
+      wakeNote.hidden = true;
+    } catch {
+      wakeNote.hidden = false;
+    }
+  }
+  function releaseScreen() {
+    wakeLock?.release().catch(() => {});
+    wakeLock = null;
+  }
+
+  // Short tones, so a listener who isn't looking knows what happened: rising = listening, falling = stopped.
+  function cue(kind) {
+    try {
+      const audio = audioContext();
+      const notes = {listen: [660, 880], end: [660, 440], error: [330, 220]}[kind];
+      notes.forEach((frequency, index) => {
+        const tone = audio.createOscillator();
+        const gain = audio.createGain();
+        const at = audio.currentTime + index * 0.18;
+        tone.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.25, at + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+        tone.connect(gain).connect(audio.destination);
+        tone.start(at);
+        tone.stop(at + 0.17);
+      });
+    } catch { /* no audio output: the status text remains */ }
+  }
+
   function stop() {
     const current = operation;
     operation = null;
     held = false;
+    releaseScreen();
     current?.abort.abort();
     if (current?.recorder?.state === "recording") current.recorder.stop();
     current?.stream?.getTracks().forEach(track => track.stop());
@@ -141,7 +179,11 @@ window.createTutorVoice = function ({language, onTurn, status}) {
     const {signal} = current.abort;
     const button = auto ? handsfree : hold;
     button.setAttribute("aria-pressed", "true");
-    if (auto) handsfree.textContent = "Kihangosított mód leállítása";
+    if (auto) {
+      handsfree.textContent = "Kihangosított mód leállítása";
+      if (navigator.wakeLock) keepScreenOn(); else wakeNote.hidden = false;
+    }
+    let missed = false;
     try {
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
         throw new Error("A mikrofonhoz HTTPS és hangrögzítést támogató böngésző szükséges.");
@@ -160,6 +202,7 @@ window.createTutorVoice = function ({language, onTurn, status}) {
         return;
       }
       do {
+        if (auto) cue("listen");
         const blob = await record(current, Math.max(1000, ((info.max_seconds || 120) - 1) * 1000));
         if (signal.aborted) return;
         if (!blob) break;
@@ -176,17 +219,29 @@ window.createTutorVoice = function ({language, onTurn, status}) {
         const text = result.text?.trim();
         if (!text) {
           status("Nem hallottam beszédet.");
+          // One quiet or garbled try is common; listen once more before giving up.
+          if (auto && !missed) {
+            missed = true;
+            continue;
+          }
           break;
         }
+        missed = false;
         if (auto && /^(gyakorlás vége|end practice)[.!?]?$/i.test(text)) break;
         showMeasurements(result.acoustics);
         const response = await onTurn(text);
         if (signal.aborted) return;
         await speak(response);
       } while (auto && !signal.aborted);
-      if (auto && !signal.aborted) status("A kihangosított gyakorlás véget ért.");
+      if (auto && !signal.aborted) {
+        status("A kihangosított gyakorlás véget ért.");
+        cue("end");
+      }
     } catch (error) {
-      if (!signal.aborted) status(error.name === "NotAllowedError" ? "A mikrofon használatát engedélyezni kell." : error.message);
+      if (!signal.aborted) {
+        status(error.name === "NotAllowedError" ? "A mikrofon használatát engedélyezni kell." : error.message);
+        if (auto) cue("error");
+      }
     } finally {
       if (current === operation) stop();
     }

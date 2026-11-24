@@ -18,8 +18,6 @@ class LearnerProfile(Base):
     auto_level: Mapped[bool] = mapped_column(default=False)
     window_turns: Mapped[int] = mapped_column(default=0)
     window_clean: Mapped[int] = mapped_column(default=0)
-    graded_turns: Mapped[int] = mapped_column(default=0)
-    error_counts: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class TutorSession(Base):
