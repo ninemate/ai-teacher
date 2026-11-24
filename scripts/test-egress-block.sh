@@ -46,7 +46,7 @@ fail() {
 
 # The voice overlay part of the audit like any enabled deployment has it; without it
 # voice sits outside the check entirely.
-teacher_enable_voice=$(sed -n 's/^[[:space:]]*TEACHER_ENABLE_VOICE=//p' "$env_file" | head -n1 | tr -d '"')
+teacher_enable_voice=${TEACHER_ENABLE_VOICE:-$(sed -n 's/^[[:space:]]*TEACHER_ENABLE_VOICE=//p' "$env_file" | tail -n1 | tr -d '\"')}
 voice_overlay=""
 case "$teacher_enable_voice" in
     true | True | TRUE | yes | 1)

@@ -8,7 +8,8 @@
 #   --native  no containers: scripts/e2e-native.sh, for hosts where Docker cannot run. Proves neither images nor network rule.
 #   --voice   also build the voice overlay and do a Hungarian TTS -> STT round trip (large download on first build).
 #   --keep    leave the stack running afterwards.
-# Settings: E2E_OLLAMA_MODEL (small chat model), E2E_WORK (working folder), E2E_MODEL_TIMEOUT (seconds per LLM call).
+# Settings: E2E_OLLAMA_MODEL (small chat model), E2E_WORK (working folder),
+# E2E_SKIP_BUILD=1 (use prebuilt teacher-e2e images).
 set -eu
 
 backend=compose
@@ -115,8 +116,10 @@ COMPOSE_PROJECT_NAME=teacher-e2e
 TEACHER_HTTPS_PORT=$TEACHER_HTTPS_PORT
 TEACHER_PROXY_HTTP_PORT=$TEACHER_PROXY_HTTP_PORT
 TEACHER_DATA_DIR=$work/data
+TEACHER_BACKUP_DIR=$work/data/backups
 TEACHER_STACK_DIR=$repo
 TEACHER_MOUNT_POINT=$work/library
+TEACHER_MOUNT_PROPAGATION=rprivate
 TEACHER_TLS_DIR=$work/certs
 TEACHER_ENABLE_VOICE=$([ "$voice" = 1 ] && echo true || echo false)
 OLLAMA_MODEL=$model
@@ -135,8 +138,21 @@ mkdir -p "$work/data" "$work/certs"
 fill_library
 write_env ""
 compose down --volumes --remove-orphans
-echo "=== building the images (the first build downloads the embedding model) ==="
-compose build
+finish() {
+    status=$?
+    if [ "$status" -ne 0 ]; then
+        compose logs --no-color --tail 100 >&2 || true
+    fi
+    if [ "$keep" = 0 ]; then
+        compose down --volumes --remove-orphans || return 1
+    fi
+    return "$status"
+}
+trap finish EXIT
+if [ "${E2E_SKIP_BUILD:-0}" != 1 ]; then
+    echo "=== building the images (the first build downloads the embedding model) ==="
+    compose build
+fi
 # Data from an earlier run belongs to root inside the containers, so a container removes it. The model stays.
 compose run --rm --no-deps -v "$work/data:/wipe" --entrypoint sh api -c 'rm -rf /wipe/metadata /wipe/qdrant /wipe/logs'
 users=$(compose run --rm --no-deps -T -e ANNA_PASSWORD -e BELA_PASSWORD -e CILI_PASSWORD -e ADMIN_PASSWORD \
@@ -144,8 +160,7 @@ users=$(compose run --rm --no-deps -T -e ANNA_PASSWORD -e BELA_PASSWORD -e CILI_
 write_env "$users"
 
 echo "=== starting the stack ==="
-compose up -d --wait --wait-timeout 600
-[ "$keep" = 1 ] || trap 'compose down --volumes --remove-orphans' EXIT
+compose up -d --no-build --wait --wait-timeout 600
 
 echo "=== pulling $model through the temporary edge connection ==="
 TEACHER_ENV_FILE=$env_file bash scripts/model-update.sh "$model"

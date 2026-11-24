@@ -81,3 +81,14 @@ scripts/e2e.sh --keep         # leaves the stack up to look around
 It builds and starts everything, pulls `E2E_OLLAMA_MODEL` (default `qwen2.5:0.5b`), and goes through the HTTPS proxy as a browser would: login, indexing of a text PDF, a scanned PDF, an EPUB and a DOCX, citations, a question with no source, isolation between two accounts, stored quizzes and flashcards, extraction and translation of a whole document as background jobs, all across a restart, listening to a document (reading-order text, resume on a second login, isolation, and with `--voice` a synthesized segment that is transcribed back), deleting a document, and `make test-egress`. It prints a table of what passed, failed or was skipped, and leaves it in `.scratch/e2e/report.md`. A dev stack on the same host is not touched. The assertions check structure, citations and storage, not the model's wording.
 
 Where Docker cannot run, `scripts/e2e.sh --native` runs the same steps against the services as plain processes (see `scripts/e2e-native.sh` for the binaries it needs). That proves the application, but not the images, the compose wiring or the egress rule.
+
+## CI coverage
+
+Pull requests and pushes to `main` run lint, type checking, pytest with Hungarian and English OCR,
+image builds for API, ingestion and voice, and the CPU-only Compose trial on GitHub-hosted runners.
+The trial checks the application flows above with local library fixtures and audits the running containers
+before probing external TCP and DNS from the private network. The job summary includes the trial report.
+
+The standard trial leaves GPU behavior, a mounted NAS and production chat model behavior untested.
+To add the CPU speech synthesis and transcription round trip, start the CI workflow manually with `voice` enabled.
+Deployment runs on the self-hosted runner on pushes to `main`.
