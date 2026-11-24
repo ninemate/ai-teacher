@@ -1,0 +1,62 @@
+<section class="panel tutor" id="tutor" aria-labelledby="tutor-title">
+  <header class="tutor-header">
+    <div>
+      <p class="eyebrow">Tanulás és beszéd</p>
+      <h2 id="tutor-title">Nyelvi tutor</h2>
+    </div>
+    <span id="tutor-summary"></span>
+  </header>
+
+  <div id="tutor-setup">
+    <details id="tutor-profile">
+      <summary>Tanulói profil</summary>
+      <form id="tutor-profile-form">
+        <div class="tutor-columns">
+          <label>Célnyelv<select id="tutor-language"><option value="en">Angol</option><option value="hu">Magyar</option></select></label>
+          <label>Szint<select id="tutor-level">{% for level in ['A1','A2','B1','B2','C1','C2'] %}<option>{{ level }}</option>{% endfor %}</select></label>
+        </div>
+        <label>Tanulási cél<input id="tutor-goal" maxlength="300" placeholder="Például magabiztosan beszélni egy állásinterjún" /></label>
+        <label class="tutor-check"><input type="checkbox" id="tutor-auto" /> Szint igazítása a teljesítményemhez</label>
+        <button class="secondary" type="submit">Profil mentése</button>
+      </form>
+    </details>
+
+    <form id="tutor-start">
+      <fieldset class="tutor-modes"><legend>Mit gyakorolnál?</legend>
+        {% for mode, label in [('conversation','Beszélgetés'),('roleplay','Szerepjáték'),('listening','Hallásértés'),('writing','Írásbeli javítás')] %}
+        <label><input type="radio" name="tutor-mode" value="{{ mode }}" {% if loop.first %}checked{% endif %} /> <span>{{ label }}</span></label>
+        {% endfor %}
+      </fieldset>
+      <label for="tutor-scenario">Téma vagy helyzet <small>(választható)</small></label>
+      <input id="tutor-scenario" maxlength="300" placeholder="Például asztalfoglalás telefonon" />
+      <details id="tutor-material">
+        <summary>Saját tananyag használata</summary>
+        <label>Könyvtári dokumentum<select id="tutor-source"><option value="">Nincs kiválasztva</option></select></label>
+        <label>Szókincs kártyapakliból<select id="tutor-deck"><option value="">Nincs kiválasztva</option></select></label>
+      </details>
+      <button class="primary" id="tutor-start-button" type="submit" disabled>Gyakorlás indítása</button>
+    </form>
+  </div>
+
+  <div id="tutor-session" hidden>
+    <div class="tutor-session-bar"><h3 id="tutor-mode-title"></h3><button type="button" class="link-button" id="tutor-end">Befejezés</button></div>
+    <div id="tutor-thread" aria-label="Beszélgetés"></div>
+    <form id="tutor-reply-form">
+      <label for="tutor-reply">A te válaszod</label>
+      <textarea id="tutor-reply" rows="2" maxlength="2000" required></textarea>
+      <button type="submit" class="primary">Válasz küldése</button>
+    </form>
+    <div class="tutor-voice">
+      <div class="tutor-columns">
+        <button class="secondary" id="tutor-ptt" type="button">Tartsd nyomva és beszélj</button>
+        <button class="secondary" id="tutor-handsfree" type="button">Kéz nélküli mód</button>
+      </div>
+      <p>A kéz nélküli mód a beszédszünet után elküldi a választ, majd felolvassa a tutor kérdését.</p>
+      <output id="tutor-acoustics"></output>
+      <p>A hangfelvételből mért adatok nem helyettesítik az emberi tanár értékelését.</p>
+    </div>
+  </div>
+
+  <details id="tutor-progress"><summary>Haladásom</summary><div id="tutor-stats"></div></details>
+  <p id="tutor-status" role="status"></p>
+</section>
