@@ -67,10 +67,15 @@
 
   // --- Transcript ----------------------------------------------------------
 
+  // The page's security policy allows blob: media but not data: URLs, so the base64 clip becomes a Blob.
+  let clipUrl = null;
   function playClip(turn) {
     if (!turn.audio) return;
     const audio = $("ip-audio");
-    audio.src = `data:${turn.audio_type || "audio/mpeg"};base64,${turn.audio}`;
+    const bytes = Uint8Array.from(atob(turn.audio), (char) => char.charCodeAt(0));
+    if (clipUrl) URL.revokeObjectURL(clipUrl);
+    clipUrl = URL.createObjectURL(new Blob([bytes], { type: turn.audio_type || "audio/mpeg" }));
+    audio.src = clipUrl;
     audio.play().catch(() => setStatus("Indítsd el a hangot a 🔊 gombbal.", true));
   }
 
