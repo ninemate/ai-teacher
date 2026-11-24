@@ -357,6 +357,21 @@ def qdrant_restore(settings: Settings, collection: str, source: Path) -> None:
         connection.close()
 
 
+SPEECH_AUDIO = "userdata/speech_audio/"
+
+
+def speech_audio_dir(settings: Settings) -> Path:
+    """Host folder of the recorded speaking-practice takes (per-user subfolders). They are user data that cannot
+    be made again, and the database rows point at them, so they travel with the database."""
+    override = os.environ.get("SPEECH_AUDIO_HOST_PATH")
+    if override:
+        return Path(override).expanduser()
+    configured = os.environ.get("SPEECH_AUDIO_DIR", settings.env.get("SPEECH_AUDIO_DIR", "/data/metadata/speech_audio"))
+    if configured.startswith("/data/"):
+        return settings.data_dir / configured.removeprefix("/data/")
+    return Path(configured).expanduser()
+
+
 def config_files(settings: Settings) -> list[tuple[Path, str]]:
     selected: list[tuple[Path, str]] = []
     for directory in ("config/ingestion", "config/prompts", "config/models"):
@@ -372,6 +387,11 @@ def config_files(settings: Settings) -> list[tuple[Path, str]]:
         for source in sorted(cache.rglob("*")):
             if source.is_file() and not source.is_symlink():
                 selected.append((source, "generated/ocr_cache/" + source.relative_to(cache).as_posix()))
+    recordings = speech_audio_dir(settings)
+    if recordings.is_dir() and not recordings.is_symlink():
+        for source in sorted(recordings.rglob("*")):
+            if source.is_file() and not source.is_symlink():
+                selected.append((source, SPEECH_AUDIO + source.relative_to(recordings).as_posix()))
     update_record = settings.data_dir / "components" / "model-update-records.json"
     if update_record.is_file() and not update_record.is_symlink():
         selected.append((update_record, "components/model-update-records.json"))
@@ -486,7 +506,7 @@ def verify_backup(folder: Path) -> tuple[dict, dict[str, Path]]:
     )
     if any(
         name not in allowed
-        and not name.startswith(("config/ingestion/", "config/prompts/", "config/models/", "generated/ocr_cache/"))
+        and not name.startswith(("config/ingestion/", "config/prompts/", "config/models/", "generated/ocr_cache/", SPEECH_AUDIO))
         for name in verified
     ):
         raise BackupError("backup contains an unexpected payload path")
@@ -559,6 +579,9 @@ def validate_config_restore_targets(settings: Settings) -> None:
         target = config_root / name
         if target.is_symlink() or (target.exists() and not target.is_dir()):
             raise BackupError(f"refusing to restore config into a non-directory or symlink: {target}")
+    recordings = speech_audio_dir(settings)
+    if recordings.is_symlink() or (recordings.exists() and not recordings.is_dir()):
+        raise BackupError(f"refusing to restore recordings into a non-directory or symlink: {recordings}")
 
 
 def clear_config_restore_targets(settings: Settings) -> None:
@@ -586,6 +609,10 @@ def apply_backup(settings: Settings, folder: Path, manifest: dict, files: dict[s
     install_database(source_db, settings.db_path)
 
     clear_config_restore_targets(settings)
+    # The recordings must match the restored database rows: replace the folder, not merge into it.
+    recordings = speech_audio_dir(settings)
+    if recordings.is_dir():
+        shutil.rmtree(recordings)
     for relative, source_path in files.items():
         if relative.startswith("config/"):
             parts = PurePosixPath(relative).parts
@@ -595,6 +622,11 @@ def apply_backup(settings: Settings, folder: Path, manifest: dict, files: dict[s
         elif relative.startswith("generated/ocr_cache/"):
             cache = Path(os.environ.get("OCR_CACHE_HOST_PATH", settings.data_dir / "metadata" / "ocr_cache")).expanduser()
             destination = cache / Path(*PurePosixPath(relative).parts[2:])
+        elif relative.startswith(SPEECH_AUDIO):
+            parts = PurePosixPath(relative).parts[2:]
+            if not parts:
+                raise BackupError(f"unexpected recording path in backup: {relative}")
+            destination = recordings.joinpath(*parts)
         elif relative == "components/model-update-records.json":
             destination = settings.data_dir / relative
         else:
