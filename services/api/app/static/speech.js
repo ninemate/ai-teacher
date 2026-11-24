@@ -119,7 +119,7 @@
       line(f.tip);
       for (const r of f.rewordings) line("„" + r.original + "” → „" + r.suggestion + "” " + r.why);
       line("A hallgató kérdései", "h4");
-      line("Válaszolj rájuk gépelve, vagy készíts felvételt fent, és nyomd meg a kérdés Válasz gombját.");
+      line("Válaszolj rájuk gépelve, vagy készíts felvételt a mikrofonnal, és nyomd meg a kérdés Válasz gombját.");
       current.followups.questions.forEach((q, i) => {
         line(q.question, "h5");
         if (q.answer != null) {
