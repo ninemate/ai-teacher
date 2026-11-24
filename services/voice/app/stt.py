@@ -29,11 +29,19 @@ class AudioUnreadable(ValueError):
 
 
 @dataclass(frozen=True)
+class TranscriptSegment:
+    start: float
+    end: float
+    text: str
+
+
+@dataclass(frozen=True)
 class Transcript:
     text: str
     duration: float
     elapsed: float
     device: str
+    segments: tuple[TranscriptSegment, ...] = ()
 
 
 def _whisper_model(model_name: str, device: str, compute_type: str, cpu_threads: int) -> Any:
@@ -125,11 +133,14 @@ class Transcriber:
                 raise AudioUnreadable(str(exc)) from exc
             if info.duration > self.settings.stt_max_seconds:
                 raise AudioTooLong(f"{info.duration:.0f}s")
-            # Segments are produced lazily: the actual decoding happens while joining.
-            text = " ".join(segment.text.strip() for segment in segments).strip()
+            # Whisper produces timed segments lazily. Consume them once for both response shapes.
+            timed = tuple(
+                TranscriptSegment(float(segment.start), float(segment.end), segment.text.strip()) for segment in segments
+            )
+            text = " ".join(segment.text for segment in timed).strip()
             elapsed = time.perf_counter() - started
         self._schedule_unload()
-        return Transcript(text=text, duration=float(info.duration), elapsed=elapsed, device=self._device)
+        return Transcript(text=text, duration=float(info.duration), elapsed=elapsed, device=self._device, segments=timed)
 
     def _schedule_unload(self) -> None:
         if self.settings.stt_idle_unload_seconds <= 0:

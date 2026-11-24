@@ -29,7 +29,13 @@ https://{$TEACHER_PROXY_HOST:localhost} {
 	}
 
 	# Generous request cap for voice uploads; LLM answers can take minutes, so no response timeout.
-	request_body {
+	# Meeting recordings (audio or video) are streamed to disk by the API, which enforces its own 512 MB cap.
+	@meeting_upload path /meetings/jobs
+	request_body @meeting_upload {
+		max_size 512MB
+	}
+	@other_upload not path /meetings/jobs
+	request_body @other_upload {
 		max_size 100MB
 	}
 
