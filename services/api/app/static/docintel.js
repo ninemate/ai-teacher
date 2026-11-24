@@ -169,6 +169,10 @@
     if (!jobs.length) jobsEl.append(el("li", { class: "empty" }, "Még nincs feladat."));
     jobs.forEach((job) => jobsEl.append(jobItem(job)));
     const anyActive = jobs.some((job) => job.status === "queued" || job.status === "running");
+    if (window.Teacher) {
+      const active = jobs.filter((job) => job.status === "queued" || job.status === "running").length;
+      window.Teacher.activity.set("docintel", active ? { label: `Dokumentumelemzés: ${active} feladat fut`, href: "#/docs/docintel" } : null);
+    }
     if (anyActive && !timer) timer = window.setInterval(refresh, POLL_MS);
     if (!anyActive && timer) {
       window.clearInterval(timer);

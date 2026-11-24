@@ -178,6 +178,7 @@
         $("listen-voice").value = data.position.voice;
       }
       delete $("listen-text").dataset.section;
+      reportActivity();
       renderSectionList();
       renderOcrNote();
       renderBookmarks();
@@ -194,6 +195,7 @@
     pause();
     flushSave();
     doc = null;
+    reportActivity();
     texts.clear();
     clips.forEach((promise) => promise.then((url) => url && URL.revokeObjectURL(url)).catch(() => {}));
     clips.clear();
@@ -379,8 +381,17 @@
     prefetch(sectionIndex, segmentIndex, myToken);
   }
 
+  // Keep the open document visible (and one tap from resuming) while another mode is on screen.
+  function reportActivity() {
+    if (!window.Teacher) return;
+    window.Teacher.activity.set("listen", doc
+      ? { label: `${playing ? "Hallgatás" : "Hallgatás szünetel"}: ${doc.title}`, href: "#/library/listen" }
+      : null);
+  }
+
   function setPlayingState(value) {
     playing = value;
+    reportActivity();
     const button = $("listen-play");
     button.textContent = value ? "⏸" : "▶";
     button.setAttribute("aria-label", value ? "Szünet" : "Lejátszás");

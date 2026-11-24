@@ -1,0 +1,43 @@
+<div id="chat">
+  <section class="panel">
+    <label for="level">Magyarázati szint</label>
+    <select id="level">
+      <option value="beginner">Kezdő</option>
+      <option value="intermediate">Középhaladó</option>
+      <option value="advanced">Haladó</option>
+    </select>
+
+    <label for="question">Kérdés</label>
+    <textarea id="question" rows="5" placeholder="Például: Magyarázd el egyszerűen, mi a fotoszintézis."></textarea>
+
+    <div class="voice-row" id="dictation" hidden>
+      <button id="mic-button" type="button" class="secondary" hidden>🎙 Diktálás</button>
+      <label id="audio-file-label" class="button-like secondary" hidden>
+        🎙 Hangfelvétel feltöltése
+        <input id="audio-file" type="file" accept="audio/*" capture />
+      </label>
+      <p id="dictation-status" class="voice-status" role="status"></p>
+    </div>
+
+    <div class="actions">
+      <button id="ask-button" type="button">Kérdezés</button>
+      <button id="summary-button" type="button" class="secondary">Összefoglaló</button>
+      <button id="quiz-button" type="button" class="secondary">Mini kvíz</button>
+      <button id="flashcards-button" type="button" class="secondary">Villámkártyák</button>
+    </div>
+  </section>
+
+  <section class="panel output">
+    <h2>Válasz</h2>
+    <p id="grounding-notice" class="notice" role="status" hidden></p>
+    <div id="answer">Még nincs válasz.</div>
+    <div class="voice-row" id="read-aloud" hidden>
+      <button id="speak-button" type="button" class="secondary" disabled>🔊 Felolvasás</button>
+      <select id="voice-select" aria-label="Felolvasó hang"></select>
+      <p id="speak-status" class="voice-status" role="status"></p>
+      <audio id="answer-audio" controls hidden></audio>
+    </div>
+    <h3>Források</h3>
+    <ol id="sources" class="citations"></ol>
+  </section>
+</div>

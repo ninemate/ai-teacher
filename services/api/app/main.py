@@ -7,6 +7,7 @@ from typing import Literal
 from urllib.parse import quote
 
 import auth
+import ui_strings
 import httpx
 from docintel_routes import build_router as build_docintel_router
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -15,6 +16,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from listen_routes import build_router as build_listen_router
+from modes import assets as mode_assets
+from modes import visible_modes
 from listen_routes import start_periodic_sweep, sweep_orphans
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -45,6 +48,7 @@ login_limiter = auth.LoginRateLimiter(settings.teacher_login_max_attempts, setti
 app = FastAPI(title="teacher-agent-api", version="0.1.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
+templates.env.globals["t"] = ui_strings.t
 listen_cache = AudioCache(settings.listen_cache_dir, int(settings.listen_cache_max_mb * 1024 * 1024))
 
 
@@ -203,11 +207,19 @@ def _check_ollama_model() -> None:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     session = request.state.session
+    role = _identity(request)[1]
+    modes = visible_modes(role)
+    css_files, js_files = mode_assets(modes)
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
             "auth_enabled": settings.auth_enabled,
+            "role": role,
+            "modes": modes,
+            "css_files": css_files,
+            "js_files": js_files,
+            "shell_strings": ui_strings.shell_strings(),
             "username": session.username if session else None,
             "csrf_token": session.csrf_token if session else "",
             "default_level": "beginner",

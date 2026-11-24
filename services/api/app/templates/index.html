@@ -3,247 +3,74 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Teacher Agent</title>
+    <title>{{ t("app.title") }}</title>
     <meta name="csrf-token" content="{{ csrf_token }}" />
     <link rel="stylesheet" href="/static/style.css" />
-    <link rel="stylesheet" href="/static/study.css" />
-    <link rel="stylesheet" href="/static/docintel.css" />
-    <link rel="stylesheet" href="/static/listen.css" />
+    <link rel="stylesheet" href="/static/shell.css" />
+    {% for file in css_files %}<link rel="stylesheet" href="/static/{{ file }}" />
+    {% endfor %}
   </head>
-  <body>
+  <body data-role="{{ role or '' }}" data-app-title="{{ t('app.title') }}">
+    {#
+      Application shell. Modes, their sections and their assets come from app/modes.py (see its docstring for how
+      to add one): nothing below needs editing to add a feature.
+    #}
     <main class="shell">
-      {% if username %}
-      <nav class="topbar" aria-label="Fiók">
-        <span class="user">Bejelentkezve: <strong>{{ username }}</strong></span>
-        <button id="logout-button" type="button" class="link-button">Kijelentkezés</button>
+      <header class="appbar" id="appbar">
+        <a class="appbar-home" href="#/" id="appbar-home">{{ t("nav.back_home") }}</a>
+        <strong class="appbar-title" id="appbar-title"></strong>
+        {% if username %}
+        <span class="appbar-user">
+          <span class="user">{{ username }}</span>
+          <button id="logout-button" type="button" class="link-button">{{ t("account.logout") }}</button>
+        </span>
+        {% endif %}
+      </header>
+
+      <nav class="modebar" id="modebar" aria-label="{{ t('nav.modes') }}">
+        {% for mode in modes %}
+        <a href="#/{{ mode.id }}" data-mode-link="{{ mode.id }}">{{ mode.icon }} {{ t("mode." ~ mode.id ~ ".title") }}</a>
+        {% endfor %}
       </nav>
-      {% endif %}
-      <section class="hero">
-        <p class="eyebrow">Self-hosted teacher agent</p>
-        <h1>Magyar tanulósegéd a saját könyvtáradból</h1>
-        <p class="lead">
-          Kérdezz magyarul. A válasz a visszakeresett dokumentumrészletekre támaszkodik, és jelzi a forrásokat is.
-        </p>
+
+      <ul class="activity" id="activity" aria-label="{{ t('activity.label') }}" aria-live="polite" hidden></ul>
+
+      <section class="home" id="home" data-view="home">
+        <section class="hero">
+          <p class="eyebrow">{{ t("app.eyebrow") }}</p>
+          <h1>{{ t("home.title") }}</h1>
+          <p class="lead">{{ t("home.lead") }}</p>
+        </section>
+        <nav class="tiles" aria-label="{{ t('nav.modes') }}">
+          {% for mode in modes %}
+          <a class="tile{{ ' soon' if mode.soon }}" href="#/{{ mode.id }}" data-mode-link="{{ mode.id }}">
+            <span class="tile-icon" aria-hidden="true">{{ mode.icon }}</span>
+            <span class="tile-title">{{ t("mode." ~ mode.id ~ ".title") }}</span>
+            <span class="tile-summary">{{ t("mode." ~ mode.id ~ ".summary") }}</span>
+            {% if mode.soon %}<span class="tile-badge">{{ t("soon.badge") }}</span>{% endif %}
+          </a>
+          {% endfor %}
+        </nav>
       </section>
 
-      <section class="panel">
-        <label for="level">Magyarázati szint</label>
-        <select id="level">
-          <option value="beginner">Kezdő</option>
-          <option value="intermediate">Középhaladó</option>
-          <option value="advanced">Haladó</option>
-        </select>
-
-        <label for="question">Kérdés</label>
-        <textarea id="question" rows="5" placeholder="Például: Magyarázd el egyszerűen, mi a fotoszintézis."></textarea>
-
-        <div class="voice-row" id="dictation" hidden>
-          <button id="mic-button" type="button" class="secondary" hidden>🎙 Diktálás</button>
-          <label id="audio-file-label" class="button-like secondary" hidden>
-            🎙 Hangfelvétel feltöltése
-            <input id="audio-file" type="file" accept="audio/*" capture />
-          </label>
-          <p id="dictation-status" class="voice-status" role="status"></p>
-        </div>
-
-        <div class="actions">
-          <button id="ask-button" type="button">Kérdezés</button>
-          <button id="summary-button" type="button" class="secondary">Összefoglaló</button>
-          <button id="quiz-button" type="button" class="secondary">Mini kvíz</button>
-          <button id="flashcards-button" type="button" class="secondary">Villámkártyák</button>
-        </div>
+      {% for mode in modes %}
+      <section class="mode" id="mode-{{ mode.id }}" data-view="{{ mode.id }}" data-title="{{ t('mode.' ~ mode.id ~ '.title') }}" hidden>
+        <h1 class="mode-title" tabindex="-1">{{ mode.icon }} {{ t("mode." ~ mode.id ~ ".title") }}</h1>
+        {% for section in mode.sections %}{% include section.template %}
+        {% else %}
+        <section class="panel soon-panel">
+          <h2>{{ t("soon.title") }}</h2>
+          <p class="lead">{{ t("soon.body") }}</p>
+        </section>
+        {% endfor %}
       </section>
-
-      <section class="panel output">
-        <h2>Válasz</h2>
-        <p id="grounding-notice" class="notice" role="status" hidden></p>
-        <div id="answer">Még nincs válasz.</div>
-        <div class="voice-row" id="read-aloud" hidden>
-          <button id="speak-button" type="button" class="secondary" disabled>🔊 Felolvasás</button>
-          <select id="voice-select" aria-label="Felolvasó hang"></select>
-          <p id="speak-status" class="voice-status" role="status"></p>
-          <audio id="answer-audio" controls hidden></audio>
-        </div>
-        <h3>Források</h3>
-        <ol id="sources" class="citations"></ol>
-      </section>
-
-      <section class="panel study" id="study">
-        <h2>Tanulás</h2>
-        <p class="lead">Mentett kvízek és villámkártyák a könyvtárból. A kártyák az ismétlési ütemezés szerint jönnek elő.</p>
-
-        <details class="excluded-documents">
-          <summary>Kizárt dokumentumok</summary>
-          <p class="muted-text">A visszaállított fájl a következő indexelési futáskor kerül vissza.</p>
-          <ul id="excluded-documents-list" class="excluded-list" aria-live="polite">
-            <li>Betöltés...</li>
-          </ul>
-          <p id="excluded-documents-status" class="status" role="status"></p>
-        </details>
-
-        <label for="study-topic">Téma (nem kötelező, ha választasz dokumentumot)</label>
-        <input id="study-topic" type="text" placeholder="Például: a sejt felépítése" />
-
-        <details>
-          <summary>Dokumentumok kiválasztása</summary>
-          <div class="doc-list" id="study-docs">Betöltés...</div>
-        </details>
-
-        <label for="study-count">Darabszám (üresen: alapértelmezett)</label>
-        <input id="study-count" type="number" inputmode="numeric" min="1" max="30" />
-
-        <div class="actions">
-          <button id="study-gen-quiz" type="button" class="generate primary">Kvíz mentése</button>
-          <button id="study-gen-deck" type="button" class="generate primary">Kártyapakli mentése</button>
-        </div>
-        <p id="study-status" class="status" role="status"></p>
-
-        <div class="tabs" role="tablist">
-          <button type="button" class="secondary" role="tab" data-tab="quizzes" aria-selected="true">Kvízek</button>
-          <button type="button" class="secondary" role="tab" data-tab="decks" aria-selected="false">Kártyák</button>
-        </div>
-        <div id="study-list"></div>
-        <div id="study-session"></div>
-      </section>
-
-      <section class="panel docintel" id="docintel">
-        <h2>Dokumentumelemzés</h2>
-        <p class="lead">
-          Egy egész dokumentum feldolgozása a háttérben: összefoglaló, kigyűjtés, összehasonlítás, teendők, fordítás.
-          Minden eredmény a forrásfájlt és az oldalt vagy fejezetet is megmutatja. Helyi modellen fut, ezért percekig
-          vagy órákig is eltarthat; közben a kérdezés használható marad.
-        </p>
-
-        <label for="di-kind">Feladat</label>
-        <select id="di-kind">
-          <option value="summary">Összefoglaló (egész dokumentum)</option>
-          <option value="extract">Kigyűjtés táblázatba</option>
-          <option value="compare">Összehasonlítás és hiányelemzés</option>
-          <option value="tasks">Teendők és megoldási javaslatok</option>
-          <option value="translate">Fordítás (magyar ↔ angol)</option>
-        </select>
-
-        <label for="di-doc-a" id="di-doc-a-label">Dokumentum</label>
-        <select id="di-doc-a"></select>
-
-        <div id="di-doc-b-row" hidden>
-          <label for="di-doc-b">Összevetett dokumentum (B)</label>
-          <select id="di-doc-b"></select>
-        </div>
-
-        <div data-for="summary">
-          <label for="di-granularity">Részletesség</label>
-          <select id="di-granularity">
-            <option value="document">Az egész dokumentum egy összefoglalóban</option>
-            <option value="chapter">Fejezetenként (vagy oldaltartományonként)</option>
-          </select>
-        </div>
-
-        <fieldset data-for="extract" hidden>
-          <legend>Mit gyűjtsek ki?</legend>
-          <label class="check"><input type="checkbox" name="di-type" value="concept" checked /> Fogalmak</label>
-          <label class="check"><input type="checkbox" name="di-type" value="requirement" checked /> Követelmények</label>
-          <label class="check"><input type="checkbox" name="di-type" value="deadline" checked /> Határidők</label>
-          <label class="check"><input type="checkbox" name="di-type" value="obligation" checked /> Kötelezettségek</label>
-          <label class="check"><input type="checkbox" name="di-type" value="table" checked /> Táblázatok</label>
-        </fieldset>
-
-        <div data-for="compare" hidden>
-          <label for="di-mode">Mit keressek?</label>
-          <select id="di-mode">
-            <option value="diff">Eltérések a két dokumentum (verzió) között</option>
-            <option value="gap">Az A követelményei közül mi hiányzik a B-ből</option>
-          </select>
-        </div>
-
-        <div data-for="translate" hidden>
-          <label for="di-direction">Irány</label>
-          <select id="di-direction">
-            <option value="hu-en">Magyarról angolra</option>
-            <option value="en-hu">Angolról magyarra</option>
-          </select>
-          <p class="hint">A fordítás külön eredményként tárolódik, nem kerül a keresési indexbe. Kis modellel a minőség gyenge lehet.</p>
-        </div>
-
-        <div class="actions">
-          <button id="di-start" type="button" class="primary">Indítás</button>
-        </div>
-        <p id="di-status" class="status" role="status"></p>
-
-        <h3>Feladatok</h3>
-        <ul id="di-jobs" class="items"></ul>
-
-        <div id="di-result" class="di-result" hidden></div>
-      </section>
-
-      <section class="panel listen" id="listen">
-        <h2>Hallgatás</h2>
-        <p class="lead">A könyvtár dokumentumai felolvasva, szakaszonként. A hely mentődik, így bármelyik eszközön folytathatod.</p>
-        <p id="listen-voice-off" class="notice" role="status" hidden>
-          A felolvasás most nem elérhető: a hangszolgáltatás nincs bekapcsolva. A dokumentumok szövegét így is olvashatod itt, a többi funkció működik.
-        </p>
-
-        <div id="listen-library-view">
-          <ul id="listen-library" class="listen-library"></ul>
-          <details>
-            <summary>Dokumentum hozzáadása a listához</summary>
-            <label for="listen-doc-select">Dokumentum</label>
-            <select id="listen-doc-select"></select>
-            <button id="listen-add" type="button" class="primary">Hozzáadás</button>
-          </details>
-        </div>
-
-        <div id="listen-player" hidden>
-          <button id="listen-back" type="button" class="secondary">← Vissza a listához</button>
-          <h3 id="listen-title"></h3>
-          <p id="listen-ocr-note" class="notice" hidden></p>
-
-          <label for="listen-section">Szakasz</label>
-          <select id="listen-section"></select>
-
-          <div class="listen-controls">
-            <button id="listen-prev-section" type="button" class="secondary" aria-label="Előző szakasz">⏮</button>
-            <button id="listen-prev" type="button" class="secondary" aria-label="Előző részlet">⏪</button>
-            <button id="listen-play" type="button" class="primary" aria-label="Lejátszás">▶</button>
-            <button id="listen-next" type="button" class="secondary" aria-label="Következő részlet">⏩</button>
-            <button id="listen-next-section" type="button" class="secondary" aria-label="Következő szakasz">⏭</button>
-          </div>
-
-          <div class="listen-options">
-            <div>
-              <label for="listen-speed">Sebesség</label>
-              <select id="listen-speed">
-                <option value="0.75">0,75×</option>
-                <option value="1" selected>1×</option>
-                <option value="1.25">1,25×</option>
-                <option value="1.5">1,5×</option>
-                <option value="1.75">1,75×</option>
-                <option value="2">2×</option>
-              </select>
-            </div>
-            <div>
-              <label for="listen-voice">Hang</label>
-              <select id="listen-voice"></select>
-            </div>
-          </div>
-          <label class="check"><input id="listen-skip-low" type="checkbox" /> Bizonytalan OCR-szöveg kihagyása</label>
-          <p id="listen-status" class="voice-status" role="status"></p>
-          <progress id="listen-progress" max="1" value="0" aria-label="Haladás a szakaszban"></progress>
-
-          <div id="listen-text" class="listen-text" aria-live="off"></div>
-
-          <button id="listen-bookmark" type="button" class="secondary">🔖 Könyvjelző ide</button>
-          <ul id="listen-bookmarks" class="listen-bookmarks"></ul>
-          <audio id="listen-audio" preload="auto" hidden></audio>
-        </div>
-      </section>
+      {% endfor %}
     </main>
 
+    <script id="shell-strings" type="application/json">{{ shell_strings | tojson }}</script>
+    <script src="/static/shell.js" defer></script>
     <script src="/static/app.js" defer></script>
-    <script src="/static/study.js" defer></script>
-    <script src="/static/docintel.js" defer></script>
-    <script src="/static/voice.js" defer></script>
-    <script src="/static/listen.js" defer></script>
+    {% for file in js_files %}<script src="/static/{{ file }}" defer></script>
+    {% endfor %}
   </body>
 </html>
-
