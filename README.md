@@ -91,7 +91,8 @@ python -m pytest
 `make test-e2e` tries the whole stack with a small model and Hungarian fixtures; see [docs/local-dev.md](docs/local-dev.md#testing-the-whole-stack).
 
 CI runs Ruff, mypy, pytest with Hungarian and English OCR, the three image builds, and the container trial
-with live egress checks on GitHub-hosted runners. Pushes to `main` also trigger the self-hosted deploy job.
+with live egress checks on GitHub-hosted runners. The self-hosted deploy job runs only when
+started by hand on `main` with `deploy` enabled.
 See [CI coverage](docs/local-dev.md#ci-coverage).
 
 The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed. The voice tests mock Whisper and Piper;

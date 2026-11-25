@@ -11,6 +11,10 @@ on:
         description: Include the CPU voice round trip
         type: boolean
         default: false
+      deploy:
+        description: Deploy main to the self-hosted host (needs an online self-hosted runner)
+        type: boolean
+        default: false
 
 jobs:
   lint:
@@ -126,9 +130,12 @@ jobs:
         if: ${{ always() && hashFiles('.scratch/e2e/report.md') != '' }}
         run: cat .scratch/e2e/report.md >> "$GITHUB_STEP_SUMMARY"
 
+  # Manual only until a self-hosted runner and a deployment exist: on push it
+  # would sit queued for a runner that isn't there. Start the workflow by hand
+  # on main with `deploy` ticked.
   deploy:
     runs-on: [self-hosted, linux, x64]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.deploy
     needs: build
     steps:
       - uses: actions/checkout@v4

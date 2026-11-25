@@ -91,4 +91,5 @@ before probing external TCP and DNS from the private network. The job summary in
 
 The standard trial leaves GPU behavior, a mounted NAS and production chat model behavior untested.
 To add the CPU speech synthesis and transcription round trip, start the CI workflow manually with `voice` enabled.
-Deployment runs on the self-hosted runner on pushes to `main`.
+Deployment runs only by hand: start the workflow on `main` with `deploy` enabled. It needs an online self-hosted runner,
+so pushes to `main` don't queue it.
