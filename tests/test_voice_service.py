@@ -31,12 +31,14 @@ def voice(voice_main):
             timed = kwargs.get("word_timestamps")
             segments = iter([
                 SimpleNamespace(text=" Mi a fotoszintézis?", start=0.4, end=1.6,
-                                words=[SimpleNamespace(word=" Mi", start=0.4, end=0.6),
-                                       SimpleNamespace(word=" a", start=0.6, end=0.7),
-                                       SimpleNamespace(word=" fotoszintézis?", start=0.7, end=1.6)] if timed else None),
+                                words=[SimpleNamespace(word=" Mi", start=0.4, end=0.6, probability=0.8),
+                                       SimpleNamespace(word=" a", start=0.6, end=0.7, probability=0.9),
+                                       SimpleNamespace(word=" fotoszintézis?", start=0.7, end=1.6, probability=1.0)]
+                                if timed else None),
                 SimpleNamespace(text=" Magyarázd el! ", start=2.5, end=3.0,
-                                words=[SimpleNamespace(word=" Magyarázd", start=2.5, end=2.8),
-                                       SimpleNamespace(word=" el!", start=2.8, end=3.0)] if timed else None),
+                                words=[SimpleNamespace(word=" Magyarázd", start=2.5, end=2.8, probability=0.7),
+                                       SimpleNamespace(word=" el!", start=2.8, end=3.0, probability=0.6)]
+                                if timed else None),
             ])
             return segments, SimpleNamespace(duration=duration)
 
@@ -305,3 +307,15 @@ def test_real_piper_and_whisper_round_trip(voice_main, tmp_path):
     assert "szintéz" in text
     assert "6 darab" in text
     assert "molekul" in text
+
+
+def test_tutor_voice_returns_measured_feedback(voice):
+    response = voice.client.post(
+        "/voice/transcribe", data={"language": "en", "measure": "true"}, files={"audio": ("sample.wav", b"audio")}
+    )
+    assert response.status_code == 200
+    assert voice.models[0].calls[0]["language"] == "en"
+    assert voice.models[0].calls[0]["word_timestamps"]
+    assert response.json()["acoustics"] == {
+        "duration": 3.2, "words_per_minute": 115, "pause_count": 1, "mean_word_probability": 0.8
+    }

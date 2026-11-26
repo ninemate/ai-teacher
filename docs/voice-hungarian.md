@@ -100,7 +100,7 @@ docker compose --env-file .env -f compose/docker-compose.yml -f compose/docker-c
 | `VOICE_STT_MAX_SECONDS` | `120` | longer recordings are refused (`413`) |
 | `VOICE_STT_GPU_IDLE_UNLOAD_SECONDS` | `300` | GPU overlay only |
 | `VOICE_TTS_BACKEND` | `piper` | `disabled` turns read-aloud off |
-| `VOICE_TTS_VOICES` | `hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium` | baked in at build time; the first is the default |
+| `VOICE_TTS_VOICES` | `hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium,en_US-lessac-medium` | baked in at build time; the first is the default |
 | `VOICE_TTS_LENGTH_SCALE` | `1.0` | above 1 speaks slower, e.g. `1.15` for slower listening |
 | `VOICE_TTS_MAX_CHARS` | `6000` | longer text is refused (`413`) |
 | `VOICE_MAX_UPLOAD_MB` | `15` | upload limit, enforced by both the API and the voice service |
@@ -115,10 +115,10 @@ The voice service listens only on the internal Compose network (`expose`, no pub
 | Method | Path | Body | Answer |
 | --- | --- | --- | --- |
 | GET | `/voice/status` | | `{available, stt, tts, voices, default_voice, max_seconds, max_chars}`. `available: false` when the overlay is not running. |
-| POST | `/voice/transcribe` | multipart `audio` (webm, ogg, mp4/m4a, mp3, wav, flac) | `{text, language: "hu", duration, elapsed, model, segments: [{start, end, text, words}]}` |
+| POST | `/voice/transcribe` | multipart `audio` (webm, ogg, mp4/m4a, mp3, wav, flac), optional `language` (`hu` default, `en`), `measure` (`true` adds `acoustics`) and `words` (`true` adds per-word times to `segments`) | `{text, language, duration, elapsed, model, segments: [{start, end, text, words}], acoustics?}` |
 | POST | `/voice/speak` | `{text, voice?}` | `audio/mpeg` (64 kbit/s mono MP3; about a tenth of the WAV size) |
 
-The voice service itself also takes the form fields `language` (`hu` by default, or `en`) and `words` (`true` adds per-word `{start, end, word}` times to each segment; it costs some speed, so only speaking practice asks for it). The API's speaking-practice routes use these to measure pace and pauses.
+Per-word `{start, end, word}` times cost some speed, so only speaking practice asks for them; its routes use them to measure pace and pauses.
 
 Errors keep the voice service's status and Hungarian message:
 

@@ -50,6 +50,7 @@ class Transcript:
     elapsed: float
     device: str
     segments: tuple[TranscriptSegment, ...] = ()
+    acoustics: dict | None = None
 
 
 def _whisper_model(model_name: str, device: str, compute_type: str, cpu_threads: int) -> Any:
@@ -122,7 +123,9 @@ class Transcriber:
                     raise
                 logger.warning("Loading STT model on %s failed, falling back to CPU: %s", device, exc)
 
-    def transcribe(self, audio_path: Path, language: str = "hu", words: bool = False) -> Transcript:
+    def transcribe(
+        self, audio_path: Path, language: str = "hu", measure: bool = False, words: bool = False
+    ) -> Transcript:
         with self._lock:
             if self._model is None:
                 self._load()
@@ -131,18 +134,19 @@ class Transcriber:
                 segments, info = self._model.transcribe(
                     str(audio_path),
                     language=language,
+                    word_timestamps=measure or words,
                     task="transcribe",
                     beam_size=self.settings.stt_beam_size,
                     vad_filter=True,
                     condition_on_previous_text=False,
-                    word_timestamps=words,
                 )
             except ValueError as exc:
                 # PyAV's InvalidDataError (a ValueError) for files it cannot decode, empty uploads included.
                 raise AudioUnreadable(str(exc)) from exc
             if info.duration > self.settings.stt_max_seconds:
                 raise AudioTooLong(f"{info.duration:.0f}s")
-            # Whisper produces timed segments lazily. Consume them once for both response shapes.
+            # Whisper produces timed segments lazily: the decoding happens here, once, for every response shape.
+            decoded = list(segments)
             timed = tuple(
                 TranscriptSegment(
                     float(segment.start),
@@ -151,14 +155,35 @@ class Transcriber:
                     tuple(
                         TranscriptWord(float(w.start), float(w.end), w.word.strip())
                         for w in (getattr(segment, "words", None) or [])
-                    ),
+                    )
+                    if words
+                    else (),
                 )
-                for segment in segments
+                for segment in decoded
             )
             text = " ".join(segment.text for segment in timed).strip()
+            acoustics = None
+            if measure:
+                spoken = [word for segment in decoded for word in (segment.words or [])]
+                acoustics = {"duration": round(info.duration, 2)}
+                # Pace over the speech itself: leading waits and the trailing end-of-speech silence don't count.
+                span = spoken[-1].end - spoken[0].start if spoken else 0
+                if span > 0:
+                    acoustics.update({
+                        "words_per_minute": round(60 * len(spoken) / span),
+                        "pause_count": sum(b.start - a.end >= 0.5 for a, b in zip(spoken, spoken[1:], strict=False)),
+                        "mean_word_probability": round(sum(word.probability for word in spoken) / len(spoken), 3),
+                    })
             elapsed = time.perf_counter() - started
         self._schedule_unload()
-        return Transcript(text=text, duration=float(info.duration), elapsed=elapsed, device=self._device, segments=timed)
+        return Transcript(
+            text=text,
+            duration=float(info.duration),
+            elapsed=elapsed,
+            device=self._device,
+            segments=timed,
+            acoustics=acoustics,
+        )
 
     def _schedule_unload(self) -> None:
         if self.settings.stt_idle_unload_seconds <= 0:

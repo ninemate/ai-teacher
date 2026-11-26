@@ -95,12 +95,13 @@ class Synthesizer:
         return self._voices[name]
 
     def synthesize(self, text: str, voice: str | None = None, audio_format: AudioFormat = "mp3") -> bytes:
-        spoken = prepare_for_speech(text)
+        name = voice or self.default_voice
+        spoken = prepare_for_speech(text, hungarian=name.lower().startswith("hu"))
         if not spoken:
             raise NothingToSay()
         buffer = io.BytesIO()
         with self._lock:
-            speaker = self._voice(voice or self.default_voice)
+            speaker = self._voice(name)
             with wave.open(buffer, "wb") as wav_file:
                 speaker.synthesize(spoken, wav_file, self.settings.tts_length_scale)
         wav_bytes = buffer.getvalue()
