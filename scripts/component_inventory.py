@@ -340,7 +340,7 @@ def model_rows(settings: backup_restore.Settings) -> tuple[list[dict], str]:
             "location": "voice image cache when voice is enabled",
         }
     )
-    voices = runtime_values.get("VOICE_TTS_VOICES", "hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium")
+    voices = runtime_values.get("VOICE_TTS_VOICES", "hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium,en_US-lessac-medium")
     voice_names = [item.strip() for item in voices.split(",") if item.strip()]
     piper_files = piper_model_files(settings, voice_names)
     for voice in voice_names:

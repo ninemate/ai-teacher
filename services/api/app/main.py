@@ -28,6 +28,7 @@ from teacher_common.embeddings import embed_query, warmup_embeddings
 from teacher_common.models import DocumentRecord, ExcludedDocument, IngestRun, OcrRecord, Workspace, WorkspaceShare
 from teacher_common.qdrant_store import ensure_collection, scroll_document, search
 from teacher_common.workspaces import accessible_workspace_ids, ensure_personal_workspace
+from tutor_routes import build_router as build_tutor_router
 
 APP_DIR = Path(__file__).resolve().parent
 PUBLIC_PATHS = {"/health", "/login"}
@@ -643,7 +644,9 @@ def voice_status():
 
 
 @app.post("/voice/transcribe")
-def voice_transcribe(audio: UploadFile = File(...)):
+def voice_transcribe(
+    audio: UploadFile = File(...), language: Literal["hu", "en"] = Form("hu"), measure: bool = Form(False)
+):
     limit = int(settings.voice_max_upload_mb * 1024 * 1024)
     content = audio.file.read(limit + 1)
     if len(content) > limit:
@@ -657,6 +660,7 @@ def voice_transcribe(audio: UploadFile = File(...)):
         "/voice/transcribe",
         timeout=settings.voice_timeout_seconds,
         files={"audio": (f"audio{suffix}", content, audio.content_type or "application/octet-stream")},
+        data={"language": language, "measure": str(measure).lower()},
     )
     return response.json()
 
@@ -780,6 +784,12 @@ app.include_router(
         llm=lambda prompt, json_mode: call_ollama(prompt, json_mode=json_mode),
     ),
 )
+
+
+app.include_router(build_tutor_router(
+    retrieve=lambda query, top_k, sources, allowed: retrieve_sources(query, top_k, sources, allowed),
+    llm=lambda prompt, json_mode: call_ollama(prompt, json_mode=json_mode),
+))
 
 
 # Whole-document jobs (/docintel/...): a single background worker, so one model job runs at a time.

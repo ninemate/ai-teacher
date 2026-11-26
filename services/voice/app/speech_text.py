@@ -31,7 +31,7 @@ def _expand(replacement: str, match: re.Match[str]) -> str:
     return replacement[0].upper() + replacement[1:] if match.group(0)[:1].isupper() else replacement
 
 
-def prepare_for_speech(text: str) -> str:
+def prepare_for_speech(text: str, hungarian: bool = True) -> str:
     """Strip Markdown, expand the abbreviations espeak-ng misreads, and end every line with punctuation."""
     text = _CODE_FENCE.sub("", text)
     text = _LINK.sub(r"\1", text)
@@ -41,7 +41,7 @@ def prepare_for_speech(text: str) -> str:
     text = _LINE_MARKERS.sub("", text)
     text = _EMPHASIS.sub("", text)
     text = re.sub(r"[ \t]*\|[ \t]*", ", ", text)
-    for pattern, replacement in ABBREVIATIONS:
+    for pattern, replacement in ABBREVIATIONS if hungarian else []:
         text = pattern.sub(partial(_expand, replacement), text)
 
     lines = []
