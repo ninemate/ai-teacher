@@ -30,15 +30,15 @@ def voice(voice_main):
             duration = 600.0 if data == b"long" else 3.2
             timed = kwargs.get("word_timestamps")
             segments = iter([
-                SimpleNamespace(text=" Mi a fotoszintézis?", start=0.4, end=1.6,
-                                words=[SimpleNamespace(word=" Mi", start=0.4, end=0.6, probability=0.8),
-                                       SimpleNamespace(word=" a", start=0.6, end=0.7, probability=0.9),
-                                       SimpleNamespace(word=" fotoszintézis?", start=0.7, end=1.6, probability=1.0)]
-                                if timed else None),
-                SimpleNamespace(text=" Magyarázd el! ", start=2.5, end=3.0,
-                                words=[SimpleNamespace(word=" Magyarázd", start=2.5, end=2.8, probability=0.7),
-                                       SimpleNamespace(word=" el!", start=2.8, end=3.0, probability=0.6)]
-                                if timed else None),
+                SimpleNamespace(start=0.15, end=1.85, text=" Mi a fotoszintézis?", words=[
+                    SimpleNamespace(word=" Mi", start=0.1, end=0.5, probability=0.8),
+                    SimpleNamespace(word=" a", start=0.6, end=0.8, probability=0.9),
+                    SimpleNamespace(word=" fotoszintézis?", start=0.8, end=1.0, probability=1.0),
+                ] if timed else None),
+                SimpleNamespace(start=2.0, end=3.2, text=" Magyarázd el! ", words=[
+                    SimpleNamespace(word=" Magyarázd", start=2.0, end=2.4, probability=0.7),
+                    SimpleNamespace(word=" el!", start=2.4, end=2.7, probability=0.6),
+                ] if timed else None),
             ])
             return segments, SimpleNamespace(duration=duration)
 
@@ -108,6 +108,10 @@ def test_transcribe_forces_hungarian_and_joins_segments(voice):
     assert body["text"] == "Mi a fotoszintézis? Magyarázd el!"
     assert body["language"] == "hu"
     assert body["duration"] == 3.2
+    assert body["segments"] == [
+        {"start": 0.15, "end": 1.85, "text": "Mi a fotoszintézis?", "words": []},
+        {"start": 2.0, "end": 3.2, "text": "Magyarázd el!", "words": []},
+    ]
     (model,) = voice.models
     assert model.compute_type == "int8"
     call = model.calls[0]
@@ -134,7 +138,7 @@ def test_transcribe_returns_timed_segments_and_words_on_request(voice):
     plain = voice.client.post("/voice/transcribe", files={"audio": ("a.webm", b"opus", "audio/webm")}).json()
     assert plain["text"] == "Mi a fotoszintézis? Magyarázd el!"
     assert [(s["start"], s["end"], s["text"]) for s in plain["segments"]] == [
-        (0.4, 1.6, "Mi a fotoszintézis?"), (2.5, 3.0, "Magyarázd el!")]
+        (0.15, 1.85, "Mi a fotoszintézis?"), (2.0, 3.2, "Magyarázd el!")]
     assert plain["segments"][0]["words"] == [] and voice.models[0].calls[-1]["word_timestamps"] is False
     timed = voice.client.post(
         "/voice/transcribe", files={"audio": ("a.webm", b"opus", "audio/webm")}, data={"words": "true"}

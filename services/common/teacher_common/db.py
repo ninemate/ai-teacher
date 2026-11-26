@@ -20,6 +20,7 @@ def init_db() -> None:
     from teacher_common import (  # noqa: F401
         docintel_models,
         listen_models,
+        meeting_models,
         models,
         speech_models,
         study_models,
