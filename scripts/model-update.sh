@@ -63,16 +63,14 @@ model_digest() {
 }
 
 update_stamp=$(date -u +%Y%m%dT%H%M%SZ)
-data_dir=$(python3 - "$env_file" <<'PY'
+data_dir=$(PYTHONPATH="$script_dir" python3 - "$env_file" <<'PY'
+import os
 from pathlib import Path
 import sys
 
-for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
-    if line.strip().startswith("TEACHER_DATA_DIR="):
-        print(line.split("=", 1)[1].strip().strip("\"'"))
-        break
-else:
-    print("/srv/teacher-agent")
+from backup_restore import read_env_file
+
+print(os.environ.get("TEACHER_DATA_DIR", read_env_file(Path(sys.argv[1])).get("TEACHER_DATA_DIR", "/srv/teacher-agent")))
 PY
 )
 model_updates_file=$data_dir/components/model-update-records.json
