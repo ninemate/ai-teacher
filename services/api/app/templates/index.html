@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="stylesheet" href="/static/admin.css" />
     <link rel="stylesheet" href="/static/study.css" />
+    <link rel="stylesheet" href="/static/tutor.css" />
     <link rel="stylesheet" href="/static/docintel.css" />
     <link rel="stylesheet" href="/static/listen.css" />
   </head>
@@ -68,6 +69,8 @@
         <h3>Források</h3>
         <ol id="sources" class="citations"></ol>
       </section>
+
+      {% include "sections/tutor.html" %}
 
       <section class="panel study" id="study">
         <h2>Tanulás</h2>
@@ -244,6 +247,8 @@
 
     <script src="/static/admin.js" defer></script>
     <script src="/static/app.js" defer></script>
+    <script src="/static/tutor-voice.js" defer></script>
+    <script src="/static/tutor.js" defer></script>
     <script src="/static/study.js" defer></script>
     <script src="/static/docintel.js" defer></script>
     <script src="/static/voice.js" defer></script>

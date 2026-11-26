@@ -2,7 +2,7 @@ COMPOSE_BASE=docker compose --env-file .env -f compose/docker-compose.yml
 COMPOSE_DEV=$(COMPOSE_BASE) -f compose/docker-compose.dev.yml -f compose/docker-compose.proxy.yml
 COMPOSE_VOICE=$(COMPOSE_DEV) -f compose/docker-compose.voice.example.yml
 
-.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test check-library test-chat test-ingest ingest-now hash-password model-update backup restore inventory test-backup-restore test-egress test-e2e eval-models
+.PHONY: dev-up dev-up-voice dev-down dev-logs deploy-dev deploy-prod healthcheck reindex compose-config nvidia-check test check-library test-chat test-ingest ingest-now hash-password model-update backup restore inventory test-backup-restore test-egress test-e2e eval-models acceptance
 
 dev-up:
 	$(COMPOSE_DEV) up -d --build
@@ -97,6 +97,14 @@ test-egress:
 # `scripts/e2e.sh --voice` adds the voice round trip, `--native` runs without containers (proves less).
 test-e2e:
 	bash scripts/e2e.sh
+
+# Automated acceptance subset that needs no running stack; see docs/acceptance.md.
+ACCEPTANCE_TESTS = tests/test_e2e_flow.py tests/test_docintel.py tests/test_citations.py tests/test_ocr.py \
+	tests/test_document_isolation.py tests/test_qdrant_workspace_filter.py tests/test_api_auth.py \
+	tests/test_listening.py tests/test_listen_api.py tests/test_backup_restore.py
+acceptance:
+	python -m pytest -q $(ACCEPTANCE_TESTS)
+	bash scripts/test-egress-block.sh --config-only
 
 # Prints an argon2 hash for TEACHER_AUTH_USERS.
 hash-password:
