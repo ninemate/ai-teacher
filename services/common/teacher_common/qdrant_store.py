@@ -5,6 +5,7 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import (
+    Condition,
     Distance,
     FieldCondition,
     Filter,
@@ -63,7 +64,7 @@ def upsert_points(points: Sequence[PointStruct]) -> None:
 
 def delete_points_for_source(source_path: str, workspace_id: str | None = None) -> None:
     client = get_client()
-    conditions = [FieldCondition(key="source_path", match=MatchValue(value=source_path))]
+    conditions: list[Condition] = [FieldCondition(key="source_path", match=MatchValue(value=source_path))]
     if workspace_id is not None:
         workspace_match = FieldCondition(key="workspace_id", match=MatchValue(value=workspace_id))
         if workspace_id == "legacy":
@@ -104,7 +105,7 @@ def search(
     if not workspace_ids:
         return []
     client = get_client()
-    conditions = [FieldCondition(key="workspace_id", match=MatchAny(any=sorted(workspace_ids)))]
+    conditions: list[Condition] = [FieldCondition(key="workspace_id", match=MatchAny(any=sorted(workspace_ids)))]
     if source_paths:
         conditions.append(FieldCondition(key="source_path", match=MatchAny(any=source_paths)))
     return client.search(
