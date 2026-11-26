@@ -41,9 +41,10 @@ def get_job(session: Session, username: str, job_id: str) -> MeetingJob | None:
 def result(session: Session, job: MeetingJob) -> dict:
     notes = job.notes
     if notes is not None:
-        names = dict(session.execute(
+        rows = session.execute(
             select(MeetingAssignment.action_id, MeetingAssignment.name).where(MeetingAssignment.meeting_id == job.id)
-        ).all())
+        ).all()
+        names: dict[int, str] = {action_id: name for action_id, name in rows}
         notes = {**notes, "actions": [
             {**item, "id": index, "assignee": names.get(index)}
             for index, item in enumerate(notes["actions"], start=1)

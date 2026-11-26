@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import time
 import wave
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,8 +71,8 @@ class AudioDecoder:
                 rate, channels, width = audio.getframerate(), audio.getnchannels(), audio.getsampwidth()
                 # Even uncommon multichannel or high-rate WAVs stay within the voice service's upload limit.
                 frames = max(1, min(int(seconds * rate), WAV_CHUNK_BYTES // (channels * width)))
-                pcm = iter(lambda: audio.readframes(frames), b"")
-                yield from self._wav_chunks(pcm, rate, channels, width)
+                blocks = iter(lambda: audio.readframes(frames), b"")
+                yield from self._wav_chunks(blocks, rate, channels, width)
 
     @staticmethod
     def _wav_chunks(pcm: Iterator[bytes], rate: int, channels: int, width: int) -> Iterator[AudioChunk]:
@@ -88,7 +88,7 @@ class AudioDecoder:
             yield AudioChunk(offset, duration, output.getvalue())
             offset += duration
 
-    def _pcm(self, source: Path, chunk_bytes: int, check_cancel: Callable[[], None]) -> Iterator[bytes]:
+    def _pcm(self, source: Path, chunk_bytes: int, check_cancel: Callable[[], None]) -> Generator[bytes, None, None]:
         assert self.ffmpeg is not None
         command = [
             self.ffmpeg, "-nostdin", "-v", "error", "-xerror", *PROBE_OPTIONS,
