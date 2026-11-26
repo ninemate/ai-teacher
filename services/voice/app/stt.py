@@ -29,12 +29,20 @@ class AudioUnreadable(ValueError):
 
 
 @dataclass(frozen=True)
+class TranscriptSegment:
+    start: float
+    end: float
+    text: str
+
+
+@dataclass(frozen=True)
 class Transcript:
     text: str
     duration: float
     elapsed: float
     device: str
     language: str = "hu"
+    segments: tuple[TranscriptSegment, ...] = ()
     acoustics: dict | None = None
 
 
@@ -131,9 +139,12 @@ class Transcriber:
                 raise AudioUnreadable(str(exc)) from exc
             if info.duration > self.settings.stt_max_seconds:
                 raise AudioTooLong(f"{info.duration:.0f}s")
-            # Segments are produced lazily: the actual decoding happens while joining.
+            # Segments are produced lazily: the actual decoding happens here, once for every response shape.
             decoded = list(segments)
-            text = " ".join(segment.text.strip() for segment in decoded).strip()
+            timed = tuple(
+                TranscriptSegment(float(segment.start), float(segment.end), segment.text.strip()) for segment in decoded
+            )
+            text = " ".join(segment.text for segment in timed).strip()
             acoustics = None
             if measure:
                 words = [word for segment in decoded for word in (segment.words or [])]
@@ -155,6 +166,7 @@ class Transcriber:
             elapsed=elapsed,
             device=self._device,
             language=detected,
+            segments=timed,
             acoustics=acoustics,
         )
 

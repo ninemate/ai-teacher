@@ -141,3 +141,14 @@ class WorkspaceShare(Base):
     permission = Column(String(16), nullable=False, default="read")
 
     workspace = relationship("Workspace", back_populates="shares")
+
+
+class AuditEvent(Base):
+    """Append-only security event; retention pruning is the sole deletion path."""
+    __tablename__ = "audit_events"
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(Integer, nullable=False, index=True)
+    event = Column(String(64), nullable=False, index=True)
+    actor = Column(String(64), nullable=True, index=True)
+    target = Column(String(256), nullable=True)
+    source_ip = Column(String(64), nullable=True)

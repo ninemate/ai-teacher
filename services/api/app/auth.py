@@ -16,6 +16,7 @@ from collections import deque
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+import audit
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import Request, Response
@@ -62,7 +63,9 @@ def create_session(username: str, password_hash: str, ttl_seconds: int, role: st
     csrf_token = secrets.token_urlsafe(32)
     now = int(time.time())
     with session_scope() as db:
-        db.execute(delete(AuthSession).where(AuthSession.expires_at <= now))
+        for expired in db.execute(select(AuthSession).where(AuthSession.expires_at <= now)).scalars():
+            audit.record(db, "session.expired", expired.username)
+            db.delete(expired)
         db.add(
             AuthSession(
                 token_hash=_token_hash(token),
@@ -76,7 +79,7 @@ def create_session(username: str, password_hash: str, ttl_seconds: int, role: st
     return token, SessionInfo(username=username, csrf_token=csrf_token, role=role)
 
 
-def load_session(token: str | None, users: dict[str, str], admins: set[str] | None = None) -> SessionInfo | None:
+def load_session(token: str | None, users: dict[str, str], admins: set[str] | None = None, ip: str | None = None) -> SessionInfo | None:
     if not token:
         return None
     with session_scope() as db:
@@ -85,6 +88,7 @@ def load_session(token: str | None, users: dict[str, str], admins: set[str] | No
             return None
         stored = users.get(row.username)
         if row.expires_at <= int(time.time()) or stored is None or row.credential_tag != credential_tag(stored):
+            audit.record(db, "session.expired" if row.expires_at <= int(time.time()) else "session.revoked", row.username, ip=ip)
             db.delete(row)
             return None
         return SessionInfo(username=row.username, csrf_token=row.csrf_token,

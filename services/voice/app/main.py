@@ -112,6 +112,7 @@ async def transcribe_audio(
         "duration": round(result.duration, 2),
         "elapsed": round(result.elapsed, 2),
         "model": settings.stt_model,
+        "segments": result.segments,
     }
 
 

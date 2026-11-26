@@ -21,6 +21,7 @@ def init_db() -> None:
         docintel_models,
         interpreter_models,
         listen_models,
+        meeting_models,
         models,
         study_models,
         tutor_models,

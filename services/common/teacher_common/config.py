@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     teacher_auth_users_file: str = Field(default="", alias="TEACHER_AUTH_USERS_FILE")
     teacher_auth_admins: str = Field(default="", alias="TEACHER_AUTH_ADMINS")
     teacher_auth_disabled: bool = Field(default=False, alias="TEACHER_AUTH_DISABLED")
+    audit_retention_days: int = Field(default=365, ge=0, alias="AUDIT_RETENTION_DAYS")
     teacher_session_ttl_hours: int = Field(default=720, ge=1, alias="TEACHER_SESSION_TTL_HOURS")
     teacher_cookie_secure: Literal["auto", "true", "false"] = Field(default="auto", alias="TEACHER_COOKIE_SECURE")
     teacher_login_max_attempts: int = Field(default=10, ge=1, alias="TEACHER_LOGIN_MAX_ATTEMPTS")
@@ -107,6 +108,8 @@ class Settings(BaseSettings):
     interpreter_latency_log: str = Field(
         default="/data/metadata/interpreter_latency.jsonl", alias="INTERPRETER_LATENCY_LOG"
     )
+    # Meetingek: uploaded recordings wait here (private, deleted once processed) until the background worker reads them.
+    meetings_upload_dir: str = Field(default="/data/metadata/meeting_uploads", alias="MEETINGS_UPLOAD_DIR")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
     ocr_dpi: int = Field(default=300, alias="OCR_DPI")
     ocr_language: str = Field(default="hun+eng", alias="OCR_LANGUAGE")
