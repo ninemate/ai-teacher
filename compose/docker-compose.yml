@@ -42,6 +42,7 @@ services:
       args:
         # Baked into the image, and the running service is offline: change it and rebuild to switch.
         EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+        TORCH_CPU: ${TORCH_CPU:-false}
     restart: unless-stopped
     networks: [private]
     depends_on:
@@ -111,6 +112,7 @@ services:
       dockerfile: services/ingestion/Dockerfile
       args:
         EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+        TORCH_CPU: ${TORCH_CPU:-false}
     restart: unless-stopped
     networks: [private]
     depends_on:
