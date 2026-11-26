@@ -90,8 +90,10 @@ python -m pytest
 
 `make test-e2e` tries the whole stack with a small model and Hungarian fixtures; see [docs/local-dev.md](docs/local-dev.md#testing-the-whole-stack).
 
-CI (`.github/workflows/ci.yml`) installs both services' requirements and runs `ruff check services/`,
-`mypy --ignore-missing-imports services/` and `pytest`, then builds the images and deploys `main` to the self-hosted deploy target.
+CI runs Ruff, mypy, pytest with Hungarian and English OCR, the three image builds, and the container trial
+with live egress checks on GitHub-hosted runners. The self-hosted deploy job runs only when
+started by hand on `main` with `deploy` enabled.
+See [CI coverage](docs/local-dev.md#ci-coverage).
 
 The study tests use a mocked LLM and retriever; no Ollama or Qdrant is needed. The voice tests mock Whisper and Piper;
 a real Piper-to-Whisper round trip runs when `VOICE_TEST_PIPER_DIR` points to downloaded voices (see `docs/voice-hungarian.md`). The OCR tests mock Tesseract;

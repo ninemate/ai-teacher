@@ -112,6 +112,8 @@ def stack(api_main, ingestion_main, tmp_path, monkeypatch):
     store.ensure_collection()
     documents = _load_real("documents")
     monkeypatch.setitem(sys.modules, "teacher_common.qdrant_store", store)
+    # Real OCR (when Tesseract has Hungarian, as in CI) imports normalize_text from here lazily.
+    monkeypatch.setitem(sys.modules, "teacher_common.documents", documents)
 
     monkeypatch.setattr(settings, "library_path", str(library))
     monkeypatch.setattr(settings, "ocr_cache_dir", str(tmp_path / "ocr"))
