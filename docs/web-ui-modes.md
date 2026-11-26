@@ -7,14 +7,14 @@ button work:
 - `#/` home
 - `#/<mode>` a mode, for example `#/docs`
 - `#/<mode>/<section id>` a mode scrolled to one section, for example `#/library/listen`
-- Existing `#di-job=<id>` and `#listen-<id>` links open the result or document in its mode.
+- Existing `#di-job=<id>`, `#listen-<id>` and `#meeting=<id>` links open the result or document in its mode.
   The sign-in form carries the requested fragment through authentication.
 
 Modes: `chat` (Beszélgetés), `study` (Tanulás és beszéd), `docs` (Dokumentumok), `media` (Média), `interpreter`
 (Tolmács), `meetings` (Meetingek), `library` (Könyvtár), `admin` (Admin, admin role only). A mode without a section
 shows a "Hamarosan" placeholder.
 
-Where the existing panels went: chat to Beszélgetés; study and the Language Tutor to Tanulás és beszéd; Document Intelligence to
+Where the existing panels went: chat to Beszélgetés; study and the Language Tutor to Tanulás és beszéd; meeting transcripts to Meetingek; the admin panel (with the indexing status) to Admin; own sessions to the Fiók screen (`#/account`, opened from the user name in the header, no home tile); Document Intelligence to
 Dokumentumok; read-aloud (listen) and the excluded-documents list to Könyvtár, because both work on the indexed
 library itself, while Média is kept for audio and image material that is not a library document.
 
@@ -35,6 +35,8 @@ Everything is registered in `services/api/app/modes.py`; index.html needs no edi
 2. One `Section("<id>", "<mode id>", "sections/<id>.html", css=(...), js=(...))` line in `SECTIONS`.
 3. A new mode: a `Mode(...)` line in `MODES` plus `mode.<id>.title` / `mode.<id>.summary` in `ui_strings.py`.
 4. Admin-only modes set `admin_only=True`; the routes must still call `_require_admin`.
+   A mode with `tile=False` has no home tile (it needs a link of its own); a section with `signed_in=True` is
+   left out when there is no session.
 
 Scripts may use `window.Teacher` (`activity.set`, `go`, `onShow`), documented at the top of `static/shell.js`.
 

@@ -16,6 +16,10 @@ Add a mode: a ``Mode(...)`` line in ``MODES`` (title and summary strings go in u
 ``mode.<id>.title`` / ``mode.<id>.summary``). A mode with no section shows the "hamarosan" placeholder and
 its tile is marked as upcoming; when its first section is registered the placeholder goes away by itself.
 
+A mode with ``tile=False`` has no home tile and no entry in the mode bar; it is reached by a link of its own (the
+account screen, from the user name in the header) and is left out while it has no visible section.
+``signed_in`` sections are left out when there is no session (authentication switched off).
+
 ``admin_only`` modes (and their sections) are neither rendered nor linked for other roles; the routes behind
 them must still check ``_require_admin`` themselves, hiding the UI is not access control.
 
@@ -31,6 +35,7 @@ class Mode:
     id: str  # url slug: #/<id>
     icon: str
     admin_only: bool = False
+    tile: bool = True  # False: no home tile or mode-bar entry, see the module docstring
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,7 @@ class Section:
     title_key: str = ""  # optional ui_strings key; shown in the mode's section jump list when a mode has several
     css: tuple[str, ...] = ()  # file names under /static/
     js: tuple[str, ...] = ()
+    signed_in: bool = False  # only rendered for a signed-in session
 
 
 MODES: tuple[Mode, ...] = (
@@ -52,6 +58,7 @@ MODES: tuple[Mode, ...] = (
     Mode("meetings", "👥"),
     Mode("library", "📚"),
     Mode("admin", "🛠", admin_only=True),
+    Mode("account", "👤", tile=False),
 )
 
 # Order inside a mode is the order here. Existing panels keep their element ids and scripts unchanged.
@@ -60,21 +67,29 @@ SECTIONS: tuple[Section, ...] = (
     Section("tutor", "study", "sections/tutor.html", css=("tutor.css",), js=("tutor-voice.js", "tutor.js")),
     Section("study", "study", "sections/study.html", css=("study.css",), js=("study.js",)),
     Section("docintel", "docs", "sections/docintel.html", css=("docintel.css",), js=("docintel.js",)),
+    Section("meetings", "meetings", "sections/meetings.html", css=("meetings.css",), js=("meetings.js",)),
+    Section("admin-panel", "admin", "sections/admin.html", css=("admin.css",), js=("admin.js",)),
     Section("indexing", "admin", "sections/indexing.html", js=("indexing.js",)),
     Section("excluded", "library", "sections/excluded.html"),
     Section("listen", "library", "sections/listen.html", css=("listen.css",), js=("listen.js",)),
+    Section(
+        "account-sessions", "account", "sections/account_sessions.html",
+        css=("admin.css",), js=("admin.js",), signed_in=True,
+    ),
 )
 
 
-def visible_modes(role: str | None) -> list[dict]:
+def visible_modes(role: str | None, signed_in: bool = False) -> list[dict]:
     """Modes for the home screen and navigation, each with its sections, for one role."""
     is_admin = role == "admin"
     result = []
     for mode in MODES:
         if mode.admin_only and not is_admin:
             continue
-        sections = [s for s in SECTIONS if s.mode == mode.id]
-        result.append({"id": mode.id, "icon": mode.icon, "sections": sections, "soon": not sections})
+        sections = [s for s in SECTIONS if s.mode == mode.id and (signed_in or not s.signed_in)]
+        if not mode.tile and not sections:
+            continue
+        result.append({"id": mode.id, "icon": mode.icon, "tile": mode.tile, "sections": sections, "soon": not sections})
     return result
 
 

@@ -21,14 +21,14 @@
         <strong class="appbar-title" id="appbar-title"></strong>
         {% if username %}
         <span class="appbar-user">
-          <span class="user">{{ username }}</span>
+          {% if modes | selectattr("id", "equalto", "account") | list %}<a class="user" href="#/account">{{ username }}</a>{% else %}<span class="user">{{ username }}</span>{% endif %}
           <button id="logout-button" type="button" class="link-button">{{ t("account.logout") }}</button>
         </span>
         {% endif %}
       </header>
 
       <nav class="modebar" id="modebar" aria-label="{{ t('nav.modes') }}">
-        {% for mode in modes %}
+        {% for mode in modes if mode.tile %}
         <a href="#/{{ mode.id }}" data-mode-link="{{ mode.id }}">{{ mode.icon }} {{ t("mode." ~ mode.id ~ ".title") }}</a>
         {% endfor %}
       </nav>
@@ -42,7 +42,7 @@
           <p class="lead">{{ t("home.lead") }}</p>
         </section>
         <nav class="tiles" aria-label="{{ t('nav.modes') }}">
-          {% for mode in modes %}
+          {% for mode in modes if mode.tile %}
           <a class="tile{{ ' soon' if mode.soon }}" href="#/{{ mode.id }}" data-mode-link="{{ mode.id }}">
             <span class="tile-icon" aria-hidden="true">{{ mode.icon }}</span>
             <span class="tile-title">{{ t("mode." ~ mode.id ~ ".title") }}</span>

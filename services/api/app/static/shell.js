@@ -22,6 +22,7 @@
   const LEGACY = [
     [/^#di-job=\d+$/, "docs", "docintel"],
     [/^#listen-\d+$/, "library", "listen"],
+    [/^#meeting=[0-9a-f]{32}$/, "meetings", "meetings"],
   ];
 
   function parse(hash) {
