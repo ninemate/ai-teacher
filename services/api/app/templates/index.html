@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/static/tutor.css" />
     <link rel="stylesheet" href="/static/docintel.css" />
     <link rel="stylesheet" href="/static/listen.css" />
+    <link rel="stylesheet" href="/static/meetings.css" />
   </head>
   <body>
     <main class="shell">
@@ -180,6 +181,32 @@
         <div id="di-result" class="di-result" hidden></div>
       </section>
 
+      <section class="panel meetings" id="meetings">
+        <h2>Meetingek</h2>
+        <p class="lead">
+          Tölts fel egy megbeszélésről készült hang- vagy videófelvételt: időbélyeges leiratot, összefoglalót,
+          döntéseket, nyitott kérdéseket és teendőket kapsz, mindegyik a leirat pontjára mutat. A feldolgozás helyben,
+          a háttérben fut; a felvételt a feldolgozás után töröljük, az eredményt csak te látod.
+        </p>
+        <p class="consent" role="note">
+          Felvételt csak a résztvevők hozzájárulásával készíts és tölts fel.
+        </p>
+
+        <label for="mt-file">Felvétel</label>
+        <input id="mt-file" type="file" />
+        <p id="mt-formats" class="hint"></p>
+        <div class="actions">
+          <button id="mt-upload" type="button" class="primary">Feltöltés és feldolgozás</button>
+        </div>
+        <progress id="mt-upload-progress" max="100" value="0" hidden></progress>
+        <p id="mt-status" class="status" role="status"></p>
+
+        <h3>Felvételek</h3>
+        <ul id="mt-jobs" class="items"></ul>
+
+        <div id="mt-result" class="mt-result" hidden></div>
+      </section>
+
       <section class="panel listen" id="listen">
         <h2>Hallgatás</h2>
         <p class="lead">A könyvtár dokumentumai felolvasva, szakaszonként. A hely mentődik, így bármelyik eszközön folytathatod.</p>
@@ -253,6 +280,7 @@
     <script src="/static/docintel.js" defer></script>
     <script src="/static/voice.js" defer></script>
     <script src="/static/listen.js" defer></script>
+    <script src="/static/meetings.js" defer></script>
   </body>
 </html>
 

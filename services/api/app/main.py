@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from listen_routes import build_router as build_listen_router
 from listen_routes import start_periodic_sweep, sweep_orphans
+from meeting_routes import build_router as build_meeting_router
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
@@ -27,6 +28,7 @@ from teacher_common.config import get_settings
 from teacher_common.db import init_db, session_scope
 from teacher_common.docintel_worker import ChatPriority, Worker
 from teacher_common.embeddings import embed_query, warmup_embeddings
+from teacher_common.meeting_worker import MeetingWorker, voice_failure
 from teacher_common.models import DocumentRecord, ExcludedDocument, IngestRun, OcrRecord, Workspace, WorkspaceShare
 from teacher_common.qdrant_store import ensure_collection, scroll_document, search
 from teacher_common.workspaces import accessible_workspace_ids, ensure_personal_workspace
@@ -164,6 +166,7 @@ def startup_event() -> None:
     _ensure_account_workspaces()
     _claim_legacy_workspace()
     docintel_worker.start()
+    meeting_worker.start()
     ensure_collection()
     warmup_embeddings()
     _check_ollama_model()
@@ -842,6 +845,26 @@ docintel_worker = Worker(
     prompt_dir=Path(settings.teacher_prompt_path).parent,
 )
 app.include_router(build_docintel_router(docintel_worker))
+
+
+# Meetingek (/meetings/...): uploaded recordings transcribed in short chunks, then summarised, in the background.
+def _transcribe_chunk(wav: bytes) -> dict:
+    try:
+        return _voice_request(
+            "POST", "/voice/transcribe", timeout=settings.voice_timeout_seconds,
+            files={"audio": ("chunk.wav", wav, "audio/wav")},
+        ).json()
+    except HTTPException as exc:
+        raise voice_failure(exc.detail) from exc
+
+
+meeting_worker = MeetingWorker(
+    settings,
+    voice_status=lambda: voice_status(),
+    transcribe=_transcribe_chunk,
+    llm=lambda prompt, json_mode: call_ollama(prompt, json_mode, background=True),
+)
+app.include_router(build_meeting_router(meeting_worker))
 
 
 def _workspace_ids_for_user(username: str) -> set[str]:

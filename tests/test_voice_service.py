@@ -29,12 +29,12 @@ def voice(voice_main):
                 raise ValueError("Invalid data found when processing input")
             duration = 600.0 if data == b"long" else 3.2
             segments = iter([
-                SimpleNamespace(text=" Mi a fotoszintézis?", words=[
+                SimpleNamespace(start=0.15, end=1.85, text=" Mi a fotoszintézis?", words=[
                     SimpleNamespace(start=0.1, end=0.5, probability=0.8),
                     SimpleNamespace(start=0.6, end=0.8, probability=0.9),
                     SimpleNamespace(start=0.8, end=1.0, probability=1.0),
                 ]),
-                SimpleNamespace(text=" Magyarázd el! ", words=[
+                SimpleNamespace(start=2.0, end=3.2, text=" Magyarázd el! ", words=[
                     SimpleNamespace(start=2.0, end=2.4, probability=0.7),
                     SimpleNamespace(start=2.4, end=2.7, probability=0.6),
                 ]),
@@ -107,6 +107,10 @@ def test_transcribe_forces_hungarian_and_joins_segments(voice):
     assert body["text"] == "Mi a fotoszintézis? Magyarázd el!"
     assert body["language"] == "hu"
     assert body["duration"] == 3.2
+    assert body["segments"] == [
+        {"start": 0.15, "end": 1.85, "text": "Mi a fotoszintézis?"},
+        {"start": 2.0, "end": 3.2, "text": "Magyarázd el!"},
+    ]
     (model,) = voice.models
     assert model.compute_type == "int8"
     call = model.calls[0]

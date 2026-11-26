@@ -20,9 +20,10 @@ def init_db() -> None:
     from teacher_common import (  # noqa: F401
         docintel_models,
         listen_models,
+        meeting_models,
         models,
         study_models,
-        tutor_models,  # noqa: F401
+        tutor_models,
     )
     from teacher_common.migrations import run_migrations
 
