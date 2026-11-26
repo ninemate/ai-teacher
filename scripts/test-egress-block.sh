@@ -93,7 +93,7 @@ if [ "$want_runtime" -eq 1 ]; then
     private_net=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["networks"]["private"]["name"])' "$tmp_config")
 
     seen_once=0
-    for name in qdrant ollama api ingestion voice; do
+    for name in qdrant ollama ollama-second api ingestion voice; do
         cid=$(compose_base ps -q "$name" 2>/dev/null || true)
         [ -n "$cid" ] || cid=$(compose ps -q "$name" 2>/dev/null || true)
         if [ -n "$cid" ]; then

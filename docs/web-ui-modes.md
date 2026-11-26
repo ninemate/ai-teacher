@@ -14,7 +14,7 @@ Modes: `chat` (Beszélgetés), `study` (Tanulás és beszéd), `docs` (Dokumentu
 (Tolmács), `meetings` (Meetingek), `library` (Könyvtár), `admin` (Admin, admin role only). A mode without a section
 shows a "Hamarosan" placeholder.
 
-Where the existing panels went: chat to Beszélgetés; study to Tanulás és beszéd; Document Intelligence to
+Where the existing panels went: chat to Beszélgetés; study and the Language Tutor to Tanulás és beszéd; Document Intelligence to
 Dokumentumok; read-aloud (listen) and the excluded-documents list to Könyvtár, because both work on the indexed
 library itself, while Média is kept for audio and image material that is not a library document.
 

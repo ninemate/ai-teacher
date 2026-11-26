@@ -57,6 +57,7 @@ MODES: tuple[Mode, ...] = (
 # Order inside a mode is the order here. Existing panels keep their element ids and scripts unchanged.
 SECTIONS: tuple[Section, ...] = (
     Section("chat", "chat", "sections/chat.html", js=("voice.js",)),
+    Section("tutor", "study", "sections/tutor.html", css=("tutor.css",), js=("tutor-voice.js", "tutor.js")),
     Section("study", "study", "sections/study.html", css=("study.css",), js=("study.js",)),
     Section("docintel", "docs", "sections/docintel.html", css=("docintel.css",), js=("docintel.js",)),
     Section("indexing", "admin", "sections/indexing.html", js=("indexing.js",)),
