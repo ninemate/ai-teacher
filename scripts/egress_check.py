@@ -21,7 +21,7 @@ import json
 import subprocess
 import sys
 
-PRIVATE_SERVICES = ("api", "ingestion", "qdrant", "ollama", "voice")
+PRIVATE_SERVICES = ("api", "ingestion", "qdrant", "ollama", "ollama-second", "voice")
 PRIVATE_NETWORK_KEY = "private"
 PROBE_PROFILE = "egress-test"
 
