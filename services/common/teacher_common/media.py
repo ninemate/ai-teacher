@@ -98,7 +98,7 @@ def _skew_angle(gray: Image.Image) -> float:
         return 0.0
 
     def score(angle: float) -> float:
-        rows = np.asarray(ink.rotate(angle, resample=Image.NEAREST, expand=True, fillcolor=0), dtype=np.float32).sum(axis=1)
+        rows = np.asarray(ink.rotate(angle, resample=Image.Resampling.NEAREST, expand=True, fillcolor=0), dtype=np.float32).sum(axis=1)
         return float(np.sum(np.diff(rows) ** 2))
 
     coarse = max((a / 2 for a in range(int(-MAX_DESKEW_DEGREES * 2), int(MAX_DESKEW_DEGREES * 2) + 1)), key=score)
@@ -111,17 +111,17 @@ def preprocess(image: Image.Image) -> tuple[Image.Image, dict]:
     gray = image.convert("L")
     longest = max(gray.size)
     if longest > OCR_MAX_SIDE:
-        gray.thumbnail((OCR_MAX_SIDE, OCR_MAX_SIDE), Image.LANCZOS)
+        gray.thumbnail((OCR_MAX_SIDE, OCR_MAX_SIDE), Image.Resampling.LANCZOS)
     elif longest < OCR_MIN_SIDE:
         factor = OCR_MIN_SIDE / longest
-        gray = gray.resize((round(gray.width * factor), round(gray.height * factor)), Image.LANCZOS)
+        gray = gray.resize((round(gray.width * factor), round(gray.height * factor)), Image.Resampling.LANCZOS)
     gray = ImageOps.autocontrast(gray, cutoff=1)
     try:
         angle = _skew_angle(gray)
     except ImportError:  # numpy missing: skip straightening, OCR still works
         angle = 0.0
     if abs(angle) >= 0.5:
-        gray = gray.rotate(angle, resample=Image.BICUBIC, expand=True, fillcolor=255)
+        gray = gray.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True, fillcolor=255)
     return gray, {"deskew_degrees": angle, "size": list(gray.size)}
 
 
