@@ -1,0 +1,31 @@
+<section class="panel" id="admin-panel" aria-labelledby="admin-title">
+  <h2 id="admin-title">Adminisztráció</h2>
+  <nav class="admin-tabs" aria-label="Adminisztrációs nézetek">
+    <button type="button" data-admin-view="users">Felhasználók</button>
+    <button type="button" data-admin-view="sessions">Munkamenetek</button>
+    <button type="button" data-admin-view="workspaces">Tudástárak</button>
+    <button type="button" data-admin-view="ingest">Indexelés</button>
+    <button type="button" data-admin-view="exclusions">Kizárások</button>
+    <button type="button" data-admin-view="inventory">Komponensek</button>
+    <button type="button" data-admin-view="audit">Napló</button>
+  </nav>
+  <form id="audit-filter" hidden>
+    <label>Esemény
+      <input name="event" list="audit-events" placeholder="pl. login.failure vagy admin.">
+      <datalist id="audit-events">
+        <option value="login.success"></option><option value="login.failure"></option><option value="logout"></option>
+        <option value="session.expired"></option><option value="session.revoked"></option>
+        <option value="workspace.create"></option><option value="workspace.share"></option><option value="workspace.unshare"></option>
+        <option value="document.delete"></option><option value="document.exclude"></option><option value="document.restore"></option>
+        <option value="admin."></option><option value="admin.denied"></option>
+      </datalist>
+    </label>
+    <label>Felhasználó <input name="actor" autocomplete="off"></label>
+    <label>Ettől <input name="since" type="date"></label>
+    <label>Eddig <input name="until" type="date"></label>
+    <button type="submit">Szűrés</button>
+    <a id="audit-csv" href="/admin/audit?format=csv&amp;limit=10000" download>CSV letöltése</a>
+  </form>
+  <p id="admin-status" role="status"></p>
+  <div id="admin-content"></div>
+</section>

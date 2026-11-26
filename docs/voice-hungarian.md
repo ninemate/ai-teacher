@@ -115,7 +115,7 @@ The voice service listens only on the internal Compose network (`expose`, no pub
 | Method | Path | Body | Answer |
 | --- | --- | --- | --- |
 | GET | `/voice/status` | | `{available, stt, tts, voices, default_voice, max_seconds, max_chars}`. `available: false` when the overlay is not running. |
-| POST | `/voice/transcribe` | multipart `audio` (webm, ogg, mp4/m4a, mp3, wav, flac), optional `language` (`hu` default, `en`) and `measure` (`true` adds `acoustics`) | `{text, language, duration, elapsed, model, acoustics?}` |
+| POST | `/voice/transcribe` | multipart `audio` (webm, ogg, mp4/m4a, mp3, wav, flac), optional `language` (`hu` default, `en`) and `measure` (`true` adds `acoustics`) | `{text, language, duration, elapsed, model, segments, acoustics?}`; `segments` is `[{start, end, text}]` in seconds, one per Whisper segment |
 | POST | `/voice/speak` | `{text, voice?}` | `audio/mpeg` (64 kbit/s mono MP3; about a tenth of the WAV size) |
 
 Errors keep the voice service's status and Hungarian message:
@@ -198,6 +198,18 @@ pip install -r services/voice/requirements.txt
 python -m piper.download_voices --data-dir ./piper-voices hu_HU-imre-medium
 VOICE_TEST_PIPER_DIR=./piper-voices python -m pytest tests/test_voice_service.py
 ```
+
+## Meetingek: Meeting Recordings
+
+The **Meetingek** panel turns an uploaded meeting recording into a timestamped transcript and notes. There is no live recording: the person uploads a file, and the panel reminds them that recording needs every participant's consent.
+
+- **Upload.** `POST /meetings/jobs?filename=…` with the raw file as the body (up to 512 MB and 4 hours). The API streams it to a private file under `MEETINGS_UPLOAD_DIR` (default `/data/metadata/meeting_uploads`) and deletes it once the job ends. With `ffmpeg` in the API image, common audio formats and video files (mp4, mkv, mov, webm, …) are accepted, and only the first audio track is used. Without `ffmpeg` only WAV is accepted, and `GET /meetings/formats` and the panel say so.
+- **Transcript.** A background worker decodes the recording to 16 kHz mono in 45-second chunks (at most 12 MB in memory at a time) and sends each chunk to `/voice/transcribe`. It shifts the chunk-relative `segments` to the recording's timeline. Speakers are not identified: every line is "Ismeretlen beszélő". The panel searches within the transcript.
+- **Notes.** The local model reads the transcript in windows, map-reduce style like Document Intelligence (`config/prompts/meeting_map_hu.md`, `meeting_reduce_hu.md`). It returns a summary of up to three points, decisions, open questions and action items. Every item must cite transcript line numbers from its window; cited numbers that don't exist are dropped, and an item with no real source is not shown. Each item links back to its timestamps. A window the model cannot handle after a retry becomes a reported gap rather than failing the job. If the model fails entirely, the transcript is still kept and exportable.
+- **Assignees.** An action item has no owner unless the person types a name for it (`PATCH /meetings/jobs/{id}/actions/{n}`). Names the model writes are never used.
+- **Export.** `GET /meetings/jobs/{id}/export?format=md|txt|srt`: the notes and action items as Markdown, the transcript as text or SRT subtitles.
+- **Jobs.** One recording is processed at a time, with progress (seconds transcribed, then model steps) and cancel. A person can have at most three active jobs. Running jobs fail with a clear message after an API restart (upload again). Each meeting belongs to the account that uploaded it; other accounts, admins included, get 404.
+- Code: `services/api/app/meeting_routes.py`; `teacher_common/meeting_audio.py` (decoding and chunking), `meeting_worker.py`, `meeting_notes.py` (notes and exports), `meeting_store.py`, `meeting_models.py`; `static/meetings.js` / `meetings.css`. Tests: `tests/test_meetings.py`, with fake STT and model.
 
 ## Known Limits
 

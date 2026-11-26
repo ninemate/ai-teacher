@@ -27,6 +27,7 @@ os.environ.update(
     {
         "METADATA_DB_URL": f"sqlite:///{_db_dir}/teacher.db",
         "INGEST_CONFIG_PATH": f"{_db_dir}/none.yml",
+        "MEETINGS_UPLOAD_DIR": f"{_db_dir}/meeting_uploads",
         "TEACHER_AUTH_USERS": ";".join(f"{name}:{_hasher.hash(pw)}" for name, pw in PASSWORDS.items()),
         "TEACHER_AUTH_USERS_FILE": "",
         "TEACHER_AUTH_ADMINS": "",

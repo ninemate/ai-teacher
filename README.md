@@ -20,6 +20,7 @@ This repository is self-contained: it has its own Compose files, Ansible playboo
 - Photo text (Média): photos from the phone camera or image files read with local Tesseract OCR (EXIF rotation, contrast, deskew), uncertain words marked, HU↔EN translation and explanation by the local model, chosen phrases saved as a flashcard deck on request; photos are private to each person (`/media/...`, see `docs/photo-text.md`)
 - Ansible-driven deployment to a dedicated host or VM
 - Optional offline Hungarian voice: dictation with faster-whisper and read-aloud with Piper, both on the CPU by default (`make dev-up-voice`, see `docs/voice-hungarian.md`)
+- Meetingek: uploaded meeting audio or video becomes a timestamped, searchable transcript plus a summary, decisions, open questions and action items that point back to the transcript, with Markdown/TXT/SRT export (`/meetings/...`, needs the voice service; see `docs/voice-hungarian.md`)
 - Optional NVIDIA overlay
 
 ## Chosen MVP Stack
