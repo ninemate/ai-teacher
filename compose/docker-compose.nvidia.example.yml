@@ -5,7 +5,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['0']
+              device_ids: ["${OLLAMA_GPU_DEVICE_ID:-0}"]
               capabilities: [gpu]
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
@@ -16,7 +16,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['0']
+              device_ids: ["${API_GPU_DEVICE_ID:-0}"]
               capabilities: [gpu]
 
   ingestion:
@@ -25,5 +25,5 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['0']
+              device_ids: ["${INGESTION_GPU_DEVICE_ID:-0}"]
               capabilities: [gpu]

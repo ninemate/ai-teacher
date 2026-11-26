@@ -2,6 +2,68 @@
 
 The limiting factors are the VRAM of a single NVIDIA GPU and the system RAM of the host. The chat model must fit into one GPU's VRAM unless you configure layer-split across several GPUs. Budget VRAM as model weights plus context (KV cache) plus any other concurrent GPU workload (for example Whisper on the GPU), and leave headroom. The guidance below is generic; scale it to the VRAM and RAM you have.
 
+## Per-service GPU placement
+
+On a CPU-only or single-GPU host nothing here needs changing: without the NVIDIA overlays these settings are ignored, and with them every service defaults to card `0`, as before.
+
+On a host with several NVIDIA GPUs, memory is per card, not pooled, so place each GPU service on a card of its own where it can. The NVIDIA overlays read one host GPU index per service from `.env` (the index `nvidia-smi` shows; ansible sets the same variables from `teacher_*_gpu_device_id` in `group_vars`):
+
+| Variable | Service | GPU work | Overlay |
+| --- | --- | --- | --- |
+| `OLLAMA_GPU_DEVICE_ID` | `ollama` | chat LLM; also the optional vision model for photo OCR | `docker-compose.nvidia.example.yml` |
+| `API_GPU_DEVICE_ID` | `api` | query embeddings, when `EMBEDDING_DEVICE=cuda` | `docker-compose.nvidia.example.yml` |
+| `INGESTION_GPU_DEVICE_ID` | `ingestion` | indexing embeddings, when `EMBEDDING_DEVICE=cuda` | `docker-compose.nvidia.example.yml` |
+| `VOICE_GPU_DEVICE_ID` | `voice` | Whisper STT | `docker-compose.voice.nvidia.example.yml` |
+| `OLLAMA_SECOND_GPU_DEVICE_ID` | `ollama-second` | a second model, e.g. a fast translation model | `docker-compose.ollama-second.nvidia.example.yml` |
+
+Piper TTS and Tesseract OCR run on the CPU and need no card. Each container sees only its assigned card, which it calls `cuda:0`; so `EMBEDDING_DEVICE=cuda` (or `cuda:0`) is right whichever host card is chosen. The API and ingestion embed with the same model, so put them on the same card or budget the embedding model twice.
+
+Example for a host with several cards (illustrative):
+
+```sh
+OLLAMA_GPU_DEVICE_ID=0          # chat model
+OLLAMA_SECOND_GPU_DEVICE_ID=1   # fast translation model
+VOICE_GPU_DEVICE_ID=2           # Whisper
+API_GPU_DEVICE_ID=3             # embeddings
+INGESTION_GPU_DEVICE_ID=3
+```
+
+```sh
+docker compose -f compose/docker-compose.yml \
+  -f compose/docker-compose.nvidia.example.yml \
+  -f compose/docker-compose.ollama-second.nvidia.example.yml \
+  -f compose/docker-compose.voice.example.yml \
+  -f compose/docker-compose.voice.nvidia.example.yml config --quiet
+```
+
+### Several Ollama instances
+
+One Ollama instance with several cards visible decides by itself where each model loads, and may unload one model to make room for another. For predictable placement, run one instance per card and model instead. `compose/docker-compose.ollama-second.nvidia.example.yml` adds `ollama-second`: its own card, its own model folder (`${TEACHER_DATA_DIR}/ollama-second`), the same private network and offline settings as `ollama`, and it is covered by `make test-egress`. Pull its model into it the same way as for `ollama`. The app currently reads one `OLLAMA_BASE_URL`: set it to `http://ollama-second:11434` to move all LLM calls there, or give a feature (such as translation) its own URL setting to use both. Copy the overlay, renaming the service, its variable and its model folder, for a third instance.
+
+### A model too big for one card
+
+Keep a model on one card whenever its weights plus context fit there: that is the fastest and least fragile setup. When it does not fit:
+
+- **Ollama** splits a model's layers across all the cards it can see when it does not fit one. Give the `ollama` service several cards in a site-specific override, e.g. `device_ids: ["0", "1"]`, rather than a single variable. Leave `OLLAMA_SCHED_SPREAD` unset so models that fit one card still stay on one.
+- **llama.cpp** (`llama-server`) does the same with `--split-mode layer` and `--tensor-split 1,1` (proportions per card), with `-ngl` for the number of layers on the GPUs.
+- Prefer **layer** split: each card holds whole layers and only the activations between them cross PCIe once per token. Avoid **row** (tensor) split on narrow PCIe links: it exchanges data inside every layer and is usually slower than one card.
+- Each card still needs room for its share of the layers plus its share of the context (KV cache); the split does not pool memory. Expect slower token generation than on one card, and a longer first load over narrow links.
+- Do not let the remainder spill to the CPU on a host with a weak CPU and little RAM: it is much slower and uses scarce system memory. Prefer a smaller model or a stronger quantization that fits one card or a split across two.
+
+### VRAM budget per service
+
+Guidance only: actual use depends on model, quantization, context length, batch size, concurrency and backend version. Measure with `nvidia-smi` under load and keep about 10–15% of each card free.
+
+| Service | What it holds in VRAM | Guidance |
+| --- | --- | --- |
+| Chat LLM (`ollama`) | weights + KV cache for the context + runtime overhead | The largest consumer; give it a card of its own. For example, a 7B–8B model at 4-bit quantization with a modest context fits an 8 GB card; a longer context or a bigger model needs a split or a bigger card. |
+| Second model (`ollama-second`) | as above | A small fast model (for example 1B–4B at 4-bit) leaves room on an 8 GB card for a longer context or another small service. |
+| Vision OCR (Ollama vision model, optional) | weights + image tokens | Loaded in the instance that serves it; budget it like a chat model of its size, or it will evict the chat model. |
+| STT (`voice`, Whisper) | weights + decoding buffers | Small to moderate (roughly 1–2 GB for a small or medium quantized model, more for large ones). Can share a card with embeddings; unloads when idle. |
+| Embeddings (`api`, `ingestion`) | weights + batch activations | Usually well under 2 GB for a sentence-transformer model; batches during indexing add to it. Can share a card with STT. |
+| TTS (Piper) | none | Runs on the CPU. |
+| OCR (Tesseract) | none | Runs on the CPU. |
+
 ## Practical Default
 
 - Runtime: `Ollama`

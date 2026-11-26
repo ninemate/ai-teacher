@@ -12,10 +12,11 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['0']
+              device_ids: ["${VOICE_GPU_DEVICE_ID:-0}"]
               capabilities: [gpu]
     environment:
       VOICE_STT_DEVICE: auto
       VOICE_STT_IDLE_UNLOAD_SECONDS: ${VOICE_STT_GPU_IDLE_UNLOAD_SECONDS:-300}
-      NVIDIA_VISIBLE_DEVICES: all
+      # Same card(s) as device_ids above; "all" would expose every GPU on a multi-GPU host.
+      NVIDIA_VISIBLE_DEVICES: ${VOICE_GPU_DEVICE_ID:-0}
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
