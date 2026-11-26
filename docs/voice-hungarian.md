@@ -115,7 +115,7 @@ The voice service listens only on the internal Compose network (`expose`, no pub
 | Method | Path | Body | Answer |
 | --- | --- | --- | --- |
 | GET | `/voice/status` | | `{available, stt, tts, voices, default_voice, max_seconds, max_chars}`. `available: false` when the overlay is not running. |
-| POST | `/voice/transcribe` | multipart `audio` (webm, ogg, mp4/m4a, mp3, wav, flac) | `{text, language: "hu", duration, elapsed, model}` |
+| POST | `/voice/transcribe` | multipart `audio` (webm, ogg, mp4/m4a, mp3, wav, flac), optional `language` (`hu` default, `en`) and `measure` (`true` adds `acoustics`) | `{text, language, duration, elapsed, model, acoustics?}` |
 | POST | `/voice/speak` | `{text, voice?}` | `audio/mpeg` (64 kbit/s mono MP3; about a tenth of the WAV size) |
 
 Errors keep the voice service's status and Hungarian message:

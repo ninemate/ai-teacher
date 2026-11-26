@@ -28,7 +28,17 @@ def voice(voice_main):
             if data == b"garbage":
                 raise ValueError("Invalid data found when processing input")
             duration = 600.0 if data == b"long" else 3.2
-            segments = iter([SimpleNamespace(text=" Mi a fotoszintézis?"), SimpleNamespace(text=" Magyarázd el! ")])
+            segments = iter([
+                SimpleNamespace(text=" Mi a fotoszintézis?", words=[
+                    SimpleNamespace(start=0.1, end=0.5, probability=0.8),
+                    SimpleNamespace(start=0.6, end=0.8, probability=0.9),
+                    SimpleNamespace(start=0.8, end=1.0, probability=1.0),
+                ]),
+                SimpleNamespace(text=" Magyarázd el! ", words=[
+                    SimpleNamespace(start=2.0, end=2.4, probability=0.7),
+                    SimpleNamespace(start=2.4, end=2.7, probability=0.6),
+                ]),
+            ])
             return segments, SimpleNamespace(duration=duration)
 
     class FakeSpeaker:
@@ -279,3 +289,15 @@ def test_transcribe_language_and_beam_are_per_request(voice):
     assert voice.client.post("/voice/transcribe", files=files, data={"language": "auto"}).status_code == 200
     assert voice.models[0].calls[-1]["language"] is None
     assert voice.client.post("/voice/transcribe", files=files, data={"language": "de"}).status_code == 422
+
+
+def test_tutor_voice_returns_measured_feedback(voice):
+    response = voice.client.post(
+        "/voice/transcribe", data={"language": "en", "measure": "true"}, files={"audio": ("sample.wav", b"audio")}
+    )
+    assert response.status_code == 200
+    assert voice.models[0].calls[0]["language"] == "en"
+    assert voice.models[0].calls[0]["word_timestamps"]
+    assert response.json()["acoustics"] == {
+        "duration": 3.2, "words_per_minute": 115, "pause_count": 1, "mean_word_probability": 0.8
+    }

@@ -6,6 +6,7 @@ Only reachable on the internal Compose network; the API proxies `/voice/*` behin
 import logging
 import tempfile
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -80,8 +81,9 @@ async def _save_upload(audio: UploadFile, target: Path) -> None:
 @app.post("/voice/transcribe")
 async def transcribe_audio(
     audio: UploadFile = File(...),
-    language: str = Form(default="hu"),
+    language: Literal["hu", "en", "auto"] = Form("hu"),
     beam_size: int | None = Form(default=None, ge=1, le=10),
+    measure: bool = Form(False),
 ):
     if not settings.stt_enabled:
         raise HTTPException(status_code=503, detail="A beszédfelismerés ki van kapcsolva.")
@@ -95,7 +97,7 @@ async def transcribe_audio(
         await _save_upload(audio, path)
         try:
             result = await run_in_threadpool(
-                transcriber.transcribe, path, None if language == "auto" else language, beam_size
+                transcriber.transcribe, path, None if language == "auto" else language, beam_size, measure
             )
         except AudioUnreadable as exc:
             raise HTTPException(status_code=422, detail="Nem sikerült beolvasni a hangfelvételt.") from exc
@@ -106,6 +108,7 @@ async def transcribe_audio(
     return {
         "text": result.text,
         "language": result.language,
+        **({"acoustics": result.acoustics} if measure else {}),
         "duration": round(result.duration, 2),
         "elapsed": round(result.elapsed, 2),
         "model": settings.stt_model,

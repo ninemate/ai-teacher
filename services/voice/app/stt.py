@@ -35,6 +35,7 @@ class Transcript:
     elapsed: float
     device: str
     language: str = "hu"
+    acoustics: dict | None = None
 
 
 def _whisper_model(model_name: str, device: str, compute_type: str, cpu_threads: int) -> Any:
@@ -107,7 +108,9 @@ class Transcriber:
                     raise
                 logger.warning("Loading STT model on %s failed, falling back to CPU: %s", device, exc)
 
-    def transcribe(self, audio_path: Path, language: str | None = "hu", beam_size: int | None = None) -> Transcript:
+    def transcribe(
+        self, audio_path: Path, language: str | None = "hu", beam_size: int | None = None, measure: bool = False
+    ) -> Transcript:
         """``language`` None lets the model detect it; the detected language is returned either way."""
         with self._lock:
             if self._model is None:
@@ -117,6 +120,7 @@ class Transcriber:
                 segments, info = self._model.transcribe(
                     str(audio_path),
                     language=language,
+                    word_timestamps=measure,
                     task="transcribe",
                     beam_size=beam_size or self.settings.stt_beam_size,
                     vad_filter=True,
@@ -128,12 +132,30 @@ class Transcriber:
             if info.duration > self.settings.stt_max_seconds:
                 raise AudioTooLong(f"{info.duration:.0f}s")
             # Segments are produced lazily: the actual decoding happens while joining.
-            text = " ".join(segment.text.strip() for segment in segments).strip()
+            decoded = list(segments)
+            text = " ".join(segment.text.strip() for segment in decoded).strip()
+            acoustics = None
+            if measure:
+                words = [word for segment in decoded for word in (segment.words or [])]
+                acoustics = {"duration": round(info.duration, 2)}
+                # Pace over the speech itself: leading waits and the trailing end-of-speech silence don't count.
+                span = words[-1].end - words[0].start if words else 0
+                if span > 0:
+                    acoustics.update({
+                        "words_per_minute": round(60 * len(words) / span),
+                        "pause_count": sum(b.start - a.end >= 0.5 for a, b in zip(words, words[1:], strict=False)),
+                        "mean_word_probability": round(sum(word.probability for word in words) / len(words), 3),
+                    })
             elapsed = time.perf_counter() - started
         self._schedule_unload()
         detected = getattr(info, "language", None) or language or "hu"
         return Transcript(
-            text=text, duration=float(info.duration), elapsed=elapsed, device=self._device, language=detected
+            text=text,
+            duration=float(info.duration),
+            elapsed=elapsed,
+            device=self._device,
+            language=detected,
+            acoustics=acoustics,
         )
 
     def _schedule_unload(self) -> None:

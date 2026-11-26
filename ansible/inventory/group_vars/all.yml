@@ -19,6 +19,12 @@ teacher_proxy_http_port: 8088
 teacher_tls: internal
 
 teacher_gpu_enabled: false
+# Host GPU indices used by the optional NVIDIA Compose overlays.
+teacher_ollama_gpu_device_id: "0"
+teacher_api_gpu_device_id: "0"
+teacher_ingestion_gpu_device_id: "0"
+teacher_voice_gpu_device_id: "0"
+teacher_ollama_second_gpu_device_id: "1"
 teacher_gpu_vendor: nvidia
 teacher_llm_runtime: ollama
 teacher_llm_model: qwen2.5:7b-instruct-q4_K_M
