@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
+import audit
 import auth
 import httpx
+from admin_routes import build_router as build_admin_router
 from docintel_routes import build_router as build_docintel_router
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -101,8 +103,20 @@ def _workspace_ids(request: Request, db, *, write: bool = False) -> set[str]:
     return accessible_workspace_ids(db, username, admin=role == "admin", write=write)
 
 
+def _audit_workspace(session, request: Request, event: str, workspace_id: str, target: str) -> None:
+    """Record a workspace event; an admin acting where only the admin role grants access also gets an admin.* entry."""
+    username, role = _identity(request)
+    ip = audit.client_ip(request)
+    audit.record(session, event, username, target, ip)
+    if role == "admin" and workspace_id not in accessible_workspace_ids(session, username, admin=False, write=True):
+        audit.record(session, "admin.workspace_override", username, f"{event} {target}", ip)
+
+
 def _require_admin(request: Request) -> None:
-    if _identity(request)[1] != "admin":
+    username, role = _identity(request)
+    if role != "admin":
+        with session_scope() as db:
+            audit.record(db, "admin.denied", username, _route_path(request), audit.client_ip(request))
         raise HTTPException(status_code=403, detail="Rendszergazdai jogosultság szükséges.")
 
 
@@ -114,7 +128,7 @@ async def require_session(request: Request, call_next):
         return JSONResponse({"detail": "A kérés másik oldalról érkezett."}, status_code=403)
     if settings.auth_enabled and not _is_public(_route_path(request)):
         token = request.cookies.get(auth.SESSION_COOKIE)
-        session = await run_in_threadpool(auth.load_session, token, auth_users, auth_admins)
+        session = await run_in_threadpool(auth.load_session, token, auth_users, auth_admins, audit.client_ip(request))
         if session is None:
             if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
                 target = _route_path(request) + (f"?{request.url.query}" if request.url.query else "")
@@ -147,6 +161,8 @@ def startup_event() -> None:
     elif not auth_users:
         logging.getLogger("uvicorn").warning("TEACHER_AUTH_USERS is empty: nobody can log in.")
     init_db()
+    with session_scope() as db:
+        audit.prune(db)
     _ensure_account_workspaces()
     _claim_legacy_workspace()
     docintel_worker.start()
@@ -212,6 +228,7 @@ def index(request: Request):
         name="index.html",
         context={
             "auth_enabled": settings.auth_enabled,
+            "role": session.role if session else None,
             "username": session.username if session else None,
             "csrf_token": session.csrf_token if session else "",
             "default_level": "beginner",
@@ -260,6 +277,11 @@ def login(
     limit_keys = [client_key] + ([f"user:{username}"] if username in auth_users else [])
     retry_after = login_limiter.acquire(limit_keys)
     if retry_after:
+        # Refused attempts are logged once a minute per address, so the log is no unauthenticated write path.
+        if audit.first_in_window(client_key):
+            with session_scope() as db:
+                audit.record(db, "login.throttled", username if username in auth_users else None,
+                             ip=audit.client_ip(request))
         minutes = math.ceil(retry_after / 60)
         response = _render_login(
             request,
@@ -271,6 +293,8 @@ def login(
         return response
 
     if len(password) > 1024 or not auth.verify_credentials(auth_users, username, password):
+        with session_scope() as db:
+            audit.record(db, "login.failure", username if username in auth_users else None, ip=audit.client_ip(request))
         return _render_login(request, next_path, "Hibás felhasználónév vagy jelszó.", status_code=401)
 
     login_limiter.release(limit_keys)
@@ -278,6 +302,8 @@ def login(
     ttl_seconds = settings.teacher_session_ttl_hours * 3600
     role = "admin" if username in auth_admins else "user"
     token, _ = auth.create_session(username, auth_users[username], ttl_seconds, role=role)
+    with session_scope() as db:
+        audit.record(db, "login.success", username, ip=audit.client_ip(request))
     response = RedirectResponse(next_path, status_code=303)
     auth.set_cookie(response, request, settings, auth.SESSION_COOKIE, token, max_age=ttl_seconds)
     response.delete_cookie(auth.LOGIN_CSRF_COOKIE, path="/")
@@ -286,6 +312,8 @@ def login(
 
 @app.post("/logout")
 def logout(request: Request):
+    with session_scope() as db:
+        audit.record(db, "logout", _identity(request)[0], ip=audit.client_ip(request))
     auth.delete_session(request.cookies.get(auth.SESSION_COOKIE))
     response = JSONResponse({"status": "logged_out"})
     response.delete_cookie(auth.SESSION_COOKIE, path="/")
@@ -371,6 +399,7 @@ def restore_excluded_source(excluded_id: int, request: Request):
         ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="A kizárt dokumentum nem található.")
+        _audit_workspace(session, request, "document.restore", row.workspace_id, f"{row.workspace_id}:excl:{row.id}")
         session.delete(row)
     return Response(status_code=204)
 
@@ -396,7 +425,11 @@ def delete_source(document_id: int, request: Request):
             )
         ).scalar_one_or_none()
         if excluded is None:
-            session.add(ExcludedDocument(workspace_id=row.workspace_id, source_path=row.source_path))
+            excluded = ExcludedDocument(workspace_id=row.workspace_id, source_path=row.source_path)
+            session.add(excluded)
+            session.flush()
+            _audit_workspace(session, request, "document.exclude", row.workspace_id,
+                             f"{row.workspace_id}:excl:{excluded.id}")
         delete_points_for_source(row.source_path, workspace_id=row.workspace_id)
         study_store.delete_derived_items_for_source(session, row.source_path, row.workspace_id)
         # Document Intelligence results are kept but marked stale (the person deletes them); unfinished jobs stop.
@@ -407,6 +440,7 @@ def delete_source(document_id: int, request: Request):
         ).delete()
         listen_store.delete_for_document(session, row.id)
         listen_cache.remove_document(row.id)
+        _audit_workspace(session, request, "document.delete", row.workspace_id, f"{row.workspace_id}:doc:{document_id}")
         session.delete(row)
     return Response(status_code=204)
 
@@ -447,6 +481,7 @@ def create_workspace(payload: WorkspaceCreate, request: Request):
         workspace = Workspace(id=f"kb:{uuid.uuid4().hex}", name=name, owner_username=username)
         session.add(workspace)
         session.flush()
+        audit.record(session, "workspace.create", username, workspace.id, audit.client_ip(request))
         return {"id": workspace.id, "name": workspace.name, "owner": username, "permission": "owner"}
 
 
@@ -471,6 +506,8 @@ def share_workspace(workspace_id: str, payload: WorkspaceShareRequest, request: 
             share = WorkspaceShare(workspace_id=workspace_id, username=payload.username)
             session.add(share)
         share.permission = payload.permission
+        _audit_workspace(session, request, "workspace.share", workspace_id,
+                         f"{workspace_id}:{payload.username}:{share.permission}")
         return {"workspace_id": workspace_id, "username": payload.username, "permission": share.permission}
 
 
@@ -489,6 +526,7 @@ def unshare_workspace(workspace_id: str, share_username: str, request: Request):
         ).scalar_one_or_none()
         if share is None:
             raise HTTPException(status_code=404, detail="A megosztás nem található.")
+        _audit_workspace(session, request, "workspace.unshare", workspace_id, f"{workspace_id}:{share_username}")
         session.delete(share)
     return Response(status_code=204)
 
@@ -538,7 +576,10 @@ def _ingestion_request(method: str, path: str, json: dict | None = None):
 @app.post("/ingest/reindex")
 def trigger_reindex(payload: ReindexRequest, request: Request):
     _require_admin(request)
-    return _ingestion_request("POST", "/ingest/reindex", json=payload.model_dump())
+    result = _ingestion_request("POST", "/ingest/reindex", json=payload.model_dump())
+    with session_scope() as db:
+        audit.record(db, "admin.reindex", _identity(request)[0], ip=audit.client_ip(request))
+    return result
 
 
 @app.get("/ingest/schedule")
@@ -844,3 +885,5 @@ app.include_router(
         cache=listen_cache,
     ),
 )
+
+app.include_router(build_admin_router(settings, auth_users, lambda: auth_admins, _require_admin))

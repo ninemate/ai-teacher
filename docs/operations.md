@@ -71,3 +71,7 @@ Monitor:
 - logs
 
 Local disk is finite and the index grows with the library, so size it for the model cache, vectors and OCR cache and keep the stack lean.
+
+## Audit retention and administration
+
+`AUDIT_RETENTION_DAYS` controls audit retention in days (default 365; 0 disables automatic pruning). Expired entries are pruned when the API starts and then at most once a day while it runs. The log is stored in the metadata database and is included in database backups. Restoring an older backup also restores the log to that backup's state. The administrative panel lists configured accounts, sessions, workspaces, indexing runs and exclusions, and can export a filtered audit log as CSV (event, user and date filters; the event filter `admin.` lists every administrative action). It shows configured model names and API package versions; run `make inventory` on the host for the complete component and model inventory. Backup and restore scripts run outside the API and therefore have no API-triggered audit event; protect their operator logs and backup files separately.
