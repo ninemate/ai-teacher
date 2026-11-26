@@ -8,7 +8,7 @@ services:
       args:
         # Models are downloaded at build time; change these and rebuild to switch.
         VOICE_STT_MODEL: ${VOICE_STT_MODEL:-large-v3-turbo}
-        VOICE_TTS_VOICES: ${VOICE_TTS_VOICES:-hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium}
+        VOICE_TTS_VOICES: ${VOICE_TTS_VOICES:-hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium,en_US-lessac-medium}
     restart: unless-stopped
     networks: [private]
     environment:
@@ -21,7 +21,7 @@ services:
       VOICE_STT_MAX_SECONDS: ${VOICE_STT_MAX_SECONDS:-120}
       VOICE_STT_IDLE_UNLOAD_SECONDS: ${VOICE_STT_IDLE_UNLOAD_SECONDS:-0}
       VOICE_TTS_BACKEND: ${VOICE_TTS_BACKEND:-piper}
-      VOICE_TTS_VOICES: ${VOICE_TTS_VOICES:-hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium}
+      VOICE_TTS_VOICES: ${VOICE_TTS_VOICES:-hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium,en_US-lessac-medium}
       VOICE_TTS_LENGTH_SCALE: ${VOICE_TTS_LENGTH_SCALE:-1.0}
       VOICE_TTS_MAX_CHARS: ${VOICE_TTS_MAX_CHARS:-6000}
       VOICE_MAX_UPLOAD_MB: ${VOICE_MAX_UPLOAD_MB:-15}

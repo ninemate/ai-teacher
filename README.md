@@ -15,6 +15,7 @@ This repository is self-contained: it has its own Compose files, Ansible playboo
 - Local LLM runtime via Ollama
 - Hungarian-first RAG chat API and mobile-friendly web UI behind a built-in login (argon2 users, sessions, CSRF)
 - Stored quizzes and flashcard decks generated from the library, with source references, spaced-repetition review for cards and quiz attempt history (`/study/...`)
+- Language tutor for Hungarian and English: learner profile with CEFR level and goal, text or hands-free voice conversation, role-play, listening and written correction with Hungarian explanations, practice from library documents and flashcard decks, progress by error type and level (`/tutor/...`, see `docs/language-tutor.md`)
 - Document Intelligence: whole-document summary, structured extraction (CSV/Markdown export), comparison and gap analysis, task list with proposals, and hu-en/en-hu translation as background jobs with progress, cancel, resume and per-person results, each item with its source file and page or chapter (`/docintel/...`, see `docs/document-intelligence.md`)
 - Ansible-driven deployment to a dedicated host or VM
 - Optional offline Hungarian voice: dictation with faster-whisper and read-aloud with Piper, both on the CPU by default (`make dev-up-voice`, see `docs/voice-hungarian.md`)

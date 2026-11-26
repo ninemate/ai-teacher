@@ -19,6 +19,12 @@ teacher_proxy_http_port: 8088
 teacher_tls: internal
 
 teacher_gpu_enabled: false
+# Host GPU indices used by the optional NVIDIA Compose overlays.
+teacher_ollama_gpu_device_id: "0"
+teacher_api_gpu_device_id: "0"
+teacher_ingestion_gpu_device_id: "0"
+teacher_voice_gpu_device_id: "0"
+teacher_ollama_second_gpu_device_id: "1"
 teacher_gpu_vendor: nvidia
 teacher_llm_runtime: ollama
 teacher_llm_model: qwen2.5:7b-instruct-q4_K_M
@@ -72,7 +78,7 @@ teacher_voice_stt_cpu_threads: 0
 teacher_voice_stt_max_seconds: 120
 teacher_voice_stt_gpu_idle_unload_seconds: 300
 teacher_voice_tts_backend: piper
-teacher_voice_tts_voices: hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium
+teacher_voice_tts_voices: hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium,en_US-lessac-medium
 teacher_voice_tts_length_scale: 1.0
 
 teacher_ocr_enabled: true

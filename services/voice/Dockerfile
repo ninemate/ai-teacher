@@ -19,7 +19,7 @@ ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:/u
 
 # Models are baked into the image so the running service never reaches the network.
 ARG VOICE_STT_MODEL=large-v3-turbo
-ARG VOICE_TTS_VOICES=hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium
+ARG VOICE_TTS_VOICES=hu_HU-imre-medium,hu_HU-anna-medium,hu_HU-berta-medium,en_US-lessac-medium
 RUN python -c "from faster_whisper.utils import download_model; download_model('${VOICE_STT_MODEL}')" \
     && python -m piper.download_voices --data-dir /models/piper $(echo "${VOICE_TTS_VOICES}" | tr ',' ' ')
 
