@@ -89,8 +89,13 @@ def parse_feedback(raw: str) -> dict:
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("not an object")
+
+    def items(key: str) -> list:
+        value = data.get(key)
+        return value if isinstance(value, list) else []
+
     corrections = []
-    for item in data.get("corrections") if isinstance(data.get("corrections"), list) else []:
+    for item in items("corrections"):
         if not isinstance(item, dict) or not _text(item.get("explanation"), 500):
             continue
         kind = _text(item.get("type"), 40).lower().replace(" ", "_").replace("-", "_")
@@ -104,11 +109,13 @@ def parse_feedback(raw: str) -> dict:
         )
     vocabulary = [
         {"front": _text(item.get("front"), 500), "back": _text(item.get("back"), 500)}
-        for item in (data.get("vocabulary") if isinstance(data.get("vocabulary"), list) else [])
+        for item in items("vocabulary")
         if isinstance(item, dict) and _text(item.get("front"), 500) and _text(item.get("back"), 500)
     ]
     reply = _text(data.get("reply"), 4000)
-    return Feedback(reply=reply, corrections=corrections[:LIST_LIMIT], vocabulary=vocabulary[:LIST_LIMIT]).model_dump()
+    return Feedback.model_validate(
+        {"reply": reply, "corrections": corrections[:LIST_LIMIT], "vocabulary": vocabulary[:LIST_LIMIT]}
+    ).model_dump()
 
 
 def build_router(retrieve, llm) -> APIRouter:
