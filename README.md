@@ -161,6 +161,7 @@ Implemented now:
 - HTTPS in front of the UI via an optional Caddy overlay (`compose/docker-compose.proxy.yml`, see [docs/https.md](docs/https.md))
 - MOBI/AZW/AZW3 ingestion (pure-Python unpack to EPUB/HTML; DRM-protected books are skipped with a logged reason)
 - Optional offline Hungarian voice service: Piper TTS (three Hungarian voices) and faster-whisper STT, wired into the API and UI
+- Tolmács: push-to-talk Hungarian ↔ English interpreter with Fast and Professional modes, saved sessions and measured per-stage latency (see `docs/interpreter.md`)
 - Listening to library documents (PDF, DOCX, EPUB, MOBI, OCR text) with sections, speed, bookmarks and resume across devices; audio is made per segment on demand and cached with a size bound (see `docs/voice-hungarian.md`)
 - Speaking practice: Smart Talk (conversation skills with virtual partners, in Hungarian or English) and Elevator Speech (timed 30/60/90 s pitches with a scoring sheet, follow-up questions and replay). Shared speech metrics include pace, pauses, filler words and question ratio; attempts and recordings are stored per user (see `docs/architecture.md`)
 
@@ -182,6 +183,7 @@ Not implemented yet:
 - [Model Selection](docs/model-selection.md)
 - [Mobile Access](docs/mobile-access.md)
 - [Voice Hungarian](docs/voice-hungarian.md)
+- [Tolmács interpreter](docs/interpreter.md)
 - [Security](docs/security.md)
 - [HTTPS Reverse Proxy](docs/https.md)
 - [Operations](docs/operations.md)

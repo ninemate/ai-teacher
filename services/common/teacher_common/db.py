@@ -19,6 +19,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 def init_db() -> None:
     from teacher_common import (  # noqa: F401
         docintel_models,
+        interpreter_models,
         listen_models,
         media_models,
         meeting_models,

@@ -25,6 +25,10 @@ synthesizer = Synthesizer(settings)
 app = FastAPI(title="teacher-agent-voice", version="0.2.0")
 
 
+# "auto" lets Whisper detect the language (the Tolmács interpreter uses it for its one-button mode).
+STT_LANGUAGES = {"hu", "en", "auto"}
+
+
 class SpeakRequest(BaseModel):
     text: str = Field(min_length=1)
     voice: str | None = None
@@ -78,12 +82,15 @@ async def _save_upload(audio: UploadFile, target: Path) -> None:
 @app.post("/voice/transcribe")
 async def transcribe_audio(
     audio: UploadFile = File(...),
-    language: Literal["hu", "en"] = Form("hu"),
+    language: Literal["hu", "en", "auto"] = Form("hu"),
+    beam_size: int | None = Form(default=None, ge=1, le=10),
     measure: bool = Form(False),
     words: bool = Form(False),
 ):
     if not settings.stt_enabled:
         raise HTTPException(status_code=503, detail="A beszédfelismerés ki van kapcsolva.")
+    if language not in STT_LANGUAGES:
+        raise HTTPException(status_code=422, detail="Nem támogatott nyelv.")
     # The suffix is only a hint for the decoder; never use the client's file name as a path.
     suffix = Path(audio.filename or "").suffix.lower()
     suffix = suffix if suffix in {".wav", ".webm", ".ogg", ".mp3", ".m4a", ".mp4", ".aac", ".flac"} else ".audio"
@@ -91,7 +98,9 @@ async def transcribe_audio(
         path = Path(tmp) / f"upload{suffix}"
         await _save_upload(audio, path)
         try:
-            result = await run_in_threadpool(transcriber.transcribe, path, language, measure, words)
+            result = await run_in_threadpool(
+                transcriber.transcribe, path, None if language == "auto" else language, beam_size, measure, words
+            )
         except AudioUnreadable as exc:
             raise HTTPException(status_code=422, detail="Nem sikerült beolvasni a hangfelvételt.") from exc
         except AudioTooLong as exc:
@@ -100,7 +109,7 @@ async def transcribe_audio(
     logger.info("Transcribed %.1fs of audio in %.1fs on %s", result.duration, result.elapsed, result.device)
     return {
         "text": result.text,
-        "language": language,
+        "language": result.language,
         **({"acoustics": result.acoustics} if measure else {}),
         "duration": round(result.duration, 2),
         "elapsed": round(result.elapsed, 2),

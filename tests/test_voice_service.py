@@ -313,6 +313,19 @@ def test_real_piper_and_whisper_round_trip(voice_main, tmp_path):
     assert "molekul" in text
 
 
+def test_transcribe_language_and_beam_are_per_request(voice):
+    files = {"audio": ("a.webm", b"opus-bytes", "audio/webm")}
+    response = voice.client.post("/voice/transcribe", files=files, data={"language": "en", "beam_size": "1"})
+    assert response.status_code == 200 and response.json()["language"] == "en"
+    call = voice.models[0].calls[-1]
+    assert call["language"] == "en" and call["beam_size"] == 1
+    # auto: the model detects the language; the detected one is reported
+    voice.models[0].calls.clear()
+    assert voice.client.post("/voice/transcribe", files=files, data={"language": "auto"}).status_code == 200
+    assert voice.models[0].calls[-1]["language"] is None
+    assert voice.client.post("/voice/transcribe", files=files, data={"language": "de"}).status_code == 422
+
+
 def test_tutor_voice_returns_measured_feedback(voice):
     response = voice.client.post(
         "/voice/transcribe", data={"language": "en", "measure": "true"}, files={"audio": ("sample.wav", b"audio")}

@@ -96,6 +96,7 @@ def voice_main():
 def session():
     from teacher_common import (  # noqa: F401
         docintel_models,
+        interpreter_models,
         listen_models,
         media_models,
         models,

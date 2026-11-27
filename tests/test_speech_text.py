@@ -33,3 +33,8 @@ def test_prepare_for_speech(text, spoken):
 
 def test_words_that_merely_contain_an_abbreviation_are_kept():
     assert prepare_for_speech("A dbx és a kbit maradjon.") == "A dbx és a kbit maradjon."
+
+
+def test_hungarian_abbreviations_are_not_applied_to_other_languages():
+    assert prepare_for_speech("Noise of 70 dB, approx. 3 m.", hungarian=False) == "Noise of 70 dB, approx. 3 m."
+    assert "darab" in prepare_for_speech("70 db", hungarian=True)

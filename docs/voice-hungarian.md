@@ -74,7 +74,7 @@ Local:
 make dev-up-voice   # dev stack + compose/docker-compose.voice.example.yml
 ```
 
-The first build downloads Whisper `large-v3-turbo` (about 1.6 GB) and the three Piper voices (about 190 MB) into the image.
+The first build downloads Whisper `large-v3-turbo` (about 1.6 GB) and the three Piper voices (about 190 MB) and one English Piper voice for the interpreter (about 60 MB) into the image.
 
 Ansible: set `teacher_enable_voice: true` (and optionally `teacher_voice_gpu_enabled: true`) in the inventory's group vars.
 
