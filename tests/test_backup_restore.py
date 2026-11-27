@@ -174,3 +174,28 @@ def test_backup_retention_keeps_only_the_newest_n(tmp_path, monkeypatch):
     assert len(remaining) == 2
     assert created[0] not in remaining
     assert remaining == created[1:]
+
+
+def test_speech_recordings_are_backed_up_and_restored_with_the_database(tmp_path, monkeypatch):
+    monkeypatch.delenv("SPEECH_AUDIO_HOST_PATH", raising=False)
+    monkeypatch.delenv("SPEECH_AUDIO_DIR", raising=False)
+    config = settings(tmp_path, monkeypatch)
+    fake_qdrant(monkeypatch, True)
+    recordings = config.data_dir / "metadata" / "speech_audio"
+    take = recordings / "anna" / "take-1.webm"
+    take.parent.mkdir(parents=True)
+    take.write_bytes(b"first take")
+    backup = backup_restore.create_backup(config)
+    manifest, files = backup_restore.verify_backup(backup)
+    assert "userdata/speech_audio/anna/take-1.webm" in files
+
+    take.unlink()
+    later = recordings / "anna" / "take-2.webm"
+    later.write_bytes(b"after the backup")
+    backup_restore.restore_backup(config, backup, confirm=True)
+    assert take.read_bytes() == b"first take"
+    assert not later.exists(), "the folder matches the restored database, not a merge"
+
+    (backup / "userdata/speech_audio/anna/take-1.webm").write_bytes(b"tampered")
+    with pytest.raises(backup_restore.BackupError, match="checksum or size mismatch"):
+        backup_restore.verify_backup(backup)

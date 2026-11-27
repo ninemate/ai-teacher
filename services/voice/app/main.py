@@ -18,6 +18,7 @@ from voice_settings import VoiceSettings
 
 logger = logging.getLogger("uvicorn")
 
+
 settings = VoiceSettings.from_env()
 transcriber = Transcriber(settings)
 synthesizer = Synthesizer(settings)
@@ -76,7 +77,10 @@ async def _save_upload(audio: UploadFile, target: Path) -> None:
 
 @app.post("/voice/transcribe")
 async def transcribe_audio(
-    audio: UploadFile = File(...), language: Literal["hu", "en"] = Form("hu"), measure: bool = Form(False)
+    audio: UploadFile = File(...),
+    language: Literal["hu", "en"] = Form("hu"),
+    measure: bool = Form(False),
+    words: bool = Form(False),
 ):
     if not settings.stt_enabled:
         raise HTTPException(status_code=503, detail="A beszédfelismerés ki van kapcsolva.")
@@ -87,7 +91,7 @@ async def transcribe_audio(
         path = Path(tmp) / f"upload{suffix}"
         await _save_upload(audio, path)
         try:
-            result = await run_in_threadpool(transcriber.transcribe, path, language, measure)
+            result = await run_in_threadpool(transcriber.transcribe, path, language, measure, words)
         except AudioUnreadable as exc:
             raise HTTPException(status_code=422, detail="Nem sikerült beolvasni a hangfelvételt.") from exc
         except AudioTooLong as exc:
@@ -101,6 +105,7 @@ async def transcribe_audio(
         "duration": round(result.duration, 2),
         "elapsed": round(result.elapsed, 2),
         "model": settings.stt_model,
+        # Timed segments (and per-word times when asked for) for pace and pause measurements.
         "segments": result.segments,
     }
 
