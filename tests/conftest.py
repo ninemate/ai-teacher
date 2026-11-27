@@ -94,7 +94,14 @@ def voice_main():
 
 @pytest.fixture
 def session():
-    from teacher_common import docintel_models, listen_models, models, speech_models, study_models  # noqa: F401
+    from teacher_common import (  # noqa: F401
+        docintel_models,
+        listen_models,
+        media_models,
+        models,
+        speech_models,
+        study_models,
+    )
     from teacher_common.db import Base
 
     engine = create_engine("sqlite://", future=True)
