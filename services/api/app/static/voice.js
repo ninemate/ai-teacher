@@ -215,6 +215,8 @@
       }
     }
 
+    // Hungarian reading only: the English voice is installed for the interpreter.
+    status.voices = (status.voices || []).filter((name) => name.startsWith("hu_"));
     if (status.tts && status.voices.length) {
       const saved = localStorage.getItem(VOICE_KEY);
       status.voices.forEach((name) => {

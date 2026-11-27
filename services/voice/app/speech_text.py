@@ -32,7 +32,9 @@ def _expand(replacement: str, match: re.Match[str]) -> str:
 
 
 def prepare_for_speech(text: str, hungarian: bool = True) -> str:
-    """Strip Markdown, expand the abbreviations espeak-ng misreads, and end every line with punctuation."""
+    """Strip Markdown, expand the abbreviations espeak-ng misreads, and end every line with punctuation.
+
+    The abbreviation list is Hungarian ("dB" is not "darab" in English), so other languages skip it."""
     text = _CODE_FENCE.sub("", text)
     text = _LINK.sub(r"\1", text)
     text = _URL.sub("", text)

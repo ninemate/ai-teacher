@@ -49,6 +49,7 @@ class Transcript:
     duration: float
     elapsed: float
     device: str
+    language: str = "hu"
     segments: tuple[TranscriptSegment, ...] = ()
     acoustics: dict | None = None
 
@@ -124,8 +125,14 @@ class Transcriber:
                 logger.warning("Loading STT model on %s failed, falling back to CPU: %s", device, exc)
 
     def transcribe(
-        self, audio_path: Path, language: str = "hu", measure: bool = False, words: bool = False
+        self,
+        audio_path: Path,
+        language: str | None = "hu",
+        beam_size: int | None = None,
+        measure: bool = False,
+        words: bool = False,
     ) -> Transcript:
+        """``language`` None lets the model detect it; the detected language is returned either way."""
         with self._lock:
             if self._model is None:
                 self._load()
@@ -136,7 +143,7 @@ class Transcriber:
                     language=language,
                     word_timestamps=measure or words,
                     task="transcribe",
-                    beam_size=self.settings.stt_beam_size,
+                    beam_size=beam_size or self.settings.stt_beam_size,
                     vad_filter=True,
                     condition_on_previous_text=False,
                 )
@@ -176,11 +183,13 @@ class Transcriber:
                     })
             elapsed = time.perf_counter() - started
         self._schedule_unload()
+        detected = getattr(info, "language", None) or language or "hu"
         return Transcript(
             text=text,
             duration=float(info.duration),
             elapsed=elapsed,
             device=self._device,
+            language=detected,
             segments=timed,
             acoustics=acoustics,
         )
