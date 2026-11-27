@@ -32,7 +32,7 @@ HU: dict[str, str] = {
     "mode.docs.title": "Dokumentumok",
     "mode.docs.summary": "Összefoglaló, kigyűjtés, összehasonlítás, fordítás.",
     "mode.media.title": "Média",
-    "mode.media.summary": "Hang- és képanyagok feldolgozása.",
+    "mode.media.summary": "Fénykép szövege és fordítása.",
     "mode.interpreter.title": "Tolmács",
     "mode.interpreter.summary": "Magyar–angol tolmácsolás.",
     "mode.meetings.title": "Meetingek",

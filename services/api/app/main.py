@@ -1,3 +1,4 @@
+import base64
 import logging
 import math
 import secrets
@@ -19,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from listen_routes import build_router as build_listen_router
 from listen_routes import start_periodic_sweep, sweep_orphans
+from media_routes import build_router as build_media_router
 from meeting_routes import build_router as build_meeting_router
 from modes import assets as mode_assets
 from modes import visible_modes
@@ -856,6 +858,31 @@ docintel_worker = Worker(
     prompt_dir=Path(settings.teacher_prompt_path).parent,
 )
 app.include_router(build_docintel_router(docintel_worker))
+
+
+def read_photo_with_vision_model(jpeg: bytes) -> str:
+    """Optional Média recogniser: a local vision model on Ollama (MEDIA_VISION_MODEL). Tesseract is the default."""
+    payload = {
+        "model": settings.media_vision_model,
+        "prompt": "Transcribe all text in this image exactly, line by line, in its original language. "
+        "Output only the text, nothing else.",
+        "images": [base64.b64encode(jpeg).decode("ascii")],
+        "stream": False,
+        "options": {"temperature": 0},
+    }
+    with chat_priority.interactive(), httpx.Client(timeout=180.0) as client:
+        response = client.post(f"{settings.ollama_base_url}/api/generate", json=payload)
+        response.raise_for_status()
+    return response.json().get("response", "").strip()
+
+
+# Photo text recognition and translation (/media/...): per-user photos, local OCR, optional vision model.
+app.include_router(
+    build_media_router(
+        llm=lambda prompt, json_mode: call_ollama(prompt, json_mode=json_mode),
+        vision=read_photo_with_vision_model if settings.media_vision_model else None,
+    )
+)
 
 
 # Meetingek (/meetings/...): uploaded recordings transcribed in short chunks, then summarised, in the background.

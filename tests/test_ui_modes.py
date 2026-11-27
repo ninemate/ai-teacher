@@ -47,6 +47,7 @@ def test_existing_panels_live_in_their_modes(api_main, client, monkeypatch):
         "chat": ["ask-button", "answer", "sources"],
         "study": ["tutor-title", "study-gen-quiz", "study-list"],
         "docs": ["di-start", "di-jobs"],
+        "media": ["media-camera", "media-process"],
         "meetings": ["mt-upload", "mt-jobs"],
         "library": ["listen-play", "excluded-documents-list"],
         "account": ["account-load", "account-revoke"],
@@ -55,7 +56,7 @@ def test_existing_panels_live_in_their_modes(api_main, client, monkeypatch):
             assert f'id="{element_id}"' in by_mode[mode], (mode, element_id)
     tiles = re.findall(r'class="tile[^"]*" href="#/([a-z]+)"', html)
     assert "account" not in tiles and 'href="#/account"' in html
-    for placeholder in ["media", "interpreter"]:
+    for placeholder in ["interpreter"]:
         assert "Hamarosan" in by_mode[placeholder]
     assert "Hamarosan" not in by_mode["chat"]
 
@@ -64,7 +65,7 @@ def test_assets_of_visible_sections_are_loaded_once(api_main, client, monkeypatc
     html = page_for(client, api_main, monkeypatch, "apa", admins=set())
     scripts = re.findall(r'<script src="/static/([^"]+)"', html)
     assert scripts[:2] == ["shell.js", "app.js"]
-    for name in ["voice.js", "tutor-voice.js", "tutor.js", "study.js", "docintel.js", "listen.js", "meetings.js", "admin.js"]:
+    for name in ["voice.js", "tutor-voice.js", "tutor.js", "study.js", "docintel.js", "listen.js", "meetings.js", "media.js", "admin.js"]:
         assert scripts.count(name) == 1
     assert 'href="/static/listen.css"' in html and 'href="/static/tutor.css"' in html
 
@@ -75,7 +76,7 @@ def test_registry_is_consistent():
     mode_ids = {m.id for m in modes.MODES}
     assert {s.mode for s in modes.SECTIONS} <= mode_ids
     assert len({s.id for s in modes.SECTIONS}) == len(modes.SECTIONS)
-    assert not mode_ids & {s.id for s in modes.SECTIONS} - {"chat", "study", "meetings"}  # "mode-<id>" wrappers keep ids apart
+    assert not mode_ids & {s.id for s in modes.SECTIONS} - {"chat", "study", "meetings", "media"}  # "mode-<id>" wrappers keep ids apart
     for mode in modes.MODES:
         assert f"mode.{mode.id}.title" in ui_strings.HU and f"mode.{mode.id}.summary" in ui_strings.HU
 

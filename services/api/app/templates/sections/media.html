@@ -1,0 +1,32 @@
+<section class="panel media" id="media">
+  <h2>Fénykép szövege</h2>
+  <p class="lead">Fotózz le egy feliratot, levelet vagy oldalt: a szöveget ezen a gépen ismerjük fel, és lefordítjuk magyar és angol között. Semmi nem megy felhőbe.</p>
+
+  <div class="media-pick">
+    <label class="button-like primary media-pick-button">
+      📷 Fotó készítése
+      <input id="media-camera" type="file" accept="image/*" capture="environment" />
+    </label>
+    <label class="button-like secondary media-pick-button">
+      🖼 Kép kiválasztása
+      <input id="media-file" type="file" accept="image/jpeg,image/png,image/webp" />
+    </label>
+  </div>
+  <img id="media-preview" class="media-preview" alt="A kiválasztott kép" hidden />
+
+  <label for="media-direction">Fordítás iránya</label>
+  <select id="media-direction">
+    <option value="auto">Automatikus (a felismert nyelv szerint)</option>
+    <option value="hu-en">Magyarról angolra</option>
+    <option value="en-hu">Angolról magyarra</option>
+  </select>
+
+  <button id="media-process" type="button" class="primary" disabled>Szöveg felismerése</button>
+  <p id="media-status" class="status" role="status" aria-live="polite"></p>
+  <p class="hint">JPG, PNG vagy WebP, legfeljebb 10 MB. A kép és az eredmény csak a te fiókodban látszik, és bármikor törölheted.</p>
+
+  <div id="media-result" class="media-result" hidden></div>
+
+  <h3>Korábbi képek</h3>
+  <ul id="media-history" class="media-history"></ul>
+</section>

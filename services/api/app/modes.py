@@ -67,6 +67,7 @@ SECTIONS: tuple[Section, ...] = (
     Section("tutor", "study", "sections/tutor.html", css=("tutor.css",), js=("tutor-voice.js", "tutor.js")),
     Section("study", "study", "sections/study.html", css=("study.css",), js=("study.js",)),
     Section("docintel", "docs", "sections/docintel.html", css=("docintel.css",), js=("docintel.js",)),
+    Section("media", "media", "sections/media.html", css=("media.css",), js=("media.js",)),
     Section("meetings", "meetings", "sections/meetings.html", css=("meetings.css",), js=("meetings.js",)),
     Section("admin-panel", "admin", "sections/admin.html", css=("admin.css",), js=("admin.js",)),
     Section("indexing", "admin", "sections/indexing.html", js=("indexing.js",)),
