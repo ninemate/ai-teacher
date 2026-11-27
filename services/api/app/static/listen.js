@@ -50,7 +50,7 @@
       ...options,
     });
     if (response.status === 401) {
-      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`);
       throw new Error("Lejárt a bejelentkezés.");
     }
     if (response.status === 204) return null;
@@ -180,6 +180,7 @@
         $("listen-voice").value = data.position.voice;
       }
       delete $("listen-text").dataset.section;
+      reportActivity();
       renderSectionList();
       renderOcrNote();
       renderBookmarks();
@@ -196,6 +197,7 @@
     pause();
     flushSave();
     doc = null;
+    reportActivity();
     texts.clear();
     clips.forEach((promise) => promise.then((url) => url && URL.revokeObjectURL(url)).catch(() => {}));
     clips.clear();
@@ -245,7 +247,7 @@
         headers: { "X-CSRF-Token": csrfToken },
       }).then(async (response) => {
         if (response.status === 401) {
-          window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+          window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`);
         }
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -381,8 +383,17 @@
     prefetch(sectionIndex, segmentIndex, myToken);
   }
 
+  // Keep the open document visible (and one tap from resuming) while another mode is on screen.
+  function reportActivity() {
+    if (!window.Teacher) return;
+    window.Teacher.activity.set("listen", doc
+      ? { label: `${playing ? "Hallgatás" : "Hallgatás szünetel"}: ${doc.title}`, href: "#/library/listen" }
+      : null);
+  }
+
   function setPlayingState(value) {
     playing = value;
+    reportActivity();
     const button = $("listen-play");
     button.textContent = value ? "⏸" : "▶";
     button.setAttribute("aria-label", value ? "Szünet" : "Lejátszás");
@@ -566,11 +577,15 @@
   });
   window.addEventListener("pagehide", flushSave);
 
-  // A link such as /#listen-12 opens that document straight away (for the navigation to come).
-  loadVoice()
-    .then(loadLibrary)
-    .then(() => {
-      const match = /^#listen-(\d+)$/.exec(window.location.hash);
-      if (match) openDocument(Number(match[1]));
-    });
+  function openLinkedDocument() {
+    const match = /^#listen-(\d+)$/.exec(window.location.hash);
+    if (!match || Number(match[1]) === doc?.id) return;
+    if (doc) closeDocument();
+    openDocument(Number(match[1]));
+  }
+
+  loadVoice().then(loadLibrary).then(() => {
+    window.addEventListener("hashchange", openLinkedDocument);
+    openLinkedDocument();
+  });
 })();

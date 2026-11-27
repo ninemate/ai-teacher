@@ -10,6 +10,7 @@ from urllib.parse import quote
 import audit
 import auth
 import httpx
+import ui_strings
 from admin_routes import build_router as build_admin_router
 from docintel_routes import build_router as build_docintel_router
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -22,6 +23,8 @@ from listen_routes import build_router as build_listen_router
 from listen_routes import start_periodic_sweep, sweep_orphans
 from media_routes import build_router as build_media_router
 from meeting_routes import build_router as build_meeting_router
+from modes import assets as mode_assets
+from modes import visible_modes
 from pydantic import BaseModel, Field
 from speech_routes import build_router as build_speech_router
 from sqlalchemy import select
@@ -54,6 +57,7 @@ login_limiter = auth.LoginRateLimiter(settings.teacher_login_max_attempts, setti
 app = FastAPI(title="teacher-agent-api", version="0.1.0")
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
+templates.env.globals["t"] = ui_strings.t
 listen_cache = AudioCache(settings.listen_cache_dir, int(settings.listen_cache_max_mb * 1024 * 1024))
 
 
@@ -227,12 +231,19 @@ def _check_ollama_model() -> None:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     session = request.state.session
+    role = _identity(request)[1]
+    modes = visible_modes(role, signed_in=session is not None)
+    css_files, js_files = mode_assets(modes)
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
             "auth_enabled": settings.auth_enabled,
-            "role": session.role if session else None,
+            "role": role,
+            "modes": modes,
+            "css_files": css_files,
+            "js_files": js_files,
+            "shell_strings": ui_strings.shell_strings(),
             "username": session.username if session else None,
             "csrf_token": session.csrf_token if session else "",
             "default_level": "beginner",

@@ -33,7 +33,7 @@
       ...options,
     });
     if (response.status === 401) {
-      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`);
       throw new Error("Lejárt a bejelentkezés.");
     }
     if (response.status === 204) return null;
