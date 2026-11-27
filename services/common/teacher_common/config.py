@@ -101,6 +101,9 @@ class Settings(BaseSettings):
     listen_cache_dir: str = Field(default="/data/metadata/listen_cache", alias="LISTEN_CACHE_DIR")
     listen_cache_max_mb: float = Field(default=500, ge=1, alias="LISTEN_CACHE_MAX_MB")
     listen_segment_chars: int = Field(default=300, ge=80, le=2000, alias="LISTEN_SEGMENT_CHARS")
+    # Speaking practice (Smart Talk, Elevator Speech): recorded takes are kept per user here, the newest N each.
+    speech_audio_dir: str = Field(default="/data/metadata/speech_audio", alias="SPEECH_AUDIO_DIR")
+    speech_audio_keep: int = Field(default=50, ge=0, alias="SPEECH_AUDIO_KEEP")
     # Meetingek: uploaded recordings wait here (private, deleted once processed) until the background worker reads them.
     meetings_upload_dir: str = Field(default="/data/metadata/meeting_uploads", alias="MEETINGS_UPLOAD_DIR")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")

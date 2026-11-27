@@ -45,7 +45,7 @@ def test_existing_panels_live_in_their_modes(api_main, client, monkeypatch):
     by_mode = dict(zip(view_ids(html), re.split(r'<section class="mode" id="mode-[a-z]+"', html)[1:]))
     for mode, element_ids in {
         "chat": ["ask-button", "answer", "sources"],
-        "study": ["tutor-title", "study-gen-quiz", "study-list"],
+        "study": ["tutor-title", "study-gen-quiz", "study-list", "sp-controls"],
         "docs": ["di-start", "di-jobs"],
         "media": ["media-camera", "media-process"],
         "meetings": ["mt-upload", "mt-jobs"],
@@ -65,7 +65,7 @@ def test_assets_of_visible_sections_are_loaded_once(api_main, client, monkeypatc
     html = page_for(client, api_main, monkeypatch, "apa", admins=set())
     scripts = re.findall(r'<script src="/static/([^"]+)"', html)
     assert scripts[:2] == ["shell.js", "app.js"]
-    for name in ["voice.js", "tutor-voice.js", "tutor.js", "study.js", "docintel.js", "listen.js", "meetings.js", "media.js", "admin.js"]:
+    for name in ["voice.js", "tutor-voice.js", "tutor.js", "study.js", "speech.js", "docintel.js", "listen.js", "meetings.js", "media.js", "admin.js"]:
         assert scripts.count(name) == 1
     assert 'href="/static/listen.css"' in html and 'href="/static/tutor.css"' in html
 

@@ -1,0 +1,18 @@
+.speech [hidden] { display: none !important; }
+.speech { overflow-wrap: anywhere; }
+.speech h2 { margin-top: 0; }
+.speech fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.sp-modes, .sp-grid, .sp-actions { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%, 12rem), 1fr)); gap: .75rem; }
+.sp-modes { margin-bottom: 1.25rem; }
+.sp-modes [aria-pressed=true] { background: var(--accent-strong); color: white; }
+.sp-grid select { margin: .35rem 0 0; }
+.speech summary { cursor: pointer; font-weight: bold; padding: .7rem 0; }
+.speech audio { width: 100%; }
+.speech dl { display: grid; grid-template-columns: 1fr auto; gap: .4rem 1rem; padding: 1rem; background: #f0eee5; border-radius: .7rem; }
+.speech dd { font-variant-numeric: tabular-nums; margin: 0; }
+#sp-voice { margin: .8rem 0; }
+#sp-voice label { margin-top: .75rem; }
+#sp-clock { display: block; font-variant-numeric: tabular-nums; }
+#sp-status:empty { display: none; }
+#sp-list button { text-align: left; margin-bottom: .4rem; }
+.speech .sp-turn { padding: .7rem 1rem; border-left: 3px solid var(--accent); background: #edf2ec; }

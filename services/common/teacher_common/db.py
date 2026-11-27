@@ -23,6 +23,7 @@ def init_db() -> None:
         media_models,
         meeting_models,
         models,
+        speech_models,
         study_models,
         tutor_models,
     )
