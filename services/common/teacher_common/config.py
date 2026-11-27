@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = Field(default=900, alias="OCR_TIMEOUT_SECONDS")
     ocr_max_pages: int = Field(default=0, alias="OCR_MAX_PAGES")
     ocr_cache_dir: str = Field(default="/data/metadata/ocr_cache", alias="OCR_CACHE_DIR")
+    # Média (photo text): Tesseract is the default. Set a local vision model served by Ollama (e.g. a llava or
+    # qwen-vl tag) to read photos with it instead; Tesseract stays the fallback when it fails.
+    media_vision_model: str = Field(default="", alias="MEDIA_VISION_MODEL")
+    media_ocr_timeout_seconds: int = Field(default=60, ge=5, alias="MEDIA_OCR_TIMEOUT_SECONDS")
+    media_max_items_per_user: int = Field(default=200, ge=1, alias="MEDIA_MAX_ITEMS_PER_USER")
 
     @field_validator("docintel_window_chars", "docintel_translate_chars")
     @classmethod
