@@ -115,8 +115,10 @@ The voice service listens only on the internal Compose network (`expose`, no pub
 | Method | Path | Body | Answer |
 | --- | --- | --- | --- |
 | GET | `/voice/status` | | `{available, stt, tts, voices, default_voice, max_seconds, max_chars}`. `available: false` when the overlay is not running. |
-| POST | `/voice/transcribe` | multipart `audio` (webm, ogg, mp4/m4a, mp3, wav, flac), optional `language` (`hu` default, `en`) and `measure` (`true` adds `acoustics`) | `{text, language, duration, elapsed, model, segments, acoustics?}`; `segments` is `[{start, end, text}]` in seconds, one per Whisper segment |
+| POST | `/voice/transcribe` | multipart `audio` (webm, ogg, mp4/m4a, mp3, wav, flac), optional `language` (`hu` default, `en`), `measure` (`true` adds `acoustics`) and `words` (`true` adds per-word times to `segments`) | `{text, language, duration, elapsed, model, segments, acoustics?}`; `segments` is `[{start, end, text, words}]` in seconds, one per Whisper segment, with `words` (`[{start, end, word}]`) empty unless asked for |
 | POST | `/voice/speak` | `{text, voice?}` | `audio/mpeg` (64 kbit/s mono MP3; about a tenth of the WAV size) |
+
+Per-word `{start, end, word}` times cost some speed, so only speaking practice asks for them; its routes use them to measure pace and pauses.
 
 Errors keep the voice service's status and Hungarian message:
 

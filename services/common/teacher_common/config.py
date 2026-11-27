@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     interpreter_latency_log: str = Field(
         default="/data/metadata/interpreter_latency.jsonl", alias="INTERPRETER_LATENCY_LOG"
     )
+    # Speaking practice (Smart Talk, Elevator Speech): recorded takes are kept per user here, the newest N each.
+    speech_audio_dir: str = Field(default="/data/metadata/speech_audio", alias="SPEECH_AUDIO_DIR")
+    speech_audio_keep: int = Field(default=50, ge=0, alias="SPEECH_AUDIO_KEEP")
     # Meetingek: uploaded recordings wait here (private, deleted once processed) until the background worker reads them.
     meetings_upload_dir: str = Field(default="/data/metadata/meeting_uploads", alias="MEETINGS_UPLOAD_DIR")
     ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")

@@ -100,6 +100,7 @@ def session():
         listen_models,
         media_models,
         models,
+        speech_models,
         study_models,
     )
     from teacher_common.db import Base

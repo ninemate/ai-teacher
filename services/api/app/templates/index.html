@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/static/admin.css" />
     <link rel="stylesheet" href="/static/study.css" />
     <link rel="stylesheet" href="/static/tutor.css" />
+    <link rel="stylesheet" href="/static/speech.css" />
     <link rel="stylesheet" href="/static/docintel.css" />
     <link rel="stylesheet" href="/static/media.css" />
     <link rel="stylesheet" href="/static/listen.css" />
@@ -112,6 +113,8 @@
         <div id="study-list"></div>
         <div id="study-session"></div>
       </section>
+
+      {% include "sections/speech.html" %}
 
       <section class="panel docintel" id="docintel">
         <h2>Dokumentumelemzés</h2>
@@ -342,6 +345,7 @@
     <script src="/static/tutor-voice.js" defer></script>
     <script src="/static/tutor.js" defer></script>
     <script src="/static/study.js" defer></script>
+    <script src="/static/speech.js" defer></script>
     <script src="/static/docintel.js" defer></script>
     <script src="/static/media.js" defer></script>
     <script src="/static/voice.js" defer></script>

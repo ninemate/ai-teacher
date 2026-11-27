@@ -23,6 +23,7 @@ from listen_routes import start_periodic_sweep, sweep_orphans
 from media_routes import build_router as build_media_router
 from meeting_routes import build_router as build_meeting_router
 from pydantic import BaseModel, Field
+from speech_routes import build_router as build_speech_router
 from sqlalchemy import select
 from study_routes import build_router as build_study_router
 from teacher_common import citations, docintel_store, interpreter, listen_store, study_store
@@ -972,3 +973,11 @@ interpreter_engine = interpreter.Interpreter(
 )
 interpreter_log = interpreter.LatencyLog(settings.interpreter_latency_log)
 app.include_router(build_interpreter_router(interpreter_engine, interpreter_log, auth_admins))
+
+app.include_router(build_speech_router(
+    llm=lambda prompt, structured: call_ollama(prompt, json_mode=structured),
+    transcribe=lambda content, mime, language: _voice_request(
+        "POST", "/voice/transcribe", timeout=settings.voice_timeout_seconds,
+        files={"audio": ("recording", content, mime)}, data={"language": language, "words": "true"},
+    ).json(),
+))
