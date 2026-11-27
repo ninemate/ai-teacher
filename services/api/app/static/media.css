@@ -1,0 +1,96 @@
+/* Média: photo text recognition and translation. Mobile first. */
+.media h2 { margin-top: 0; }
+.media .hint { margin: 8px 0 0; color: var(--muted); font-size: 0.9rem; }
+.media .status { min-height: 1.4em; margin: 10px 0 0; color: var(--muted); }
+.media .status.error { color: #9b2c1f; }
+.media .status:empty { min-height: 0; margin: 0; }
+.media .danger { background: #f3d9d4; color: #7a2118; margin-top: 18px; }
+.media .muted-text { color: var(--muted); }
+
+.media-pick { display: grid; gap: 10px; margin-bottom: 16px; }
+.media-pick-button { display: block; width: auto; margin: 0; text-align: center; font-weight: 700; padding: 16px; }
+.media-pick-button.primary { background: var(--accent); color: #fff; }
+.media-pick-button.secondary { background: #ece5d8; color: var(--ink); }
+.media-preview { display: block; max-width: 100%; max-height: 260px; margin: 0 auto 16px; border-radius: 14px; }
+
+.media-result { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); min-width: 0; }
+.media-head { display: flex; gap: 12px; align-items: flex-start; }
+.media-head h3 { margin: 0 0 4px; overflow-wrap: anywhere; }
+.media-head p { margin: 0; font-size: 0.9rem; }
+.media-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; flex: none; }
+
+.media-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0 10px; }
+.media-tabs button[aria-selected="true"] { background: var(--accent); color: #fff; }
+.media-copy {
+  padding: 14px;
+  background: #fffdf8;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.media-copy p { margin: 0; }
+.media-copy .media-gap { height: 0.8em; }
+.media .low-confidence {
+  text-decoration: underline wavy #b42318;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  background: #fff1ee;
+}
+.media-copy.selecting .media-word {
+  display: inline;
+  width: auto;
+  padding: 2px 4px;
+  margin: 1px 0;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-weight: 400;
+  line-height: 1.9;
+}
+.media-copy.selecting .media-word.chosen { background: var(--accent); color: #fff; border-style: solid; }
+
+.media-row { display: flex; gap: 8px; align-items: stretch; margin-top: 10px; }
+.media-row select, .media-row input { flex: 1; min-width: 0; margin: 0; }
+.media-row button { width: auto; flex: none; }
+.media > button, .media-result > button { margin-top: 10px; }
+
+.media-explanation { margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: #eef6f4; }
+.media-explanation h4 { margin: 0 0 6px; }
+.media-explanation p { margin: 0 0 4px; }
+
+.media-vocab { margin-top: 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 14px; }
+.media-vocab summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.media-vocab > button { margin-top: 10px; }
+.media-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 10px 0 0; list-style: none; }
+.media-chips li:not(.muted-text) { padding: 4px 10px; border-radius: 999px; background: #e3efec; }
+.media-pair-list { padding-left: 1.4em; margin: 0 0 10px; }
+.media-pair { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin-bottom: 10px; }
+.media-pair input { margin: 0; }
+.media-pair input:nth-child(2) { grid-column: 1; }
+.media-pair button { grid-column: 2; grid-row: 1 / span 2; width: auto; }
+
+.media-history { padding: 0; margin: 0; list-style: none; display: grid; gap: 8px; }
+.media-history-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  background: #fffdf8;
+  border: 1px solid var(--border);
+  color: var(--ink);
+  font-weight: 400;
+  padding: 8px;
+}
+.media-history-item img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; flex: none; }
+.media-history-item span { display: grid; min-width: 0; }
+.media-history-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-history-item small { color: var(--muted); }
+
+@media (min-width: 640px) {
+  .media-pick { grid-template-columns: 1fr 1fr; }
+  .media-pair { grid-template-columns: 1fr 1fr auto; }
+  .media-pair input:nth-child(2) { grid-column: auto; }
+  .media-pair button { grid-column: auto; grid-row: auto; }
+}
